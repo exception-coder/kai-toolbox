@@ -3,8 +3,17 @@ import assert from 'node:assert/strict'
 import {
   CODEX_COMPUTER_USE_RECOVERY_STEER,
   computerUseFailureTitle,
+  consultBrowserNotice,
 } from './codexComputerUsePolicy.js'
 import { buildCodexDeveloperInstructions } from './codexEngine.js'
+
+test('consult browser notice distinguishes missing native tool from a failed inventory lookup', () => {
+  const request = [{ type: 'text', text: '用浏览器点击筛选' }]
+  assert.match(consultBrowserNotice(request, []) ?? '', /未提供用于点击的 cua_repl/)
+  assert.match(consultBrowserNotice(request, undefined) ?? '', /目录.*未验证/)
+  assert.equal(consultBrowserNotice(request, [{ name: 'cua_repl', tools: new Set(['js']) }]), undefined)
+  assert.equal(consultBrowserNotice([{ type: 'text', text: '查找相关源码' }], []), undefined)
+})
 
 test('computer-use guidance forbids reusing stale accessibility nodes', () => {
   assert.match(CODEX_COMPUTER_USE_RECOVERY_STEER, /每次点击、输入、滚动或页面导航后.*getAXState/)

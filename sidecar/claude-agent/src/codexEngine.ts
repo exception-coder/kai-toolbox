@@ -459,6 +459,7 @@ export async function runCodexTurn(ctx: CodexTurnCtx): Promise<void> {
         ctx.consultToolAssembly,
       ),
       input: toAppServerInput(prepared.input),
+      consultReadonly: ctx.toolPolicy === CONSULT_READONLY_POLICY,
       codexHome: home,
       signal: ctx.signal,
       emit: event => {

@@ -7,6 +7,17 @@ export const CODEX_COMPUTER_USE_RECOVERY_STEER = [
 
 const DETACHED_NODE_PATTERN = /node is detached from document|node (?:does not exist|not found)|execution context (?:was )?destroyed/i
 
+/** Configuration flags are not proof that the desktop provider exposed its tool. */
+export function consultBrowserNotice(input: readonly Record<string, unknown>[],
+  statuses: readonly { name: string; tools: ReadonlySet<string> }[] | undefined): string | undefined {
+  const requested = input.some(item => item.type === 'text' && typeof item.text === 'string'
+    && /浏览器|点击|点选|网页取数|页面筛选|下拉框|computer.use|browser.use|cua_repl/i.test(item.text))
+  if (!requested) return undefined
+  if (!statuses) return '未能核对本轮原生浏览器工具目录，点击能力未验证。'
+  if (statuses.some(server => server.name === 'cua_repl' && server.tools.has('js'))) return undefined
+  return '本轮 Codex 未提供用于点击的 cua_repl 工具。可继续尝试已授权的只读接口，页面点击需要宿主提供原生浏览器连接。'
+}
+
 /** 给已明确返回的动态节点失败生成可恢复标题；未知失败仍保留通用标题。 */
 export function computerUseFailureTitle(toolName: string, output: unknown): string | undefined {
   if (!/^cua_repl(?:\/|$)/i.test(toolName)) return undefined

@@ -12,7 +12,7 @@ import { codexCleanupSnapshot } from './codexProcessCleanup.js'
 import { dirname, join, resolve } from 'node:path'
 import { homedir } from 'node:os'
 import { activityOutputTail, elapsedSince, emitToolActivity, summarizeToolInput } from './toolActivity.js'
-import { computerUseFailureTitle } from './codexComputerUsePolicy.js'
+import { computerUseFailureTitle, consultBrowserNotice } from './codexComputerUsePolicy.js'
 import { codexProjectSkillArgs, hasProjectTaskSkill, type SkillMetadataRequest } from './projectSkillPriority.js'
 import type { CodexRealtimeCall } from './codexRealtime.js'
 import { classifyCommandResult } from './commandExecution.js'
@@ -128,6 +128,7 @@ type AppServerTurnOptions = {
     options: { signal?: AbortSignal },
   ) => Promise<Record<string, unknown>>
   mcpServers?: Array<{ name: string; status: string }>
+  consultReadonly?: boolean
   requiredMcpTools?: RequiredMcpTool[]
   /** review-only 必须在 turn/start 前确认没有任何运行时 MCP Tool，发现旁路即失败关闭。 */
   forbidMcpTools?: boolean
@@ -1434,6 +1435,10 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions, runti
         : {}),
     })
     options.emit({ type: 'init', sdkSessionId: threadId, ...capabilitySnapshot })
+    if (options.consultReadonly) {
+      const message = consultBrowserNotice(options.input, mcpRuntimeResult ? runtimeStatuses : undefined)
+      if (message) options.emit({ type: 'warning', code: 'CODEX_CONSULT_BROWSER_UNAVAILABLE', message })
+    }
     // 请求一旦发出，服务端就可能已经开始调用工具；从这里起禁止 SDK 自动重放，避免双执行。
     turnAccepted = true
     if (options.voice) {
