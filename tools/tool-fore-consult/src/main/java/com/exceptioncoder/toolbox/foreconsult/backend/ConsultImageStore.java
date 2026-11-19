@@ -18,8 +18,9 @@ public class ConsultImageStore {
 
     public ConsultImagePolicy policy() { return policy; }
 
+    @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
     public record Image(String attachmentId, String uploadId, String sha256, String mediaType, long size,
-                        int width, int height, long createdAt, long expiresAt) {}
+                        int width, int height, Long createdAt, Long expiresAt) {}
 
     public Optional<Image> find(String client, String value, boolean byUpload) {
         String field = byUpload ? "upload_id" : "attachment_id";

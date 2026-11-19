@@ -26,6 +26,8 @@ GET /api/fore-consult/v1/attachments/reusable按当前clientId、SHA256、媒体
 
 ## 分析与兼容
 
+ITCS 可提交 `imageRefs`。配置将固定 HTTPS 读取目录及服务票据绑定到一个 Forge 应用凭据 ID，调用方仅提供不透明图片 ID、类型和摘要。准入仅检查引用和配置，执行时读取并校验实际内容，不进入附件表和上传配额。原图由 ITCS 保留，Forge 保存任务引用、分析结果及图片证据元数据。既有模型适配器可使用执行期间的临时文件，失败和恢复沿用原任务状态规则。调用方不得把任意 URL 或读取凭据放进任务。
+
 attachmentIds 可省略；replyMode 可省略或 CALLER/FORGE，默认沿用 CALLER。新字段省略时不进入规范化 JSON，旧任务 requestId 摘要保持可重试兼容。摘要包含有序附件 ID 与回复模式；上传内容不可变，因此换图片/文字/模式必冲突。优先查原任务，再检查新任务图片是否有效。
 
 任务准入检查附件归属、有效期、数量/总量；执行前再次检查并读取原字节。执行器默认不声明受管图片能力；实际实现根据选中 Codex 账号 models_cache.json 的精确模型 input_modalities 判定，未知/缺失也拒绝，不按模型名猜测。多模态 runManaged 重载保留原取消与终态等待；默认实现遇到图片必须抛错，禁止悄悄降为文本。图片内容由已有 Sidecar 转成 SDK local_image；输入提示中的图片顺序、附件 ID、SHA-256 对应固定。

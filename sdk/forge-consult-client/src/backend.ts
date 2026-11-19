@@ -16,6 +16,8 @@ export interface AnalysisInput {
   attachmentTexts?: { id: string; name: string; text: string }[];
   /** IDs uploaded using this exact application credential. Raw images are never replaced by OCR text. */
   attachmentIds?: string[];
+  /** Application-owned originals. Submit references only and omit attachmentIds. */
+  imageRefs?: { id: string; sha256: string; mediaType: AnalysisImage['mediaType'] }[];
   /** New submissions default to FORGE_FLEX. Existing request IDs retain their original contract. */
   replyMode?: 'FORGE_FLEX' | 'CALLER' | 'FORGE';
   /** Caller-specific presentation/result rules; cannot grant tools, identity or resource access. */
@@ -41,7 +43,7 @@ export interface AnalysisResult {
   evidenceLimitations: string;
   replyCandidatesGeneratedBy: 'CALLER' | 'FORGE';
   replyCandidates?: { id: string; text: string; evidenceIds: string[] }[];
-  imageInputs?: AnalysisImage[];
+  imageInputs?: (AnalysisImage | ExternalAnalysisImage)[];
   imageObservations?: { attachmentId: string; readable: boolean; observation: string }[];
 }
 
@@ -56,6 +58,9 @@ export interface AnalysisImage {
   createdAt: number;
   expiresAt: number;
 }
+
+export type ExternalAnalysisImage = Omit<AnalysisImage, 'attachmentId' | 'uploadId' | 'createdAt' | 'expiresAt'>
+  & { attachmentId: `external-${string}`; uploadId?: never; createdAt?: never; expiresAt?: never };
 
 export interface AnalysisTask {
   taskId: string;

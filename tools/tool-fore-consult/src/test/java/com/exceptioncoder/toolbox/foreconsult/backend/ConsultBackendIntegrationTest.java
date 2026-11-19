@@ -264,10 +264,10 @@ class ConsultBackendIntegrationTest {
         assertThatThrownBy(() -> model.validate(VALID_RESULT.replace("\"input\"", "\"invented\""), packets)).isInstanceOf(ConsultBackendException.class);
         assertThatThrownBy(() -> model.validate(VALID_RESULT + " {}", packets)).isInstanceOf(Exception.class);
         var withRef = new ConsultAnalysisInput(input.agentId(), input.tenantId(), input.problemId(), input.conversationId(), input.requestId(), input.title(), input.description(), List.of(), null,
-                List.of("erp"), null, List.of(), List.of(new ConsultAnalysisInput.EvidenceRef("erp", "Print.java", 1, 3)), List.of(), null, null, null).validated();
+                List.of("erp"), null, List.of(), List.of(new ConsultAnalysisInput.EvidenceRef("erp", "Print.java", 1, 3)), List.of(), null, null, null, null).validated();
         assertThat(evidence.collect(withRef)).anyMatch(p -> p.kind().equals("SERVER_SOURCE") && p.text().contains("class Print"));
         var malicious = new ConsultAnalysisInput(withRef.agentId(), withRef.tenantId(), withRef.problemId(), withRef.conversationId(), withRef.requestId(), withRef.title(), withRef.description(), List.of(), null,
-                List.of("erp"), null, List.of(), List.of(new ConsultAnalysisInput.EvidenceRef("erp", "../outside.java", 1, 1)), List.of(), null, null, null).validated();
+                List.of("erp"), null, List.of(), List.of(new ConsultAnalysisInput.EvidenceRef("erp", "../outside.java", 1, 1)), List.of(), null, null, null, null).validated();
         assertThatThrownBy(() -> evidence.collect(malicious)).isInstanceOf(ConsultBackendException.class);
     }
 
@@ -547,6 +547,39 @@ class ConsultBackendIntegrationTest {
                 .andExpect(status().isOk()).andExpect(jsonPath("$.application.usage.activeBytes").value(268435456))
                 .andExpect(jsonPath("$.global.limits.globalBytes").value(1073741824))
                 .andExpect(jsonPath("$.storage.diskUsableBytes").isNumber());
+    }
+
+    @Test void externalImageRunsFromReferenceWithoutAttachmentStorage() throws Exception {
+        byte[] bytes = png();
+        String digest = java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256").digest(bytes));
+        var ref = new ConsultAnalysisInput.ImageRef("itcs-picture", digest, "image/png");
+        var input = (com.fasterxml.jackson.databind.node.ObjectNode) mapper.readTree(input("external-task-01"));
+        input.put("replyMode", "FORGE");
+        input.set("imageRefs", mapper.valueToTree(List.of(ref)));
+        assertThatThrownBy(() -> service.submit(principal, input.toString())).hasMessageContaining("未配置");
+        var source = mock(ConsultExternalImageSource.class);
+        when(source.read(principal, ref, ConsultAnalysisImages.MAX_BYTES)).thenReturn(bytes);
+        var output = replies();
+        output.putArray("imageObservations").addObject().put("attachmentId", "external-itcs-picture")
+                .put("readable", true).put("observation", "截图包含矩形");
+        when(runner.supportsManagedImages(any())).thenReturn(true);
+        when(runner.runManaged(any(AgentOneShotRunner.ExecutionRequest.class), anyString(), anyList())).thenReturn(output.toString());
+        service.close();
+        service = new ConsultAnalysisService(store, auth, evidence, model, images, mapper, source, 5000);
+        var task = service.submit(principal, input.toString());
+        verify(source, never()).read(any(), any(), anyInt());
+        service.recover();
+        service.tick();
+        awaitTerminal(task.taskId());
+        var completed = service.get(principal, task.taskId());
+        assertThat(completed.status()).isEqualTo("NEEDS_INFORMATION");
+        assertThat(completed.result().path("imageInputs").get(0).path("sha256").asText()).isEqualTo(digest);
+        verify(runner).runManaged(any(AgentOneShotRunner.ExecutionRequest.class), anyString(),
+                eq(List.of(new AgentOneShotRunner.ImageInput(Base64.getEncoder().encodeToString(bytes), "image/png"))));
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM consult_analysis_attachment", Integer.class)).isZero();
+        assertThat(store.task(task.taskId()).orElseThrow().input()).doesNotContain(Base64.getEncoder().encodeToString(bytes));
+        assertThatThrownBy(() -> images.resolveExternal(principal, List.of(ref),
+                mock(ConsultExternalImageSource.class, invocation -> new byte[] {1}))).hasMessageContaining("摘要");
     }
 
     @Test void taskActuallyPassesOriginalBytesAndPersistsThreeStableCandidates() throws Exception {

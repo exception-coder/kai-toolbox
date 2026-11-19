@@ -24,21 +24,30 @@ public class ConsultAnalysisService {
     private final ConsultAnalysisEvidence evidence;
     private final ConsultAnalysisModel model;
     private final ConsultAnalysisImages images;
+    private final ConsultExternalImageSource externalImages;
     private final ObjectMapper mapper;
     private final long timeoutMs;
     private final Semaphore slots = new Semaphore(2);
     private final ConcurrentHashMap<String, Thread> running = new ConcurrentHashMap<>();
     private volatile boolean ready;
 
+    @org.springframework.beans.factory.annotation.Autowired
     public ConsultAnalysisService(ConsultBackendStore store, ConsultBackendAuth auth, ConsultAnalysisEvidence evidence,
             ConsultAnalysisModel model, ConsultAnalysisImages images, ObjectMapper mapper,
+            ConsultExternalImageSource externalImages,
             @Value("${toolbox.fore-consult.backend.timeout-ms:180000}") long timeoutMs) {
         this.store = store; this.auth = auth; this.evidence = evidence; this.model = model; this.images = images;
+        this.externalImages = externalImages;
         this.mapper = mapper.copy().enable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
         this.mapper.disable(com.fasterxml.jackson.databind.MapperFeature.ALLOW_COERCION_OF_SCALARS);
         this.mapper.enable(com.fasterxml.jackson.core.JsonParser.Feature.STRICT_DUPLICATE_DETECTION);
         if (timeoutMs < 1000 || timeoutMs > 600000) throw new IllegalArgumentException("分析任务超时须为 1000–600000ms");
         this.timeoutMs = timeoutMs;
+    }
+
+    ConsultAnalysisService(ConsultBackendStore store, ConsultBackendAuth auth, ConsultAnalysisEvidence evidence,
+            ConsultAnalysisModel model, ConsultAnalysisImages images, ObjectMapper mapper, long timeoutMs) {
+        this(store, auth, evidence, model, images, mapper, new ConsultExternalImageSource("", "", ""), timeoutMs);
     }
 
     public record TaskView(String taskId, String requestId, String problemId, String conversationId, String status,
@@ -62,6 +71,7 @@ public class ConsultAnalysisService {
         try { normalized = mapper.writeValueAsString(input.withDefaultMode()); }
         catch (Exception error) { throw ConsultBackendException.invalid("无法读取请求内容"); }
         images.resolve(client, input.attachmentIds(), false);
+        if (!input.imageRefs().isEmpty()) { externalImages.requireAccess(client); }
         if (store.unfinished(null) >= 64 || store.unfinished(client.id()) >= 8) throw new ConsultBackendException(429, "TASK_LIMITED", "分析任务繁忙，请保留请求标识稍后重试", true);
         var task = new ConsultBackendStore.Task(UUID.randomUUID().toString(), client.id(), input.requestId(), hash,
                 normalized, "QUEUED", null, null, System.currentTimeMillis(), null, null, null);
@@ -132,7 +142,8 @@ public class ConsultAnalysisService {
             var input = parse(task.input());
             authorize(client, input);
             var packets = evidence.collect(input);
-            var imageInputs = images.resolve(client, input.attachmentIds(), true);
+            var imageInputs = input.imageRefs().isEmpty() ? images.resolve(client, input.attachmentIds(), true)
+                    : images.resolveExternal(client, input.imageRefs(), externalImages);
             if (!"RUNNING".equals(store.task(id).orElseThrow().status())) { store.finish(id, "CANCELLED", null, "CANCELLED_BY_CALLER"); return; }
             String result = model.analyze(id, input, packets, imageInputs);
             var current = store.task(id).orElseThrow();
@@ -174,6 +185,10 @@ public class ConsultAnalysisService {
             case "ATTACHMENT_RETENTION_LIMIT" -> "原图已达到保留期限，请重新上传并使用新 requestId；原任务和结果保留";
             case "ATTACHMENT_NOT_FOUND" -> "原图不存在或不在当前应用企业范围，请核对上传结果";
             case "IMAGE_NOT_READABLE" -> "模型无法读取原图，请提供清晰的静态 PNG/JPEG 后重新提交";
+            case "IMAGE_SOURCE_NOT_ALLOWED" -> "应用未配置原图读取来源，请联系管理员";
+            case "IMAGE_SOURCE_UNAVAILABLE" -> "暂时无法从应用读取原图，核对后请用新 requestId 发起重试";
+            case "IMAGE_DIGEST_MISMATCH" -> "原图与提交摘要不一致，请核对应用图片版本";
+            case "IMAGES_TOO_LARGE" -> "原图为空或超过图片大小限制";
             case "IMAGE_MODEL_UNSUPPORTED" -> "当前咨询模型未声明图像输入能力，请管理员核对账号的模型目录后重试";
             default -> "分析未完成，问题已保留；请核对输入或联系管理员";
         };

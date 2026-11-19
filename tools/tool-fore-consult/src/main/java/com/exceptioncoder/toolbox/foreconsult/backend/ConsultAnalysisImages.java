@@ -28,13 +28,34 @@ public class ConsultAnalysisImages {
 
     public record Inputs(List<ConsultImageStore.Image> metadata, List<ImageInput> images) {}
 
+    public Inputs resolveExternal(ConsultBackendStore.Client client, List<ConsultAnalysisInput.ImageRef> refs,
+            ConsultExternalImageSource source) {
+        var metadata = new ArrayList<ConsultImageStore.Image>();
+        var images = new ArrayList<ImageInput>();
+        int remaining = 20 * 1024 * 1024;
+        for (var ref : refs) {
+            int limit = Math.min(MAX_BYTES, remaining);
+            byte[] bytes = source.read(client, ref, limit);
+            if (bytes.length == 0 || bytes.length > limit) {
+                throw new ConsultBackendException(413, "IMAGES_TOO_LARGE", "原图为空或超过图片大小限制", false);
+            }
+            if (!sha256(bytes).equals(ref.sha256())) {
+                throw new ConsultBackendException(422, "IMAGE_DIGEST_MISMATCH", "原图与提交摘要不一致", false);
+            }
+            int[] dimensions = decode(bytes, ref.mediaType());
+            metadata.add(new ConsultImageStore.Image("external-" + ref.id(), null, ref.sha256(), ref.mediaType(),
+                    bytes.length, dimensions[0], dimensions[1], null, null));
+            images.add(new ImageInput(Base64.getEncoder().encodeToString(bytes), ref.mediaType()));
+            remaining -= bytes.length;
+        }
+        return new Inputs(List.copyOf(metadata), List.copyOf(images));
+    }
+
     public synchronized ConsultImageStore.Image upload(ConsultBackendStore.Client client, String uploadId, String mediaType, byte[] bytes) {
         validateUploadId(uploadId);
         if (mediaType == null || !List.of("image/png", "image/jpeg").contains(mediaType)) throw new ConsultBackendException(415, "IMAGE_FORMAT_UNSUPPORTED", "仅支持 PNG/JPEG 原图", false);
         if (bytes.length == 0 || bytes.length > MAX_BYTES) throw new ConsultBackendException(413, "IMAGE_TOO_LARGE", "原图须为 1 字节至 5MiB", false);
-        String hash;
-        try { hash = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(bytes)); }
-        catch (java.security.NoSuchAlgorithmException error) { throw new IllegalStateException(error); }
+        String hash = sha256(bytes);
         var old = store.find(client.id(), uploadId, true);
         if (old.isPresent()) {
             if (!old.get().sha256().equals(hash) || !old.get().mediaType().equals(mediaType))
@@ -109,6 +130,11 @@ public class ConsultAnalysisImages {
 
     private void validateUploadId(String id) {
         if (id == null || !id.matches("[A-Za-z0-9_-]{8,100}")) throw ConsultBackendException.invalid("uploadId 须为 8–100 位字母数字、下划线或短横线");
+    }
+
+    private static String sha256(byte[] bytes) {
+        try { return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(bytes)); }
+        catch (java.security.NoSuchAlgorithmException error) { throw new IllegalStateException(error); }
     }
 
     private int[] decode(byte[] bytes, String mediaType) {

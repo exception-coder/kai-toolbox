@@ -351,6 +351,18 @@ components:
               id: { $ref: '#/components/schemas/Identifier' }
               name: { type: string, minLength: 1, maxLength: 200 }
               text: { type: string, minLength: 1, maxLength: 12000 }
+        imageRefs:
+          type: array
+          maxItems: 5
+          description: Application-owned originals fetched only at execution. Mutually exclusive with attachmentIds. IDs must be unique.
+          items:
+            type: object
+            additionalProperties: false
+            required: [id, sha256, mediaType]
+            properties:
+              id: { type: string, pattern: '^[A-Za-z0-9_-]{1,100}$' }
+              sha256: { type: string, pattern: '^[a-f0-9]{64}$' }
+              mediaType: { type: string, enum: [image/png, image/jpeg] }
         attachmentIds:
           type: array
           maxItems: 5
@@ -481,7 +493,10 @@ components:
           type: array
           maxItems: 5
           description: Actual image metadata passed to the managed multimodal runner. Not a promise that vision interpreted every pixel correctly.
-          items: { $ref: '#/components/schemas/Image' }
+          items:
+            oneOf:
+              - { $ref: '#/components/schemas/Image' }
+              - { $ref: '#/components/schemas/ExternalImage' }
         imageObservations:
           type: array
           maxItems: 5
@@ -526,6 +541,17 @@ components:
             released: { type: integer }
             removed: { type: integer }
             status: { type: string, enum: [NOT_RUN, OK, FAILED] }
+    ExternalImage:
+      type: object
+      additionalProperties: false
+      required: [attachmentId, sha256, mediaType, size, width, height]
+      properties:
+        attachmentId: { type: string, pattern: '^external-[A-Za-z0-9_-]{1,100}$' }
+        sha256: { type: string, pattern: '^[a-f0-9]{64}$' }
+        mediaType: { type: string, enum: [image/png, image/jpeg] }
+        size: { type: integer, minimum: 1, maximum: 5242880 }
+        width: { type: integer, minimum: 1, maximum: 10000 }
+        height: { type: integer, minimum: 1, maximum: 10000 }
     Image:
       type: object
       additionalProperties: false

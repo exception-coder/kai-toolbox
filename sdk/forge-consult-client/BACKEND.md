@@ -223,6 +223,14 @@ URL 仍为 `/api/fore-consult/v1`。纯文字旧请求不改字段，仍返回 `
 
 有效图片默认256MiB/凭据、1GiB/实例，数量2000/凭据、10000/实例；仅元数据独立保留最多30天及2000/凭据、10000/实例，超过时清理最旧元数据，不挤占有效图片额度。元数据淘汰可能早于30天，不得重新使用历史uploadId。超额仍返回429 `IMAGE_QUOTA_EXCEEDED`，新增 `details: {reason,used,limit,incoming}`；reason分别为APP_BYTES、GLOBAL_BYTES、APP_COUNT、GLOBAL_COUNT。先复用回执或核对配额，禁止每5秒盲重传图片。
 
+### ITCS 原图按引用分析（源码能力，待联调）
+
+ITCS 在原有分析任务请求传入 `imageRefs: [{id, sha256, mediaType}]`，省略 `attachmentIds`。ID 仅允许 1–100 位字母、数字、下划线和连字符，摘要使用原字节的小写 SHA-256。支持最多 5 张 PNG/JPEG，单张 5 MiB、合计 20 MiB。分析结果中的图片证据使用 `external-<id>`。
+
+由管理员配置 `toolbox.fore-consult.backend.image-source.endpoint`（以斜杠结尾的 HTTPS 目录）、`client-id`（现有 Forge 应用凭据 ID）和 `token`（保存在服务端私有配置中的 ITCS 只读访问票据，以上两项使用同一配置前缀）。ITCS 在该目录下提供 `GET <id>`，验证票据和图片归属，返回准确 Content-Type 及原始字节。Forge 禁止跟随重定向，执行时验证来源身份、大小、摘要和实际图片格式。
+
+此路径只在分析执行时读取，Forge 数据库只保存引用、图片元数据和分析结果，原图不进入附件表或上传配额。Codex 仍可能在执行期间使用临时文件并清理。ITCS 须在排队及重试期间保留原图。同一 requestId 查询原任务，终态失败须使用新 requestId 重试。真实 ITCS 接口及生产接线待联调。
+
 ### 图片复用、配置与诊断（源码能力，待部署）
 
 `GET /api/fore-consult/v1/attachments/reusable?sha256=<摘要>&mediaType=image%2Fpng&minValiditySeconds=600`：按当前clientId、内容摘要、媒体类型和剩余有效期返回既有回执，默认600秒，允许0–86400秒。未命中404，不续期、不新增上传别名。不同clientId不共享；并发不同uploadId查空仍可能重复存储。

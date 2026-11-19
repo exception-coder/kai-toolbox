@@ -10,12 +10,14 @@ public record ConsultAnalysisInput(String agentId, String tenantId, String probl
         @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_EMPTY) List<String> attachmentIds,
         @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL) String replyMode,
         @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL) String businessInstructions,
-        @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL) com.fasterxml.jackson.databind.JsonNode businessContext) {
+        @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL) com.fasterxml.jackson.databind.JsonNode businessContext,
+        @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_EMPTY) List<ImageRef> imageRefs) {
 
     public static final String AGENT_ID = "it-support-partner";
     public record Classification(String decision, String reason) {}
     public record AttachmentText(String id, String name, String text) {}
     public record EvidenceRef(String projectId, String path, int startLine, int endLine) {}
+    public record ImageRef(String id, String sha256, String mediaType) {}
 
     public boolean forgeReplies() { return "FORGE".equals(replyMode) || flexibleReplies(); }
     public boolean flexibleReplies() { return "FORGE_FLEX".equals(replyMode); }
@@ -24,7 +26,7 @@ public record ConsultAnalysisInput(String agentId, String tenantId, String probl
     public ConsultAnalysisInput withDefaultMode() {
         return replyMode != null ? this : new ConsultAnalysisInput(agentId, tenantId, problemId, conversationId,
                 requestId, title, description, recentContext, classification, systemIds, errorText,
-                attachmentTexts, evidenceRefs, attachmentIds, "FORGE_FLEX", businessInstructions, businessContext);
+                attachmentTexts, evidenceRefs, attachmentIds, "FORGE_FLEX", businessInstructions, businessContext, imageRefs);
     }
 
     public ConsultAnalysisInput validated() {
@@ -54,6 +56,18 @@ public record ConsultAnalysisInput(String agentId, String tenantId, String probl
             if (!systems.contains(r.projectId())) throw ConsultBackendException.invalid("源码引用必须属于 systemIds 中的项目");
         }
         var images = list(attachmentIds, 5);
+        var externalImages = list(imageRefs, 5);
+        if ((!images.isEmpty() && !externalImages.isEmpty())
+                || externalImages.stream().map(ImageRef::id).distinct().count() != externalImages.size()) {
+            throw ConsultBackendException.invalid("imageRefs 不得与 attachmentIds 混用或包含重复 ID");
+        }
+        for (var image : externalImages) {
+            if (image.id() == null || !image.id().matches("[A-Za-z0-9_-]{1,100}")
+                    || image.sha256() == null || !image.sha256().matches("[a-f0-9]{64}")
+                    || !("image/png".equals(image.mediaType()) || "image/jpeg".equals(image.mediaType()))) {
+                throw ConsultBackendException.invalid("图片引用须提供不透明ID、小写SHA256和PNG/JPEG类型");
+            }
+        }
         if (images.stream().anyMatch(id -> !id.matches("img_[a-f0-9-]{36}")) || images.stream().distinct().count() != images.size())
             throw ConsultBackendException.invalid("attachmentIds 必须为最多 5 个不重复的上传图片 ID");
         if (replyMode != null && !List.of("CALLER", "FORGE", "FORGE_FLEX").contains(replyMode)) throw ConsultBackendException.invalid("replyMode 必须为 FORGE_FLEX、CALLER 或 FORGE");
@@ -65,7 +79,7 @@ public record ConsultAnalysisInput(String agentId, String tenantId, String probl
             throw ConsultBackendException.invalid("业务规则和资料仅用于 FORGE_FLEX 模式");
         }
         return new ConsultAnalysisInput(agentId, tenantId, problemId, conversationId, requestId, title, description,
-                context, classification, systems, errorText, attachments, refs, images, replyMode, businessInstructions, businessContext);
+                context, classification, systems, errorText, attachments, refs, images, replyMode, businessInstructions, businessContext, externalImages);
     }
 
     static void text(String value, int max, boolean required) {
