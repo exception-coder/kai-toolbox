@@ -90,6 +90,8 @@ export interface BackendClientOptions {
   getClientSecret: () => string | Promise<string>;
   fetch?: typeof globalThis.fetch;
   timeoutMs?: number;
+  /** Overall wait for the direct analysis response. Align with Forge and proxy timeouts. */
+  analyzeOnceTimeoutMs?: number;
 }
 
 export class ForgeConsultBackendClient {
@@ -107,12 +109,29 @@ export class ForgeConsultBackendClient {
     if (!/^[A-Za-z0-9_-]{1,100}$/.test(options.clientId)) throw new ConsultBackendError('INVALID_CLIENT_ID', 'clientId 无效');
     if (options.timeoutMs !== undefined && (!Number.isFinite(options.timeoutMs) || options.timeoutMs < 1 || options.timeoutMs > 120000))
       throw new ConsultBackendError('INVALID_TIMEOUT', 'timeoutMs 须为 1–120000ms');
+    if (options.analyzeOnceTimeoutMs !== undefined && (!Number.isInteger(options.analyzeOnceTimeoutMs)
+      || options.analyzeOnceTimeoutMs < 1 || options.analyzeOnceTimeoutMs > 620000))
+      throw new ConsultBackendError('INVALID_TIMEOUT', 'analyzeOnceTimeoutMs 须为 1–620000ms');
     this.origin = url.origin;
     this.fetcher = options.fetch ?? globalThis.fetch.bind(globalThis);
   }
 
   async submit(input: AnalysisInput): Promise<AnalysisTask> {
     return this.request('/analysis-tasks', { method: 'POST', body: JSON.stringify(input), headers: { 'Content-Type': 'application/json' } });
+  }
+
+  async analyzeOnce(input: Omit<AnalysisInput, 'attachmentIds'>): Promise<{ requestId: string; result: AnalysisResult }> {
+    try {
+      const response = await this.authorized('/analyze-once', { method: 'POST', body: JSON.stringify(input),
+        headers: { 'Content-Type': 'application/json' } }, this.options.analyzeOnceTimeoutMs ?? 195000);
+      if (response?.requestId !== input.requestId || !['1.0', '1.1', '1.2'].includes(response?.result?.schemaVersion))
+        throw new ConsultBackendError('INVALID_RESPONSE', '即时分析响应不符合合同');
+      return response;
+    } catch (error) {
+      if (error instanceof ConsultBackendError && error.code === 'REQUEST_STATUS_UNKNOWN')
+        throw new ConsultBackendError('DIRECT_RESPONSE_LOST', '未收到即时分析结果，调用方可重新发起分析', undefined, true);
+      throw error;
+    }
   }
 
   /** Persist uploadId and the original bytes before calling. No automatic upload retries. */
@@ -221,17 +240,17 @@ export class ForgeConsultBackendClient {
     return image as AnalysisImage;
   }
 
-  private async authorized(path: string, init: RequestInit): Promise<any> {
+  private async authorized(path: string, init: RequestInit, timeoutMs?: number): Promise<any> {
     const token = await this.token();
-    const response = await this.fetch(path, { ...init, headers: { ...init.headers, Authorization: `Bearer ${token}` } });
+    const response = await this.fetch(path, { ...init, headers: { ...init.headers, Authorization: `Bearer ${token}` } }, timeoutMs);
     if (response.status === 401) this.accessToken = undefined;
     return this.decode(response);
   }
 
-  private async fetch(path: string, init: RequestInit): Promise<Response> {
+  private async fetch(path: string, init: RequestInit, timeoutMs = this.options.timeoutMs ?? 15000): Promise<Response> {
     try {
       return await this.fetcher(this.origin + '/api/fore-consult/v1' + path, {
-        ...init, redirect: 'error', signal: AbortSignal.timeout(this.options.timeoutMs ?? 15000),
+        ...init, redirect: 'error', signal: AbortSignal.timeout(timeoutMs),
       });
     } catch {
       throw new ConsultBackendError('REQUEST_STATUS_UNKNOWN', '请求超时或连接中断，请用原 requestId 或 uploadId 查询；未自动重发', undefined, true);

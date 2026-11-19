@@ -36,6 +36,10 @@ The system SHALL provide an application-scoped digest/media-type/lifetime lookup
 ### Requirement: Actual multimodal task input
 The system SHALL pass original image bytes to the managed model runner and reject missing, expired, unreadable or unsupported images without publishing a complete successful analysis.
 
+#### Scenario: Direct analysis owned by the caller
+- **WHEN** the authorized application requests direct analysis with text and optional external image references
+- **THEN** Forge returns the validated result on that request without creating a durable task, attachment, or result record, and the caller owns storage and retry decisions
+
 #### Scenario: Application-owned originals by reference
 - **WHEN** the configured application submits opaque image references and the task starts
 - **THEN** Forge reads the originals from the administrator-configured source, validates format, limits and digest, and persists references and results without storing original bytes in the attachment database

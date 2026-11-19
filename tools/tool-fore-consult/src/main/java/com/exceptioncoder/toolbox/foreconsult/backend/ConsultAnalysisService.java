@@ -55,6 +55,55 @@ public class ConsultAnalysisService {
                            Long finishedAt, Long policyVersion,
                            @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_EMPTY) List<String> attachmentIds) {}
 
+    public record DirectResult(String requestId, JsonNode result) {}
+
+    public DirectResult analyzeOnce(ConsultBackendStore.Client client, String raw) {
+        var input = parse(raw).withDefaultMode();
+        authorize(client, input);
+        if (!input.attachmentIds().isEmpty()) {
+            throw ConsultBackendException.invalid("即时分析请使用 imageRefs，不接受已上传附件");
+        }
+        if (!input.imageRefs().isEmpty()) { externalImages.requireAccess(client); }
+        if (!slots.tryAcquire()) {
+            throw new ConsultBackendException(429, "TASK_LIMITED", "分析繁忙，请稍后重试", true);
+        }
+        String executionId = UUID.randomUUID().toString();
+        var work = new java.util.concurrent.FutureTask<DirectResult>(() -> {
+            auth.active(client.id());
+            var packets = evidence.collect(input);
+            var imageInputs = images.resolveExternal(client, input.imageRefs(), externalImages);
+            if (Thread.currentThread().isInterrupted()) { throw new InterruptedException(); }
+            var result = mapper.readTree(model.analyze(executionId, input, packets, imageInputs, false));
+            auth.active(client.id());
+            return new DirectResult(input.requestId(), result);
+        });
+        try {
+            Thread.ofVirtual().name("consult-direct-" + executionId).start(() -> {
+                try { work.run(); }
+                finally { slots.release(); }
+            });
+        } catch (RuntimeException | Error startFailure) {
+            slots.release();
+            throw startFailure;
+        }
+        try {
+            return work.get(timeoutMs, java.util.concurrent.TimeUnit.MILLISECONDS);
+        } catch (java.util.concurrent.TimeoutException timeout) {
+            work.cancel(true);
+            requestCancellation(executionId);
+            throw new ConsultBackendException(504, "ANALYSIS_TIMEOUT", "分析超时，可由调用方重新发起", true);
+        } catch (InterruptedException interrupted) {
+            work.cancel(true);
+            requestCancellation(executionId);
+            Thread.currentThread().interrupt();
+            throw new ConsultBackendException(503, "EXECUTION_INTERRUPTED", "分析等待被中断", true);
+        } catch (java.util.concurrent.ExecutionException failure) {
+            if (failure.getCause() instanceof ConsultBackendException known) { throw known; }
+            LOG.warn("Consult direct analysis failed execution={} kind={}", executionId, failure.getCause().getClass().getSimpleName());
+            throw new ConsultBackendException(502, "ANALYSIS_FAILED", "分析未完成，可由调用方重新发起", true);
+        }
+    }
+
     public synchronized TaskView submit(ConsultBackendStore.Client client, String raw) {
         var input = parse(raw);
         authorize(client, input);

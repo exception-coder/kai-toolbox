@@ -225,6 +225,8 @@ URL 仍为 `/api/fore-consult/v1`。纯文字旧请求不改字段，仍返回 `
 
 ### ITCS 原图按引用分析（源码能力，待联调）
 
+ITCS 优先调用 `POST /api/fore-consult/v1/analyze-once` 或 SDK 的 `analyzeOnce(input)`。请求沿用分析字段，可传 `imageRefs`，响应为 `{requestId, result}`。Forge 在同一次请求完成分析，无任务登记、结果存档或图片上传。ITCS 负责保存输入和结果，并在自己的任务流程控制重试。重复发送相同 requestId 会重新计算，调用方应避免并发重发。SDK 默认等待 195 秒，目标代理的响应超时须覆盖 Forge 分析超时。原异步任务仍供已接入的调用方使用。
+
 ITCS 在原有分析任务请求传入 `imageRefs: [{id, sha256, mediaType}]`，省略 `attachmentIds`。ID 仅允许 1–100 位字母、数字、下划线和连字符，摘要使用原字节的小写 SHA-256。支持最多 5 张 PNG/JPEG，单张 5 MiB、合计 20 MiB。分析结果中的图片证据使用 `external-<id>`。
 
 由管理员配置 `toolbox.fore-consult.backend.image-source.endpoint`（以斜杠结尾的 HTTPS 目录）、`client-id`（现有 Forge 应用凭据 ID）和 `token`（保存在服务端私有配置中的 ITCS 只读访问票据，以上两项使用同一配置前缀）。ITCS 在该目录下提供 `GET <id>`，验证票据和图片归属，返回准确 Content-Type 及原始字节。Forge 禁止跟随重定向，执行时验证来源身份、大小、摘要和实际图片格式。

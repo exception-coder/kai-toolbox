@@ -60,6 +60,12 @@ public class ConsultBackendController {
                 .header("Location", "/api/fore-consult/v1/analysis-tasks/" + task.taskId()).header("Retry-After", "2").body(task);
     }
 
+    @PostMapping(value = "/analyze-once", consumes = "application/json")
+    public ResponseEntity<ConsultAnalysisService.DirectResult> analyzeOnce(HttpServletRequest request) throws IOException {
+        var client = auth.authenticate(request.getHeader("Authorization"));
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(analysis.analyzeOnce(client, read(request)));
+    }
+
     @GetMapping("/analysis-tasks/{id}")
     public ResponseEntity<ConsultAnalysisService.TaskView> get(HttpServletRequest request, @PathVariable String id) {
         return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(analysis.get(auth.authenticate(request.getHeader("Authorization")), id));

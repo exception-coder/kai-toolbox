@@ -40,11 +40,16 @@ public class ConsultAnalysisModel {
 
     public String analyze(String taskId, ConsultAnalysisInput input, List<ConsultAnalysisEvidence.Packet> evidence,
                           ConsultAnalysisImages.Inputs images) throws Exception {
+        return analyze(taskId, input, evidence, images, true);
+    }
+
+    String analyze(String taskId, ConsultAnalysisInput input, List<ConsultAnalysisEvidence.Packet> evidence,
+            ConsultAnalysisImages.Inputs images, boolean persistPolicyVersion) throws Exception {
         var runner = runners.getIfAvailable();
         var selected = policy.get();
         if (runner == null || !runner.supportedEngines().contains("codex") || selected.model() == null || selected.model().isBlank() || selected.codexHome() == null || selected.codexHome().isBlank())
             throw new ConsultBackendException(503, "ANALYSIS_NOT_CONFIGURED", "咨询分析引擎或默认账号尚未配置", true);
-        store.policyVersion(taskId, selected.version());
+        if (persistPolicyVersion) { store.policyVersion(taskId, selected.version()); }
         var packets = new ArrayList<>(evidence);
         for (var image : images.metadata()) packets.add(new ConsultAnalysisEvidence.Packet(image.attachmentId(), "CALLER_IMAGE", image.attachmentId(),
                 "原图按 imageInputs 顺序提供，SHA-256=" + image.sha256() + "，不代表已核验实际系统状态"));

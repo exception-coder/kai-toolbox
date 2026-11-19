@@ -549,6 +549,21 @@ class ConsultBackendIntegrationTest {
                 .andExpect(jsonPath("$.storage.diskUsableBytes").isNumber());
     }
 
+    @Test void directAnalysisReturnsResultsWithoutPersistingTasksOrImages() throws Exception {
+        String raw = input("direct-test-01");
+        mvc.perform(post("/api/fore-consult/v1/analyze-once").header("Authorization", "Bearer " + token())
+                .contentType("application/json").content(raw))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.requestId").value("direct-test-01"))
+                .andExpect(jsonPath("$.result.schemaVersion").value("1.0"));
+        assertThat(store.request(principal.id(), "direct-test-01")).isEmpty();
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM consult_analysis_attachment", Integer.class)).isZero();
+        mvc.perform(post("/api/fore-consult/v1/analyze-once").contentType("application/json").content(raw))
+                .andExpect(status().isUnauthorized());
+        assertThatThrownBy(() -> service.analyzeOnce(principal, extendedInput("direct-test-02",
+                List.of("img_11111111-1111-4111-8111-111111111111"), "FORGE")))
+                .hasMessageContaining("不接受已上传附件");
+    }
+
     @Test void externalImageRunsFromReferenceWithoutAttachmentStorage() throws Exception {
         byte[] bytes = png();
         String digest = java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256").digest(bytes));

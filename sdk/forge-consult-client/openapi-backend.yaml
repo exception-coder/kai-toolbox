@@ -110,6 +110,32 @@ paths:
                   expires_in: { type: integer, maximum: 900 }
                   scope: { type: string, example: 'consult:analyze consult:read consult:cancel consult:attachments' }
         default: { $ref: '#/components/responses/Failure' }
+  /api/fore-consult/v1/analyze-once:
+    post:
+      operationId: analyzeConsultOnce
+      description: Returns a validated result in the same response. The caller owns input and result storage. Only imageRefs is supported for images. requestId is for correlation and does not provide deduplication or recovery.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - { $ref: '#/components/schemas/AnalysisInput' }
+                - type: object
+                  properties:
+                    attachmentIds: { type: array, maxItems: 0, items: { type: string } }
+      responses:
+        '200':
+          description: Validated one-shot analysis result. Cache-Control no-store.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [requestId, result]
+                properties:
+                  requestId: { type: string }
+                  result: { $ref: '#/components/schemas/AnalysisResult' }
+        default: { $ref: '#/components/responses/Failure' }
   /api/fore-consult/v1/analysis-tasks:
     post:
       operationId: submitConsultAnalysis

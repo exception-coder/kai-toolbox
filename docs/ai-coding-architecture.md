@@ -1263,6 +1263,7 @@ flowchart LR
     APP["应用后端<br/>保存问题与幂等键"] --> AUTH["Forge 应用认证<br/>绑定企业和项目范围"]
     ADMIN["本实例管理员<br/>颁发 轮换 撤销凭据"] --> AUTH
     AUTH --> IMAGE["应用原图上传、摘要复用或提交外部引用<br/>执行时校验原图"]
+    AUTH --> DIRECT["ITCS 即时分析<br/>结果直接返回，ITCS 保存"]
     IMAGE --> TASK["持久分析任务<br/>提交 查询 请求取消"]
     AUTH --> TASK
     TASK --> DATA["有界文字 原图 人工资料 授权源码片段<br/>业务规则不授予工具权限"]
