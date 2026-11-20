@@ -52,7 +52,7 @@ export function SharedConversation({ sessionId }: { sessionId: string }) {
     event.preventDefault()
     if (!current || !ready || uploading || (!draft.trim() && !attachments.length)) return
     const files = attachments.map(({ name, path, mime, previewUrl }) => ({ name, path, mime, url: previewUrl }))
-    if (current.running || pending) current.enqueue(draft, files)
+    if (current.running || current.backgroundTasks.length > 0 || pending) current.enqueue(draft, files)
     else current.send(draft, files)
     setDraft('')
     setAttachments([])
@@ -113,7 +113,7 @@ export function SharedConversation({ sessionId }: { sessionId: string }) {
         {current?.running && <Button type="button" variant="ghost" size="icon" className="size-11 shrink-0" disabled={current.interrupting}
           aria-label="停止当前回复" onClick={current.interrupt}><Square /></Button>}
         <Button type="submit" size="icon" className="cc-composer-send size-11 shrink-0" disabled={!!uploading || (!draft.trim() && !attachments.length)}
-          aria-label={current?.running || pending ? '加入待发送' : '发送'}>
+            aria-label={current?.running || (current?.backgroundTasks.length ?? 0) > 0 || pending ? '加入待发送' : '发送'}>
           <Send />
         </Button>
       </div>

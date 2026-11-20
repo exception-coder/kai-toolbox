@@ -76,9 +76,17 @@ it('hides history and actions when the shared connection loses access', async ()
   expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
 })
 
-async function renderComposer(running: boolean) {
+it('queues follow-up while background agents outlive the main reply', async () => {
+  const { input, send, enqueue } = await renderComposer(false, true)
+  fireEvent.click(screen.getByRole('button', { name: '加入待发送' }))
+  expect(enqueue).toHaveBeenCalledExactlyOnceWith('继续检查', [])
+  expect(send).not.toHaveBeenCalled()
+  expect(input).toHaveValue('')
+})
+
+async function renderComposer(running: boolean, background = false) {
   const send = vi.fn(), enqueue = vi.fn()
-  runtime.chat = { sessionId: 'shared-keyboard', state: 'ready', running, items: [], queued: [], send, enqueue }
+  runtime.chat = { sessionId: 'shared-keyboard', state: 'ready', running, backgroundTasks: background ? [{ taskId: 'agent' }] : [], items: [], queued: [], send, enqueue }
   render(<MemoryRouter><QueryClientProvider client={new QueryClient()}>
     <SharedConversation sessionId="shared-keyboard" />
   </QueryClientProvider></MemoryRouter>)

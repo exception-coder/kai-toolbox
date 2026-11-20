@@ -984,6 +984,7 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
     }
   }
 
+  const shouldQueueMessage = chat.running || chat.backgroundTasks.length > 0 || sessionRuntime.data?.effectiveStatus === 'BACKGROUND_RUNNING'
   const canInsertRunningMessage = chat.running && chat.state === 'ready' && !chat.pending && !chat.interrupting
     && !reviewOnlySession && canSteerRunningMessage(chat.currentEngine, chat.currentProviderBaseUrl, attachments.length)
   const submit = (runningAction: 'queue' | 'steer' = 'steer') => {
@@ -1000,7 +1001,7 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
     ensureNotifyPermission() // 借发送这个手势兜底申请一次通知权限
 
     const atts = attachments.map(a => ({ name: a.name, path: a.path, mime: a.mime, url: a.previewUrl }))
-    if (chat.running) {
+    if (shouldQueueMessage) {
       if (runningAction === 'steer' && canInsertRunningMessage) {
         chat.steer(draft)
       } else {
@@ -2249,15 +2250,15 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
                   onSteer={() => submit('steer')} onEnqueue={() => submit('queue')} onReturnFocus={() => taRef.current?.focus()} />
               ) : <Button
                 size="icon" className="cc-composer-send size-11 shrink-0 px-0"
-                aria-label={chat.running ? '加入待发送队列' : '发送'}
+                aria-label={shouldQueueMessage ? '加入待发送队列' : '发送'}
                 disabled={planLocked || chat.engineSwitching || uploading > 0 || (!draft.trim() && attachments.length === 0)}
-                onClick={() => submit(chat.running ? 'queue' : undefined)}><Send className="size-4" /></Button>)
-            ) : chat.running ? (
+                onClick={() => submit(shouldQueueMessage ? 'queue' : undefined)}><Send className="size-4" /></Button>)
+            ) : shouldQueueMessage ? (
               <div className="cc-composer-send col-start-3 row-start-2 flex shrink-0 gap-1">
-                <Button variant="outline" size="icon" className="size-9 max-md:size-10 px-0" onClick={chat.interrupt} disabled={chat.interrupting}
+                {chat.running && <Button variant="outline" size="icon" className="size-9 max-md:size-10 px-0" onClick={chat.interrupt} disabled={chat.interrupting}
                   aria-label={chat.interrupting ? '正在中断' : '中断'} title={chat.interrupting ? '正在校正会话状态' : '中断'}>
                   {chat.interrupting ? <Loader2 className="size-4 animate-spin" /> : <Square className="size-4" />}
-                </Button>
+                </Button>}
                 <MobileRunningSend canSteer={canInsertRunningMessage}
                   desktop={!mobileLayout}
                   disabled={planLocked || chat.engineSwitching || uploading > 0 || (!draft.trim() && attachments.length === 0)}

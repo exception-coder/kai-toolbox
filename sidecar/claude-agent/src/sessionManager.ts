@@ -861,11 +861,22 @@ export class Session {
         return
       } finally {
         // 参数失败时关闭仍等待输入的原生查询，避免遗留进程。
-        activeQuery?.close()
+        if (activeQuery) await this.closeClaudeQuery(activeQuery)
         releasePrompt()
         this.abort = undefined
         priorityPlugins.cleanup()
       }
+    }
+  }
+
+  /** 关闭 Claude 查询后撤销该进程的后台任务快照。 */
+  private async closeClaudeQuery(activeQuery: Pick<ReturnType<typeof query>, 'close' | 'return'>): Promise<void> {
+    activeQuery.close()
+    // 后台快照属于该 CLI 进程；等待 SDK 异步清理，不能在收到 result 或请求中断时提前清空。
+    await activeQuery.return(undefined)
+    if (this.backgroundTasks.length > 0) {
+      this.backgroundTasks = []
+      this.emitTurn({ type: 'backgroundTasks', tasks: [] })
     }
   }
 

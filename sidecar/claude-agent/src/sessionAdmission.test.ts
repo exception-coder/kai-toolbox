@@ -2,6 +2,34 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { Session, SessionManager } from './sessionManager.js'
 
+test('Claude background snapshot clears only after asynchronous query cleanup completes', async () => {
+  const events: Record<string, unknown>[] = []
+  const session = new Session('s', process.cwd(), event => events.push(event))
+  session.backgroundTasks = [{ taskId: 'agent', taskType: 'agent', description: 'working' }]
+  let release!: () => void
+  const exited = new Promise<void>(resolve => { release = resolve })
+  let closed = false
+  const cleanup = (session as unknown as { closeClaudeQuery(q: unknown): Promise<void> }).closeClaudeQuery({
+    close: () => { closed = true }, return: async () => { await exited; return { done: true } },
+  })
+  assert.equal(closed, true)
+  assert.equal(session.runtimeState().backgroundTaskCount, 1)
+  assert.equal(events.length, 0)
+  release()
+  await cleanup
+  assert.equal(session.runtimeState().backgroundTaskCount, 0)
+  assert.deepEqual(events.filter(event => event.type === 'backgroundTasks').map(event => event.tasks), [[]])
+})
+
+test('failed Claude query cleanup preserves background evidence', async () => {
+  const session = new Session('s', process.cwd(), () => {})
+  session.backgroundTasks = [{ taskId: 'agent', taskType: 'agent', description: 'working' }]
+  await assert.rejects((session as unknown as { closeClaudeQuery(q: unknown): Promise<void> }).closeClaudeQuery({
+    close: () => {}, return: async () => { throw new Error('cleanup failed') },
+  }), /cleanup failed/)
+  assert.equal(session.runtimeState().backgroundTaskCount, 1)
+})
+
 test('Claude complete text reaches the Forge stream without partial events', () => {
   const events: Record<string, unknown>[] = []
   const session = new Session('s', process.cwd(), event => events.push(event)) as unknown as {
@@ -16,6 +44,7 @@ test('Claude complete text reaches the Forge stream without partial events', () 
 test('user dispatch claims the native turn before returning to the WebSocket receiver', async () => {
   let started = false
   const manager = {
+    handoffs: new Map(),
     sessions: new Map([['s', {
       toolPolicy: 'default',
       runTurn: async () => { started = true },
