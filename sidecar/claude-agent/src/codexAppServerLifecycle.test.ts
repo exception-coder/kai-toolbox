@@ -10,7 +10,7 @@ import { CodexPredictionCoordinator, readCodexPrediction } from './codexPredicti
 import { observeCodexProcess } from './codexProcessLifetime.js'
 
 // Real pipes and EOF, with a local JSON-RPC peer: no account, tools or model calls.
-function fixture(mode: 'nativeStatus' | 'nativeFailure' | 'complete' | 'warnings' | 'hold' | 'holdError' | 'holdCancel' | 'cancel' | 'rpcError' | 'resumeError' | 'slowResume' | 'lostTerminal' | 'crash' | 'steer' | 'transport' = 'complete', rolloutPath?: string) {
+function fixture(mode: 'consultPlugins' | 'consultConfigMissing' | 'nativeStatus' | 'nativeFailure' | 'complete' | 'warnings' | 'hold' | 'holdError' | 'holdCancel' | 'cancel' | 'rpcError' | 'resumeError' | 'slowResume' | 'lostTerminal' | 'crash' | 'steer' | 'transport' = 'complete', rolloutPath?: string) {
   const child = spawn(process.execPath, ['-e', `
     const mode = ${JSON.stringify(mode)};
     const rolloutPath = ${JSON.stringify(rolloutPath)};
@@ -48,10 +48,15 @@ function fixture(mode: 'nativeStatus' | 'nativeFailure' | 'complete' | 'warnings
         send({method:'warning',params:{message:'Independent warning'}});
         send({id:m.id,result:{}});
       } else if (m.method === 'config/read') {
-        send({id:m.id,result:{config:{model_provider:'openai'}}});
+        send({id:m.id,result:mode === 'consultConfigMissing' ? {} : {config:{model_provider:'openai',plugins:{'writer@example':{enabled:true}}}}});
       } else if (m.method === 'thread/read' && rolloutPath) {
         send({id:m.id,result:{thread:{path:rolloutPath,modelProvider:'openai'}}});
       } else if (m.method === 'thread/start' || m.method === 'thread/resume') {
+        if (mode === 'consultPlugins' && (m.params.config.features?.plugins !== true
+          || m.params.config.plugins?.['writer@example']?.enabled !== false
+          || m.params.config.plugins?.['unified-computer-use@openai-bundled']?.enabled !== true)) {
+          send({id:m.id,error:{message:'Consultation plugin boundary not applied'}}); return;
+        }
         if (m.method === 'thread/resume' && m.params.excludeTurns !== true) {
           send({id:m.id,error:{message:'Full history hydration is not allowed'}}); return;
         }
@@ -131,6 +136,20 @@ const turnOptions = (sessionId: string, events: Record<string, unknown>[] = [], 
   sandbox: 'read-only' as const, approvalPolicy: 'never' as const,
   input: [{ type: 'text', text: 'fixture only' }], signal, emit: (event: Record<string, unknown>) => { events.push(event) },
   setThreadId: () => {},
+})
+
+test('consultation applies official plugin policy to the actual thread resume request', async () => {
+  const peer = fixture('consultPlugins')
+  try {
+    await runCodexAppServerTurn({ ...turnOptions('consult-plugins'), consultReadonly: true }, peer.runtime)
+  } finally { await peer.release() }
+})
+
+test('consultation refuses incomplete effective plugin configuration before starting a turn', async () => {
+  const peer = fixture('consultConfigMissing')
+  try {
+    await assert.rejects(runCodexAppServerTurn({ ...turnOptions('consult-config-missing'), consultReadonly: true }, peer.runtime), /无法核对咨询插件配置/)
+  } finally { await peer.release() }
 })
 
 test('native status and retry notifications never produce a terminal result or accept child-thread state', async () => {

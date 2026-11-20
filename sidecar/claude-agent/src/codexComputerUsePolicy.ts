@@ -7,6 +7,28 @@ export const CODEX_COMPUTER_USE_RECOVERY_STEER = [
 
 const DETACHED_NODE_PATTERN = /node is detached from document|node (?:does not exist|not found)|execution context (?:was )?destroyed/i
 
+const OFFICIAL_BROWSER_PLUGINS = ['browser@openai-bundled', 'chrome@openai-bundled',
+  'unified-computer-use@openai-bundled'] as const
+
+/** Use the native loader, including its host permissions and lifecycle hooks.
+ * Never copy a desktop manifest, pipe or identity into a Forge-owned MCP server.
+ */
+export function withConsultComputerUse(config: Record<string, unknown>, effective: Record<string, unknown>): Record<string, unknown> {
+  const record = (value: unknown): Record<string, unknown> => value !== null && typeof value === 'object'
+    && !Array.isArray(value) ? value as Record<string, unknown> : {}
+  const plugins: Record<string, unknown> = { _default: { enabled: false } }
+  // Explicit lower-layer enablements win over _default, so disable each of them too.
+  for (const name of Object.keys({ ...record(effective.plugins), ...record(config.plugins) })) {
+    if (name !== '_default') plugins[name] = { enabled: false }
+  }
+  for (const name of OFFICIAL_BROWSER_PLUGINS) plugins[name] = { enabled: true }
+  plugins['unified-computer-use@openai-bundled'] = {
+    enabled: true,
+    mcp_servers: { cua_repl: { enabled: true, enabled_tools: ['js', 'js_reset', 'turn_ended'] } },
+  }
+  return { ...config, features: { ...record(config.features), plugins: true }, plugins }
+}
+
 /** Configuration flags are not proof that the desktop provider exposed its tool. */
 export function consultBrowserNotice(input: readonly Record<string, unknown>[],
   statuses: readonly { name: string; tools: ReadonlySet<string> }[] | undefined): string | undefined {
@@ -22,6 +44,9 @@ export function consultBrowserNotice(input: readonly Record<string, unknown>[],
 export function computerUseFailureTitle(toolName: string, output: unknown): string | undefined {
   if (!/^cua_repl(?:\/|$)/i.test(toolName)) return undefined
   const text = typeof output === 'string' ? output : JSON.stringify(output ?? '')
+  if (/The browser access host is unavailable/i.test(text)) {
+    return `${toolName} · 官方浏览器宿主未连接`
+  }
   if (!DETACHED_NODE_PATTERN.test(text)) return undefined
   return `${toolName} · 页面节点已刷新，需重新定位后重试`
 }

@@ -12,7 +12,7 @@ import { codexCleanupSnapshot } from './codexProcessCleanup.js'
 import { dirname, join, resolve } from 'node:path'
 import { homedir } from 'node:os'
 import { activityOutputTail, elapsedSince, emitToolActivity, summarizeToolInput } from './toolActivity.js'
-import { computerUseFailureTitle, consultBrowserNotice } from './codexComputerUsePolicy.js'
+import { computerUseFailureTitle, consultBrowserNotice, withConsultComputerUse } from './codexComputerUsePolicy.js'
 import { codexProjectSkillArgs, hasProjectTaskSkill, type SkillMetadataRequest } from './projectSkillPriority.js'
 import type { CodexRealtimeCall } from './codexRealtime.js'
 import { classifyCommandResult } from './commandExecution.js'
@@ -1372,7 +1372,15 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions, runti
     transportSelection = transport
     options.onTransportSelected?.(transport)
     options.signal.throwIfAborted()
-    const threadConfig = withRealtimeConversationConfig(transport.config)
+    let threadConfig = withRealtimeConversationConfig(transport.config)
+    if (options.consultReadonly) {
+      // Read the merged account/project policy, not just CODEX_HOME/config.toml.
+      // If discovery fails, do not open plugins with an incomplete deny list.
+      const result = await request('config/read', { cwd: options.cwd, includeLayers: false })
+      const effective = asRecord(result.config)
+      if (!effective) throw new CodexAppServerTurnError('无法核对咨询插件配置，已停止启动以保留工具权限边界', false)
+      threadConfig = withConsultComputerUse(threadConfig, effective)
+    }
     if (skillInstruction) threadConfig.developer_instructions = [
       threadConfig.developer_instructions ?? effectiveInstructions, skillInstruction,
     ].filter(Boolean).join('\n\n')

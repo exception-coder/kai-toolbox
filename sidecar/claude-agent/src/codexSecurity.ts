@@ -223,8 +223,8 @@ function createForgePendingSqlServer(sessionId?: string): Record<string, unknown
 }
 
 /**
- * Codex 咨询专用配置：关闭插件/App 等旁路，禁用用户配置里的全部 MCP，
- * 再仅注入平台控制的只读数据库与知识图谱 MCP。
+ * 咨询基础配置关闭插件/App，禁用账号 MCP，仅注入平台只读工具。
+ * 官方 App Server 在读取合并配置后仅放行官方浏览器插件；SDK 保持本配置。
  */
 export function consultReadonlyCodexConfig(codexHome?: string, sessionId?: string,
                                            sourceRoot?: string,

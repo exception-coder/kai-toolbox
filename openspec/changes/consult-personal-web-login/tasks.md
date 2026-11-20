@@ -2,6 +2,17 @@
 
 ## 原生浏览器运行诊断
 
+### 2026-11-20 官方插件装配修复
+
+- [x] 官方 Codex 咨询固定 App Server，不再启动失败自动回退 SDK；第三方兼容网关仍保持原 SDK 路径。
+- [x] 线程创建/恢复前读取合并后的账号/项目配置，默认关闭插件并覆盖已有显式开启项，仅允许 openai-bundled 的 browser、chrome、unified-computer-use。配置核验失败停止启动；评审、SDK与其他 MCP 边界保持原策略。
+- [x] 使用本机 `.codex`、CLI 0.169.0 和修改后的咨询配置创建真实临时 App Server 线程，目录出现 cua_repl 的 js/js_reset/turn_ended；其余账号 MCP 无可用工具。未复制桌面连接身份或修改账号配置。
+- [x] 通过修改后的 runCodexTurn、consult-readonly 策略及咨询装配执行真实模型轮次（公开 example.com 点击验收）。线程 `01a1f86a-67d5-7ce2-8d5d-d17cf6265c78` 实际调用 cua_repl/js，返回 `The browser access host is unavailable`，停止页面操作。工具缺失已修复，宿主连接失败仍未解决。
+- [x] TypeScript 编译、41项定向测试、OpenSpec严格校验通过。Forge all为PASSED/exit0，executedCheckers为空，仅API-RUNTIME-001检查既有/api/tools返回200，不代表新版本部署或浏览器验收通过。
+- [ ] 取得可用的官方宿主连接后再次验证点击前后 URL、标题及状态。本次不是通过已部署 Forge 页面执行的全链路验收；未重启、未推送，运行服务未加载此修改。
+
+### 前次诊断（修复前）
+
 - [x] 实际业务咨询使用 Codex 与 `.codex`，公开网页点击测试未执行，原生工具不可用。官方桌面插件提供 `cua_repl`；Forge 进程独立启动 App Server，咨询模式禁用厂商插件，单独开启浏览器功能开关不能提供桌面连接。
 - [x] 咨询提及页面操作时，复用该线程 MCP 运行时目录提示 `cua_repl` 缺失或目录核验失败。已有的授权接口路径可继续查询。
 - [ ] 目标 Forge 接入官方支持的原生浏览器宿主并复测实际点击。当前没有已验证的宿主连接，不能将诊断调整视为点击能力已恢复。

@@ -387,7 +387,7 @@ function mapMode(mode: string): { approvalPolicy: ApprovalMode; sandboxMode: San
 /**
  * 跑一轮 Codex。
  * 官方本机授权优先使用 App Server 获取完整流式事件；第三方 OpenAI 兼容网关固定使用 SDK。
- * App Server 仅在尚未产生可见输出或副作用时允许回退 SDK，避免同一轮重复执行。
+ * 开发会话仅在尚未产生可见输出或副作用时允许回退 SDK；官方咨询固定 App Server。
  */
 export async function runCodexTurn(ctx: CodexTurnCtx): Promise<void> {
   const voice = takeCodexVoice(ctx.sessionId, ctx.voiceCallId)
@@ -519,7 +519,7 @@ export async function runCodexTurn(ctx: CodexTurnCtx): Promise<void> {
       return
     }
     if (emitCodexThreadWriterConflict(error, ctx.emit)) return
-    if (!voice && error instanceof CodexAppServerTurnError && error.retrySafe) {
+    if (!voice && !consultReadonly && error instanceof CodexAppServerTurnError && error.retrySafe) {
       const diagnostic = isRetryableMcpInitializationFailure(error) ? `；${toolboxMcpRuntimeDiagnostics()}` : ''
       ctx.emit({
         type: 'warning',
