@@ -829,6 +829,7 @@ export class Session {
           emitted = true
           this.handle(m, toolNames, toolStartedAt)
         }
+        console.log(`[sidecar] claude stream ended session=${this.id} turnResult=${this.turnHadResult} background=${this.backgroundTasks.length}`)
         // 流正常结束但未见 result（异常收尾/流提前结束）：补发一条，解除前端永久「思考中」。
         if (!this.turnHadResult) {
           console.warn(`[sidecar] 本轮流结束但未见 result，补发以解除前端「思考中」 session=${this.id}`)
@@ -872,6 +873,9 @@ export class Session {
 
   /** 关闭 Claude 查询后撤销该进程的后台任务快照。 */
   private async closeClaudeQuery(activeQuery: Pick<ReturnType<typeof query>, 'close' | 'return'>): Promise<void> {
+    if (this.backgroundTasks.length > 0) {
+      console.warn(`[sidecar] closing Claude query with ${this.backgroundTasks.length} background task(s) session=${this.id}`)
+    }
     activeQuery.close()
     // 后台快照属于该 CLI 进程；等待 SDK 异步清理，不能在收到 result 或请求中断时提前清空。
     await activeQuery.return(undefined)
@@ -1161,6 +1165,9 @@ export class Session {
         if (!m.parent_tool_use_id && (!this.sdkSessionId || !m.session_id || m.session_id === this.sdkSessionId)) {
           const status = claudeSessionStatus(m)
           if (status) this.observeNativeStatus(status)
+          if (m.subtype === 'session_state_changed') {
+            console.log(`[sidecar] claude session_state=${String(m.state)} session=${this.id} turnResult=${this.turnHadResult} background=${this.backgroundTasks.length}`)
+          }
           if (m.subtype === 'model_refusal_no_fallback') this.claudeFailure = classifyTurnFailure(m.subtype)
         }
         if (m.subtype === 'init' && m.session_id) {
@@ -1221,7 +1228,8 @@ export class Session {
         } else if (m.subtype === 'background_tasks_changed') {
           // SDK 的 REPLACE 语义：每次都是"当前存活的全量后台任务"，直接整体覆盖，不用配对
           // task_started/task_notification 这类边沿事件——漏掉一个边沿事件也不会导致状态卡死。
-          const tasks = Array.isArray(m.tasks) ? (m.tasks as Array<Record<string, unknown>>) : []
+          // SDK 约定 ambient（监听器、skip_transcript 任务）不是活动，宿主应排除；否则会话会一直被判为有后台任务而只能排队。
+          const tasks = (Array.isArray(m.tasks) ? (m.tasks as Array<Record<string, unknown>>) : []).filter(t => t.ambient !== true)
           this.backgroundTasks = tasks.map(t => ({
             taskId: String(t.task_id ?? ''),
             taskType: String(t.task_type ?? ''),

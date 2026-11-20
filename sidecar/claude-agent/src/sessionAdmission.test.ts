@@ -30,6 +30,25 @@ test('failed Claude query cleanup preserves background evidence', async () => {
   assert.equal(session.runtimeState().backgroundTaskCount, 1)
 })
 
+test('Claude ambient background tasks do not keep the session busy', () => {
+  const events: Record<string, unknown>[] = []
+  const session = new Session('s', process.cwd(), event => events.push(event))
+  const native = session as unknown as {
+    handle(message: Record<string, unknown>, names: Map<string, string>, startedAt: Map<string, number>): void
+  }
+  native.handle({ type: 'system', subtype: 'background_tasks_changed', tasks: [
+    { task_id: 'watch', task_type: 'monitor', description: 'file watcher', ambient: true },
+    { task_id: 'shell', task_type: 'local_bash', description: 'npm test' },
+  ] }, new Map(), new Map())
+  assert.deepEqual(session.backgroundTasks.map(task => task.taskId), ['shell'])
+  assert.equal(session.runtimeState().backgroundTaskCount, 1)
+  native.handle({ type: 'system', subtype: 'background_tasks_changed', tasks: [
+    { task_id: 'watch', task_type: 'monitor', description: 'file watcher', ambient: true },
+  ] }, new Map(), new Map())
+  assert.equal(session.runtimeState().backgroundTaskCount, 0)
+  assert.deepEqual(events.filter(event => event.type === 'backgroundTasks').map(event => (event.tasks as unknown[]).length), [1, 0])
+})
+
 test('Claude complete text reaches the Forge stream without partial events', () => {
   const events: Record<string, unknown>[] = []
   const session = new Session('s', process.cwd(), event => events.push(event)) as unknown as {
