@@ -750,6 +750,15 @@ public class ClaudeChatService {
             events.sendError(ws, 0, "SESSION_NOT_FOUND", "请先 open 或 attach 会话");
             return;
         }
+        if (admissionGate.isDraining()) {
+            events.sendError(ws, 0, "SYSTEM_UPDATING", "系统正在准备自动更新，暂不接受新的消息，请稍后重试");
+            return;
+        }
+        // 状态 RPC 必须在会话锁外完成，否则接收线程等待 ctx 时无法处理后续查询回包。
+        if (!ensureSessionResumable(ctx)) {
+            return;
+        }
+        runtimeStates.inspect(ctx.sessionId);
         synchronized (ctx) {
             String messageId = blankToNull(msg.messageId());
             log.info("[claude-chat] 收到用户消息 session={} messageId={} attachments={} textLength={}",
@@ -782,18 +791,18 @@ public class ClaudeChatService {
                         "系统正在准备自动更新，暂不接受新的消息，请稍后重试");
                 return;
             }
-            if (!ensureSessionResumable(ctx)) {
-                return;
-            }
             observeRuntimeState(ctx);
+            SessionRuntimeStateService.SendDecision decision = runtimeStates.canReleaseQueue(ctx.sessionId);
             if (ctx.status == SessionStatus.INTERRUPTED
-                    && "RECOVERABLE_INTERRUPTED".equals(runtimeStates.canReload(ctx.sessionId).code())) {
+                    && "RECOVERABLE_INTERRUPTED".equals(decision.code())) {
                 restoreIdleState(ctx);
+                decision = runtimeStates.canReleaseQueue(ctx.sessionId);
             }
-            SessionRuntimeStateService.SendDecision decision = runtimeStates.canStartTurn(ctx.sessionId);
             if (!decision.allowed()) {
                 events.sendError(ws, 0, "SESSION_STATE_UNCONFIRMED",
-                        "会话全链路状态尚未允许发送：" + decision.reason());
+                        "SIDECAR_UNREACHABLE".equals(decision.code())
+                                ? "暂时无法确认连接状态，消息尚未发送。请稍后重试。"
+                                : "当前暂不能发送：" + decision.reason(), false);
                 return;
             }
             applicationEvents.publishEvent(new SessionManualInputEvent(ctx.sessionId, "SEND"));

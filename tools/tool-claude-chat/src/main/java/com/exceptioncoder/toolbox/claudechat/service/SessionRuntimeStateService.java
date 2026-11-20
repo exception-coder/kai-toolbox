@@ -73,6 +73,9 @@ public class SessionRuntimeStateService {
                 : null;
         if (sidecarState != null) {
             sidecarObservations.put(sessionId, sidecarState);
+        } else {
+            // 探活失败不能继续使用此前空闲快照放行发送。
+            sidecarObservations.remove(sessionId);
         }
         return Optional.of(assess(stored.get(), backend, connected, sidecarState, System.currentTimeMillis()));
     }

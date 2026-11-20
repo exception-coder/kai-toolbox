@@ -71,15 +71,40 @@ class ClaudeChatSessionRecoveryTest {
     }
 
     @Test
+    void sendProbeAllowsReceiverToAcquireSessionLock() throws Exception {
+        when(runtime.inspect("session-1")).thenAnswer(invocation -> {
+            var executor = Executors.newSingleThreadExecutor();
+            try {
+                executor.submit(() -> {
+                    synchronized (context) {
+                        ReflectionTestUtils.setField(context, "status", SessionStatus.RUNNING);
+                    }
+                }).get(2, TimeUnit.SECONDS);
+            } finally {
+                executor.shutdownNow();
+            }
+            return Optional.empty();
+        });
+        service.sendUserMessage(socket, new ClientMessage.Send("continue", null, null, null, "message-1"));
+        verify(runtime).inspect("session-1");
+        verify(runtime, never()).canReleaseQueue(anyString());
+        verify(repository, never()).touch(anyString(), any(), anyLong());
+        assertThat(service.isRunning("session-1")).isTrue();
+    }
+
+    @Test
     void shouldRestoreInterruptedStateBeforeTheSendGate() {
         allowRecovery();
-        when(runtime.canStartTurn("session-1")).thenAnswer(invocation -> {
+        when(runtime.canReleaseQueue("session-1")).thenAnswer(invocation -> {
+            if (ReflectionTestUtils.getField(context, "status") == SessionStatus.INTERRUPTED) {
+                return new SessionRuntimeStateService.SendDecision(false, "RECOVERABLE_INTERRUPTED", "ready");
+            }
             assertThat(ReflectionTestUtils.getField(context, "status")).isEqualTo(SessionStatus.IDLE);
             return new SessionRuntimeStateService.SendDecision(false, "TEST_STOP", "stop before dispatch");
         });
         service.sendUserMessage(socket, new ClientMessage.Send("continue", null, null, null, "message-1"));
         verify(repository).touch(eq("session-1"), eq(SessionStatus.IDLE), anyLong());
-        verify(runtime).canStartTurn("session-1");
+        verify(runtime, times(2)).canReleaseQueue("session-1");
         assertThat(ReflectionTestUtils.getField(context, "sdkSessionId")).isEqualTo("native-1");
     }
 
@@ -140,7 +165,7 @@ class ClaudeChatSessionRecoveryTest {
     void shouldNotNormalizeMissingSidecarSessionDuringSend() {
         when(runtime.canReload("session-1")).thenReturn(
                 new SessionRuntimeStateService.SendDecision(true, "RESTORABLE_SESSION_MISSING", "reload required"));
-        when(runtime.canStartTurn("session-1")).thenReturn(
+        when(runtime.canReleaseQueue("session-1")).thenReturn(
                 new SessionRuntimeStateService.SendDecision(false, "RESTORABLE_SESSION_MISSING", "reload required"));
         service.sendUserMessage(socket, new ClientMessage.Send("continue", null, null, null, "message-1"));
         assertThat(ReflectionTestUtils.getField(context, "status")).isEqualTo(SessionStatus.INTERRUPTED);

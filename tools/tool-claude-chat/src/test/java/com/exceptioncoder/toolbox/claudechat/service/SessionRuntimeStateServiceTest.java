@@ -6,6 +6,7 @@ import com.exceptioncoder.toolbox.claudechat.api.dto.TurnFailure;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.exceptioncoder.toolbox.claudechat.domain.ClaudeChatSession;
 import com.exceptioncoder.toolbox.claudechat.domain.SessionStatus;
+import com.exceptioncoder.toolbox.claudechat.repository.ClaudeChatSessionRepository;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -14,6 +15,26 @@ import static org.assertj.core.api.Assertions.assertThat;
 class SessionRuntimeStateServiceTest {
 
     private static final long NOW = 10_000L;
+
+    @Test
+    void failedLiveProbeInvalidatesPreviouslyIdleSnapshot() {
+        var repository = org.mockito.Mockito.mock(ClaudeChatSessionRepository.class);
+        var transport = org.mockito.Mockito.mock(SidecarClient.class);
+        var service = new SessionRuntimeStateService(repository, transport);
+        var stored = ClaudeChatSession.builder().id("session-1").cwd("D:/workspace")
+                .status(SessionStatus.IDLE).build();
+        org.mockito.Mockito.when(repository.findById("session-1")).thenReturn(java.util.Optional.of(stored));
+        org.mockito.Mockito.when(transport.isConnected()).thenReturn(true);
+        service.observeBackend("session-1", SessionStatus.IDLE, null, false, 0, 1);
+        service.observeSidecarTerminal("session-1", 0);
+        assertThat(service.canReleaseQueue("session-1").allowed()).isTrue();
+        org.mockito.Mockito.when(transport.querySessionState(org.mockito.ArgumentMatchers.eq("session-1"),
+                org.mockito.ArgumentMatchers.isNull(), org.mockito.ArgumentMatchers.anyLong()))
+                .thenReturn(java.util.Optional.empty());
+        service.inspect("session-1");
+        assertThat(service.canReleaseQueue("session-1").allowed()).isFalse();
+        assertThat(service.canReleaseQueue("session-1").code()).isEqualTo("SIDECAR_UNREACHABLE");
+    }
 
     @Test
     void nativeStatesDescribeActiveWorkWithoutReleasingSendGate() {
