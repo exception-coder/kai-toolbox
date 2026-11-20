@@ -14,6 +14,17 @@ The Agent control panel SHALL display the current session queue directly below i
 - **WHEN** the queue is empty or paused
 - **THEN** the queue section shows its count and empty state or pause explanation without automatically sending a message
 
+#### Scenario: Background work delays queued messages
+
+- **WHEN** background tasks are active and queued messages await dispatch without a real pause reason
+- **THEN** desktop and mobile summaries show waiting for background work without a queue pause warning
+- **AND** the queue explanation describes the wait without sending or resuming a message
+
+#### Scenario: A real pause takes precedence over background waiting
+
+- **WHEN** a pause reason and active background tasks are both present
+- **THEN** the queue shows its pause explanation and retains existing guarded recovery actions
+
 ### Requirement: Prioritize functional controls
 
 The panel SHALL place available functional controls and session switching before runtime metrics and diagnostics while retaining existing callbacks and sending guards.

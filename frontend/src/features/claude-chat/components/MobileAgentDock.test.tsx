@@ -10,8 +10,8 @@ vi.mock('../lib/nativeVoice', () => ({ voiceAvailability: availability }))
 afterEach(() => { cleanup(); availability.mockReset(); availability.mockReturnValue(null); vi.unstubAllGlobals() })
 
 function fixture(onStartVoice = vi.fn(), items: ChatItem[] = [], running = false, backendRunning = false, workspace = false) {
-  const client = new QueryClient({ defaultOptions: { queries: { enabled: false } } })
-  client.setQueryData(['claude-chat-runtime-state', 'session'], { effectiveStatus: backendRunning ? 'RUNNING' : 'IDLE', consistency: 'CONSISTENT', recommendedAction: '可以发送消息' })
+  const client = new QueryClient({ defaultOptions: { queries: { enabled: false, staleTime: Infinity } } })
+  client.setQueryData(['claude-chat-runtime-state', 'session', 0, running], { effectiveStatus: backendRunning ? 'RUNNING' : 'IDLE', consistency: 'CONSISTENT', recommendedAction: '可以发送消息' })
   render(<ConfirmProvider><QueryClientProvider client={client}><MobileAgentDock
     status={{ workspace, sessionId: 'session', items, running, engineLabel: 'Codex', turnTokens: 61, connState: 'ready', backgroundTasks: [], usage: null, usageLoading: false, onOpenUsage: vi.fn(), onOpenTrajectory: vi.fn() }}
     queue={{ items: [], onSendNow: vi.fn(), onRemove: vi.fn(), onClear: vi.fn() }}
@@ -111,9 +111,37 @@ it('uses the same runtime truth for the summary and details when the browser has
   expect(detail.queryByText(/最近一轮|当前轮输出/)).not.toBeInTheDocument()
 })
 
+it.each([true, false])('distinguishes background waiting from explicit queue pause (mobile=%s)', mobile => {
+  vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: mobile, addEventListener: vi.fn(), removeEventListener: vi.fn() })))
+  const client = new QueryClient({ defaultOptions: { queries: { enabled: false, staleTime: Infinity } } })
+  client.setQueryData(['claude-chat-runtime-state', 'session', 0, true], { effectiveStatus: 'RUNNING', consistency: 'CONSISTENT' })
+  const onSendNow = vi.fn()
+  const renderDock = (pausedReason: string | null) => <QueryClientProvider client={client}><MobileAgentDock
+    status={{ workspace: true, sessionId: 'session', items: [], running: true, engineLabel: 'Claude', turnTokens: 0,
+      connState: 'ready', backgroundTasks: [{ taskId: 'task', taskType: 'agent', description: '构建中' }],
+      usage: null, usageLoading: false, onOpenUsage: vi.fn(), onOpenTrajectory: vi.fn() }}
+    queue={{ items: [{ id: 'q-1', ownerSessionId: 'session', text: '继续验收', createdAt: 1 }],
+      waitingReason: '后台任务仍在执行，结束后继续处理队列。', pausedReason,
+      onSendNow, onRemove: vi.fn(), onClear: vi.fn() }}
+    voiceEnabled={false} voiceDisabled={false} onStartVoice={vi.fn()} />
+  </QueryClientProvider>
+  const view = render(renderDock(null))
+  const trigger = screen.getByRole('button', { name: /打开会话控制/ })
+  expect(trigger).toHaveTextContent('队列 1 · 等待后台任务')
+  expect(trigger).not.toHaveTextContent('已暂停')
+  expect(trigger).not.toHaveClass('text-amber-800')
+  fireEvent.click(trigger)
+  expect(screen.getByText('后台任务仍在执行，结束后继续处理队列。')).toBeVisible()
+  view.rerender(renderDock('上一轮中断，请核对后继续。'))
+  expect(trigger).toHaveTextContent('队列 1 · 已暂停')
+  expect(screen.getByText('上一轮中断，请核对后继续。')).toBeVisible()
+  expect(screen.queryByText('后台任务仍在执行，结束后继续处理队列。')).not.toBeInTheDocument()
+  expect(onSendNow).not.toHaveBeenCalled()
+})
+
 it('discloses queue management before diagnostics and confirms batch deletion without sending on open', async () => {
   const client = new QueryClient({ defaultOptions: { queries: { enabled: false, staleTime: Infinity } } })
-  client.setQueryData(['claude-chat-runtime-state', 'session'], { effectiveStatus: 'IDLE', consistency: 'CONSISTENT', recommendedAction: '可以发送消息' })
+  client.setQueryData(['claude-chat-runtime-state', 'session', 0, false], { effectiveStatus: 'IDLE', consistency: 'CONSISTENT', recommendedAction: '可以发送消息' })
   const sessions = Array.from({ length: 12 }, (_, index): ClaudeChatSessionView => ({
     id: `recent-${index}`, title: `最近会话 ${index}`, cwd: 'D:/workspace', sdkSessionId: null,
     status: 'IDLE', startedAt: index, lastSeenAt: index, live: false,

@@ -12,6 +12,13 @@
 - 本地 Vite 页面实测桌面 1440×770 与手机视口 390×844：队列位于标题下方，功能操作与会话切换在监控前；滚动下方区域时队列仍可见。桌面滚动位置实测 413px。当前真实队列为空，非空队列回调通过组件测试验证，未发送、移除或清空真实消息。
 - 浏览器检查后已恢复原视口并关闭面板；未重启、推送或发布。其他同事环境仍待运行验收。
 
+## 2026-11-20 等待状态误标回归
+
+- [x] 将后台等待说明与真实暂停原因分离，桌面/手机显示“等待后台任务”，真实暂停原因优先；保留现有队列操作与发送保护。
+- [x] 定向回归 35 项通过（MobileAgentDock 9、MobileSessionStatus 19、QueuedList.compact 7），覆盖等待不告警、真实暂停优先、打开不自动发送。修正 Dock 旧测试夹具的 runtime query key，使其匹配既有 revision/running 缓存隔离合同。
+- [x] frontend typecheck、菜单目录及 feature boundaries 通过；OpenSpec strict 与 diff check 通过。Forge 门禁 JSON PASSED、exit 0，仅实际运行 API-RUNTIME-001（HTTP 200），executedCheckers 为空，不视为页面验收。
+- [ ] 当前真实会话及物理手机验收。已准备手机/桌面预览入口，状态 WAITING_VIEWER_AUTH；12:36 前读取的静态前端仍为 c2c82bf5c / 8e361bb4d1e94feef688938e。本次未重启、恢复执行或重发队列消息。
+
 ## Production
 
 - [ ] 2.1 [MANUAL_PRODUCTION] 在其他同事使用的环境加载并验收目标版本；不自动推送或重启。

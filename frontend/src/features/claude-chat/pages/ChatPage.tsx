@@ -1983,7 +1983,8 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
               onOpenSupervision: () => setSessionView('autopilot'),
               onSwitchSession: (id, hintRunning) => chat.switchTo(id, hintRunning) }}
             queue={{ items: chat.queued,
-              pausedReason: chat.queuePausedReason ?? (chat.backgroundTasks.length > 0 && chat.queued.length > 0 ? '后台作业尚未结束，待发送消息继续等待。' : null),
+              pausedReason: chat.queuePausedReason,
+              waitingReason: chat.backgroundTasks.length > 0 && chat.queued.length > 0 ? '后台任务仍在执行，结束后继续处理队列。' : null,
               canSendNow: !chat.running && !chat.pending && chat.backgroundTasks.length === 0,
               onSendNow: chat.sendQueuedNow, onRemove: chat.removeQueued, onStop: chat.stopQueued, onPause: chat.pauseQueued, onClear: chat.clearQueued }}
             voiceEnabled={chatControlMode(location.search) === 'CODE_AGENT' && chat.currentEngine === 'codex' && chat.currentProviderKind !== 'thirdParty' && !reviewOnlySession}

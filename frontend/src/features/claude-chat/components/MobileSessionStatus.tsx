@@ -67,6 +67,7 @@ interface Props {
   onOpenSessionList?: () => void
   queueCount?: number
   queuePausedReason?: string | null
+  queueWaitingReason?: string | null
   queueContent?: ReactNode
   actions?: ReactNode | ((close: () => void) => ReactNode)
   storage?: ReactNode
@@ -91,6 +92,7 @@ export function MobileSessionStatus({
   onOpenSessionList,
   queueCount = 0,
   queuePausedReason,
+  queueWaitingReason,
   queueContent,
   actions,
   storage,
@@ -155,6 +157,7 @@ export function MobileSessionStatus({
     : workspace && status?.kind === 'usage' ? 'Agent 状态' : label
   const completedTime = workspace && mobile && status?.kind === 'completed' ? formatTime(findLatestResult(items)?.ts) : null
   const summary = [summaryLabel, currentActivity, workspace && elapsed != null ? fmtMs(elapsed) : null, completedTime].filter(Boolean).join(' · ')
+  const queueStateLabel = queuePausedReason ? '已暂停' : queueWaitingReason ? '等待后台任务' : ''
   const warning = status?.kind === 'warning' || Boolean(queuePausedReason)
   const active = status?.kind === 'running' || status?.kind === 'background'
   const executionNotice = workspace && mobile && hasExecutionNotice(items, active)
@@ -175,7 +178,7 @@ export function MobileSessionStatus({
             ? 'border-amber-200 bg-amber-50/90 text-amber-800 dark:border-amber-900 dark:bg-amber-950/60 dark:text-amber-200'
             : 'border-[var(--color-border)]/70 text-[var(--color-muted-foreground)] hover:bg-[var(--color-accent)] hover:text-[var(--color-foreground)]',
         )}
-        aria-label={`${open ? '关闭' : '打开'}会话控制，${summary}${executionNotice ? '，本轮有执行提示' : ''}${queueCount ? `，队列 ${queueCount} 条${queuePausedReason ? '已暂停' : ''}` : ''}`}
+        aria-label={`${open ? '关闭' : '打开'}会话控制，${summary}${executionNotice ? '，本轮有执行提示' : ''}${queueCount ? `，队列 ${queueCount} 条${queueStateLabel}` : ''}`}
         aria-expanded={open}
         aria-haspopup="dialog"
         aria-controls={open ? controlId : undefined}
@@ -186,11 +189,11 @@ export function MobileSessionStatus({
           <span className="block truncate font-medium">{mobile ? summaryLabel : summary}</span>
           {mobile && <span className="flex min-w-0 gap-1 text-[11px] leading-4">
             <span className="truncate">{[currentActivity, workspace && elapsed != null ? fmtMs(elapsed) : null, completedTime].filter(Boolean).join(' · ')}</span>
-            {queueCount > 0 && <span className="shrink-0 whitespace-nowrap tabular-nums">队列 {queueCount}{queuePausedReason ? ' · 已暂停' : ''}</span>}
+            {queueCount > 0 && <span className="shrink-0 whitespace-nowrap tabular-nums">队列 {queueCount}{queueStateLabel ? ` · ${queueStateLabel}` : ''}</span>}
           </span>}
         </span>
         {executionNotice && <span className="sr-only md:not-sr-only md:shrink-0">执行提示</span>}
-        {!mobile && queueCount > 0 && <span className="shrink-0 whitespace-nowrap tabular-nums">队列 {queueCount}{queuePausedReason ? ' · 已暂停' : ''}</span>}
+        {!mobile && queueCount > 0 && <span className="shrink-0 whitespace-nowrap tabular-nums">队列 {queueCount}{queueStateLabel ? ` · ${queueStateLabel}` : ''}</span>}
         <span className="flex shrink-0 items-center gap-1 whitespace-nowrap font-medium text-[var(--color-primary)]">会话控制{open ? <ChevronDown aria-hidden="true" className="size-3.5" /> : <ChevronUp aria-hidden="true" className="size-3.5" />}</span>
       </button>
       {mobile && running && onInterrupt && <button type="button" aria-label={interrupting ? '正在停止任务' : '停止任务'}

@@ -20,7 +20,7 @@ interface Props {
 export function MobileAgentDock({ status, queue, voiceEnabled, voiceDisabled, onStartVoice, storage, diagnostics }: Props) {
   const voiceUnavailable = voiceEnabled ? voiceAvailability() : null
   const voiceReason = voiceUnavailable ?? (voiceDisabled ? '当前会话未连接或已锁定' : null)
-  return <MobileSessionStatus {...status} queueCount={queue.items.length} queuePausedReason={queue.pausedReason}
+  return <MobileSessionStatus {...status} queueCount={queue.items.length} queuePausedReason={queue.pausedReason} queueWaitingReason={queue.waitingReason}
     storage={storage}
     actionHint={voiceEnabled && voiceReason ? `${voiceReason}；仍可继续文字对话。` : undefined}
     queueContent={<QueueDisclosure queue={queue} />}
@@ -49,7 +49,7 @@ function QueueDisclosure({ queue }: { queue: Props['queue'] }) {
     <button type="button" aria-expanded={open} aria-controls={id} onClick={() => setOpen(value => !value)} className="flex min-h-16 w-full items-center gap-2 py-2 text-left">
       <Clock aria-hidden="true" className="size-4 shrink-0 text-[var(--color-primary)]" />
       <span className="min-w-0 flex-1 wrap-anywhere"><span className="block font-medium">{hasDelivery ? '队列消息' : '待发送消息'} · {queue.items.length} 条</span>
-        <span className="block text-xs text-[var(--color-muted-foreground)]">{queue.pausedReason ?? (hasDelivery ? deliverySummary : queue.items.length ? '当前轮正常结束后按序自动发送' : '暂无待发送消息')}</span>
+        <span className="block text-xs text-[var(--color-muted-foreground)]">{queue.pausedReason ?? queue.waitingReason ?? (hasDelivery ? deliverySummary : queue.items.length ? '当前轮正常结束后按序自动发送' : '暂无待发送消息')}</span>
       </span><ChevronDown aria-hidden="true" className={`size-4 shrink-0 ${open ? 'rotate-180' : ''}`} />
     </button>
     <div id={id}>{open && <QueuedList {...queue} compact className="border-0 px-0 pb-2" />}</div>
