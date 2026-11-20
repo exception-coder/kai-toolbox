@@ -40,7 +40,8 @@ public class SessionImageController {
     @RequireAuth
     @GetMapping("/api/claude-chat/sessions/{id}/image")
     public ResponseEntity<byte[]> image(@PathVariable String id, @RequestParam String path) throws IOException {
-        if (!access.canAccessCurrentUser(id)) {
+        // 只读查看与历史消息同一边界：会话所有者或持有有效协作授权的共享用户。
+        if (!access.canInteractCurrentUser(id)) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "当前用户不能访问该会话图片");
         }
         var session = repository.findById(id)

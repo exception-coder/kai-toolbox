@@ -107,6 +107,7 @@ class SessionImageControllerTest {
     private static ClaudeChatSessionAccessPolicy access() {
         var access = mock(ClaudeChatSessionAccessPolicy.class);
         when(access.canAccessCurrentUser("session")).thenReturn(true);
+        when(access.canInteractCurrentUser("session")).thenReturn(true);
         return access;
     }
     private static SessionLocalPathAccessService paths(List<String> additional) {

@@ -180,7 +180,8 @@ public class SessionFileController {
 
     private FileContentView linkedText(String id, String path, SessionArtifactReferenceService.Kind kind,
                                        int maxBytes, String label) {
-        if (!sessionAccess.canAccessCurrentUser(id)) {
+        // 只读预览与历史消息同一边界：会话所有者或持有有效协作授权的共享用户。
+        if (!sessionAccess.canInteractCurrentUser(id)) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "当前用户不能访问该会话" + label);
         }
         Path cwd = sessionCwd(id);

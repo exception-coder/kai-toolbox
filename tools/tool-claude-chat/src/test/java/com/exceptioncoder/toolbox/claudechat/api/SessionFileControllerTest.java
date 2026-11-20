@@ -71,6 +71,19 @@ class SessionFileControllerTest {
     }
 
     @Test
+    void sharedCollaboratorCanPreviewLinkedFilesButOutsiderCannot(@TempDir Path directory) throws Exception {
+        Files.writeString(directory.resolve("flow.html"), "<h1>流程</h1>");
+        var collaborator = mock(ClaudeChatSessionAccessPolicy.class);
+        when(collaborator.canInteractCurrentUser("session")).thenReturn(true);
+        when(collaborator.canAccessCurrentUser("session")).thenReturn(false);
+        var controller = new SessionFileController(repository(directory), access(List.of()), references(), collaborator);
+        assertEquals("<h1>流程</h1>", controller.html("session", "flow.html").content());
+        var outsider = mock(ClaudeChatSessionAccessPolicy.class);
+        var denied = new SessionFileController(repository(directory), access(List.of()), references(), outsider);
+        assertEquals(403, assertThrows(ResponseStatusException.class, () -> denied.html("session", "flow.html")).getStatusCode().value());
+    }
+
+    @Test
     void readsCompleteDiagramAboveTextPreviewLimit(@TempDir Path directory) throws IOException {
         var controller = controller(directory, List.of());
         String text = "<mxGraphModel><!--" + " ".repeat(600 * 1024) + "--><root/></mxGraphModel>";
@@ -199,6 +212,7 @@ class SessionFileControllerTest {
     private static ClaudeChatSessionAccessPolicy sessionAccess() {
         var access = mock(ClaudeChatSessionAccessPolicy.class);
         when(access.canAccessCurrentUser(anyString())).thenReturn(true);
+        when(access.canInteractCurrentUser(anyString())).thenReturn(true);
         return access;
     }
 
