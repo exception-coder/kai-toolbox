@@ -25,6 +25,8 @@ export function SessionProjectDirectoriesDialog({ sessionId, primaryCwd, onChang
   const [reload, setReload] = useState(0)
   const [selected, setSelected] = useState<string[]>([])
   const [initialPaths, setInitialPaths] = useState<string[] | null>(null)
+  // 分组依据已保存的关联，勾选/取消只改卡片状态，不让卡片在两组之间跳动。
+  const [savedKeys, setSavedKeys] = useState<Set<string>>(new Set())
   const [search, setSearch] = useState('')
   const workspaceQuery = useQuery({ queryKey: ['claude-chat-workspaces'], queryFn: listWorkspaces, staleTime: 30_000 })
   const { projects: visibleProjects, ready: projectsReady } = useVisibleWorkspaceProjects(workspaceQuery.data)
@@ -38,6 +40,7 @@ export function SessionProjectDirectoriesDialog({ sessionId, primaryCwd, onChang
     listSessionProjectDirectories(sessionId).then(linkedPaths => {
       if (!active) return
       setInitialPaths(linkedPaths)
+      setSavedKeys(new Set(linkedPaths.map(normalizeWorkspaceProjectPath)))
       setLoaded(true)
     }).catch(caught => active && setError(errorMessage(caught)))
     return () => { active = false }
@@ -60,11 +63,48 @@ export function SessionProjectDirectoriesDialog({ sessionId, primaryCwd, onChang
     return projects.filter(project => `${project.label} ${project.path}`
       .toLowerCase().includes(query))
   }, [projects, search])
+  const linked = filtered.filter(project => savedKeys.has(normalizeWorkspaceProjectPath(project.path)))
+  const unlinked = filtered.filter(project => !savedKeys.has(normalizeWorkspaceProjectPath(project.path)))
+
+  function renderGroup(title: string, group: typeof filtered, empty: string) {
+    return (
+      <section aria-label={title} className="mb-4 last:mb-0">
+        <h3 className="mb-2 text-xs font-medium text-[var(--color-muted-foreground)]">{title} · {group.length}</h3>
+        {group.length ? (
+          <div className="grid gap-2 sm:grid-cols-2">
+            {group.map(project => {
+              const checked = isSelected(project.path)
+              return (
+                <button key={project.path} type="button" aria-pressed={checked} disabled={saving} onClick={() => toggle(project.path)}
+                  className={`flex min-w-0 items-center gap-2 rounded-lg border p-3 text-left ${checked ? 'border-blue-500 bg-blue-500/10' : 'hover:bg-[var(--color-muted)]'}`}>
+                  <span className={`grid size-8 shrink-0 place-items-center rounded-md ${checked ? 'bg-blue-600 text-white' : 'bg-[var(--color-muted)] text-[var(--color-muted-foreground)]'}`}>
+                    {checked ? <Check className="size-4" /> : <FolderGit2 className="size-4" />}
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block truncate text-xs font-medium">{project.label}</span>
+                    <span className="block truncate text-[10px] text-[var(--color-muted-foreground)]" title={project.path}>{project.path}</span>
+                  </span>
+                </button>
+              )
+            })}
+          </div>
+        ) : <p className="text-xs text-[var(--color-muted-foreground)]">{empty}</p>}
+      </section>
+    )
+  }
+
+  function isSelected(path: string) {
+    const key = normalizeWorkspaceProjectPath(path)
+    return selected.some(candidate => normalizeWorkspaceProjectPath(candidate) === key)
+  }
 
   function toggle(path: string) {
     setError(null)
+    const key = normalizeWorkspaceProjectPath(path)
     setSelected(current => {
-      if (current.includes(path)) return current.filter(candidate => candidate !== path)
+      if (current.some(candidate => normalizeWorkspaceProjectPath(candidate) === key)) {
+        return current.filter(candidate => normalizeWorkspaceProjectPath(candidate) !== key)
+      }
       if (current.length >= MAX_PROJECT_COUNT) {
         setError(`每个会话最多关联 ${MAX_PROJECT_COUNT} 个附加项目`)
         return current
@@ -119,23 +159,10 @@ export function SessionProjectDirectoriesDialog({ sessionId, primaryCwd, onChang
           {!loaded || !projectsReady || initialPaths != null ? (
             <div className="grid min-h-40 place-items-center text-xs text-[var(--color-muted-foreground)]"><Loader2 className="mb-2 size-5 animate-spin" />正在加载项目…</div>
           ) : filtered.length ? (
-            <div className="grid gap-2 sm:grid-cols-2">
-              {filtered.map(project => {
-                const checked = selected.includes(project.path)
-                return (
-                  <button key={project.path} type="button" aria-pressed={checked} disabled={saving} onClick={() => toggle(project.path)}
-                    className={`flex min-w-0 items-center gap-2 rounded-lg border p-3 text-left ${checked ? 'border-blue-500 bg-blue-500/10' : 'hover:bg-[var(--color-muted)]'}`}>
-                    <span className={`grid size-8 shrink-0 place-items-center rounded-md ${checked ? 'bg-blue-600 text-white' : 'bg-[var(--color-muted)] text-[var(--color-muted-foreground)]'}`}>
-                      {checked ? <Check className="size-4" /> : <FolderGit2 className="size-4" />}
-                    </span>
-                    <span className="min-w-0">
-                      <span className="block truncate text-xs font-medium">{project.label}</span>
-                      <span className="block truncate text-[10px] text-[var(--color-muted-foreground)]" title={project.path}>{project.path}</span>
-                    </span>
-                  </button>
-                )
-              })}
-            </div>
+            <>
+              {renderGroup('已关联', linked, search.trim() ? '没有匹配的已关联项目' : '尚未关联其他项目')}
+              {renderGroup('未关联', unlinked, search.trim() ? '没有匹配的未关联项目' : '其他项目均已关联')}
+            </>
           ) : (
             <div className="grid min-h-40 place-items-center rounded-lg border border-dashed text-xs text-[var(--color-muted-foreground)]">{projects.length ? '没有匹配项目' : '没有其他可用项目；项目工作台中隐藏的项目不会显示'}</div>
           )}
