@@ -139,6 +139,7 @@ describe('MessageList 历史分页入口', () => {
       act(() => vi.advanceTimersByTime(20))
     }
     expect(scrolling.scrollToIndex).toHaveBeenCalledTimes(1)
+    expect(scrolling.scrollTo).toHaveBeenCalledExactlyOnceWith({ top: 2000, behavior: 'auto' })
     // 运行指标更新不产生新的定位意图；用户明确再次跳转才重启校正。
     view.rerender(<MessageList items={[{ kind: 'assistant', id: 'last', text: '当前回复' }]} running turnTokens={1200} />)
     fireEvent.scroll(scroller)
@@ -149,6 +150,18 @@ describe('MessageList 历史分页入口', () => {
     fireEvent.scroll(scroller)
     act(() => vi.advanceTimersByTime(20))
     expect(scrolling.scrollToIndex).toHaveBeenCalledTimes(3)
+  })
+
+  it('跳转后挂载的新滚动容器会主动校验，即使新容器没有上报滚动事件', () => {
+    vi.useFakeTimers()
+    render(<MessageList items={[{ kind: 'assistant', id: 'last', text: '最后一条消息' }]} running />)
+    act(() => vi.advanceTimersByTime(20))
+    fireEvent.wheel(screen.getByTestId('message-scroller'))
+    fireEvent.click(screen.getByRole('button', { name: '模拟离底' }))
+    fireEvent.click(screen.getByRole('button', { name: /跳到最新/ }))
+    scrolling.scrollToIndex.mockClear()
+    act(() => vi.advanceTimersByTime(20))
+    expect(scrolling.scrollToIndex).toHaveBeenCalledExactlyOnceWith({ index: 'LAST', align: 'end', behavior: 'auto' })
   })
 
   it('测量高度来回变化不重复争抢位置，真正的新高度仍可贴底', () => {
@@ -177,9 +190,9 @@ describe('MessageList 历史分页入口', () => {
   it('补偿校正等待下一帧时，用户回看立即撤销且不再拉回底部', () => {
     vi.useFakeTimers()
     const view = render(<MessageList sessionKey="first" items={[{ kind: 'assistant', id: 'long', text: '长回复' }]} running />)
-    const scroller = screen.getByTestId('message-scroller')
     fireEvent.click(screen.getByRole('button', { name: '模拟离底' }))
     fireEvent.click(screen.getByRole('button', { name: /跳到最新/ }))
+    const scroller = screen.getByTestId('message-scroller')
     scrolling.scrollToIndex.mockClear()
     fireEvent.scroll(scroller)
     fireEvent.wheel(scroller)
@@ -314,6 +327,7 @@ describe('MessageList 历史分页入口', () => {
     scrolling.scrollToIndex.mockClear()
     fireEvent.click(screen.getByRole('button', { name: '模拟贴底' }))
     fireEvent.click(screen.getByRole('button', { name: '模拟离底' }))
+    Object.defineProperty(screen.getByTestId('message-scroller'), 'scrollHeight', { configurable: true, value: 2600 })
     fireEvent.click(screen.getByRole('button', { name: '模拟高度校正' }))
     act(() => vi.advanceTimersByTime(20))
     expect(scrolling.scrollToIndex).toHaveBeenCalledExactlyOnceWith({ index: 'LAST', align: 'end', behavior: 'auto' })
@@ -337,6 +351,7 @@ describe('MessageList 历史分页入口', () => {
     fireEvent.click(screen.getByRole('button', { name: /跳到最新/ }))
     act(() => vi.advanceTimersByTime(20))
     scrolling.scrollToIndex.mockClear()
+    Object.defineProperty(screen.getByTestId('message-scroller'), 'clientHeight', { configurable: true, value: 320 })
     act(() => { callbacks.forEach(callback => callback([], {} as ResizeObserver)); vi.advanceTimersByTime(20) })
     expect(scrolling.scrollToIndex).toHaveBeenCalledExactlyOnceWith({ index: 'LAST', align: 'end', behavior: 'auto' })
     fireEvent.wheel(screen.getByRole('button', { name: '模拟离底' }))
@@ -360,7 +375,6 @@ describe('MessageList 历史分页入口', () => {
     render(<MessageList items={[{ kind: 'assistant', id: 'long', text: '长回复' }]} running={false} />)
     fireEvent.click(screen.getByRole('button', { name: '模拟离底' }))
     fireEvent.click(screen.getByRole('button', { name: /跳到最新/ }))
-    vi.advanceTimersByTime(20)
     scrolling.scrollToIndex.mockClear()
     fireEvent.click(screen.getByRole('button', { name: '模拟高度校正' }))
     fireEvent.click(screen.getByRole('button', { name: '模拟高度校正' }))
@@ -370,6 +384,7 @@ describe('MessageList 历史分页入口', () => {
     fireEvent.click(screen.getByRole('button', { name: '模拟高度校正' }))
     vi.advanceTimersByTime(20)
     expect(scrolling.scrollToIndex).toHaveBeenCalledTimes(1)
+    expect(scrolling.scrollTo).toHaveBeenCalledTimes(1)
     Object.defineProperty(screen.getByTestId('message-scroller'), 'scrollHeight', { configurable: true, value: 2800 })
     fireEvent.click(screen.getByRole('button', { name: '模拟高度校正' }))
     vi.advanceTimersByTime(20)
@@ -378,7 +393,7 @@ describe('MessageList 历史分页入口', () => {
     fireEvent.click(screen.getByRole('button', { name: '模拟高度校正' }))
     vi.advanceTimersByTime(20)
     expect(scrolling.scrollToIndex).toHaveBeenCalledTimes(2)
-    expect(scrolling.scrollTo).not.toHaveBeenCalled()
+    expect(scrolling.scrollTo).toHaveBeenCalledTimes(1)
     expect(scrolling.scrollToBottom).not.toHaveBeenCalled()
     vi.useRealTimers()
   })
@@ -427,6 +442,7 @@ describe('MessageList 历史分页入口', () => {
     expect(scrolling.scrollToIndex).not.toHaveBeenCalled()
     view.rerender(<MessageList sessionKey="a" items={newItems} running={false} onLoadLatest={onLoadLatest} />)
     expect(scrolling.scrollToIndex).toHaveBeenLastCalledWith({ index: 'LAST', align: 'end', behavior: 'auto' })
+    screen.getByTestId('message-scroller').scrollTop = 2000
     act(() => vi.advanceTimersByTime(20))
     expect(scrolling.scrollToIndex).toHaveBeenCalledTimes(1)
     expect(scrolling.scrollTo).not.toHaveBeenCalled()

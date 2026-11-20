@@ -20,7 +20,8 @@ function useBottomAlignment(sessionKey: string) {
   const [scroller, setScroller] = useState<HTMLElement | null>(null)
   const [listRevision, setListRevision] = useState(0)
   const followingHeightRef = useRef(false)
-  const correctedLayoutsRef = useRef(new Set<string>())
+  const explicitJumpRef = useRef(false)
+  const correctedLayoutsRef = useRef(new Map<string, 'last-item' | 'scroll-range'>())
   const frameRef = useRef<number | null>(null)
   const captureScroller = useCallback((element: HTMLElement | Window | null) => {
     scrollerRef.current = element instanceof HTMLElement ? element : null
@@ -30,29 +31,39 @@ function useBottomAlignment(sessionKey: string) {
     // 末项定位会随测量重试，并抑制跳转期间的反向补偿；瞬时 scrollHeight 不是最终目标。
     virtuosoRef.current?.scrollToIndex({ index: 'LAST', align: 'end', behavior: 'auto' })
   }, [])
-  const settleJump = useCallback(() => {
+  const settleJump = useCallback(function scheduleAlignment() {
     if (!followingHeightRef.current || frameRef.current !== null) return
     frameRef.current = requestAnimationFrame(() => {
       frameRef.current = null
       const scroller = scrollerRef.current
-      if (scroller && followingHeightRef.current
-        && scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop > LATEST_BOTTOM_TOLERANCE_PX) {
-        // 同一测量范围只补偿一次，防止原生 scroll 与 Virtuoso 的位置补偿互相触发。
-        const layout = `${scroller.scrollHeight}:${scroller.clientHeight}`
-        if (correctedLayoutsRef.current.has(layout)) return
-        correctedLayoutsRef.current.add(layout)
+      if (!scroller || !followingHeightRef.current || !scroller.clientHeight) return
+      const bottom = scroller.scrollHeight - scroller.clientHeight
+      if (bottom - scroller.scrollTop <= LATEST_BOTTOM_TOLERANCE_PX) return
+      const layout = `${scroller.scrollHeight}:${scroller.clientHeight}`
+      const correction = correctedLayoutsRef.current.get(layout)
+      if (!correction) {
+        correctedLayoutsRef.current.set(layout, 'last-item')
         scrollToLastItem()
+        if (explicitJumpRef.current) scheduleAlignment()
+      } else if (correction === 'last-item' && explicitJumpRef.current) {
+        // 同一尺寸下末项命令仍被补偿覆盖时，只按当前滚动范围再补一次。
+        correctedLayoutsRef.current.set(layout, 'scroll-range')
+        scroller.scrollTo({ top: bottom, behavior: 'auto' })
       }
     })
   }, [scrollToLastItem])
   const scrollToLatest = useCallback((resetMeasurements = false) => {
     followingHeightRef.current = true
     correctedLayoutsRef.current.clear()
-    if (resetMeasurements) setListRevision(revision => revision + 1)
+    if (resetMeasurements) {
+      explicitJumpRef.current = true
+      setListRevision(revision => revision + 1)
+    }
     scrollToLastItem()
   }, [scrollToLastItem])
   const cancelAlignment = useCallback(() => {
     followingHeightRef.current = false
+    explicitJumpRef.current = false
     correctedLayoutsRef.current.clear()
     if (frameRef.current !== null) { cancelAnimationFrame(frameRef.current); frameRef.current = null }
   }, [])
@@ -65,6 +76,8 @@ function useBottomAlignment(sessionKey: string) {
   }, [sessionKey, cancelAlignment])
   useLayoutEffect(() => {
     if (!scroller) return
+    // 显式跳转重建列表，新容器不一定立即产生滚动或尺寸事件。
+    if (explicitJumpRef.current) settleJump()
     // 虚拟列表可能在跳转后补偿位置而不改变总高度；只在跟随意图仍有效时补齐。
     scroller.addEventListener('scroll', settleJump, { passive: true })
     // 队列、运行状态或输入框会改变视口高度，消息总高度可能完全不变。
