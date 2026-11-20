@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ReactNode } from 'react'
 import type { SessionUsage } from '../api'
@@ -460,7 +460,7 @@ describe('MobileSessionStatus', () => {
       id, cwd: `D:/work/${id}`, title: id, sdkSessionId: null, status,
       startedAt: lastSeenAt, lastSeenAt, live: status === 'RUNNING',
     })
-    listSessions.mockResolvedValue([session('current', 'IDLE', 3), session('active', 'RUNNING', 2), session('recent', 'IDLE', 1), session('older', 'IDLE', 0),
+    listSessions.mockResolvedValue([session('current', 'IDLE', 3), { ...session('active', 'RUNNING', 2), engine: 'codex' }, session('recent', 'IDLE', 1), session('older', 'IDLE', 0),
       session('fifth', 'IDLE', -1), session('sixth', 'IDLE', -2),
       { ...session('locked', 'IDLE', 5), planExpired: true },
       { ...session('locked-active', 'RUNNING', 6), planExpired: true }])
@@ -479,6 +479,8 @@ describe('MobileSessionStatus', () => {
     expect(scrollable).toHaveClass('overflow-y-auto', 'overscroll-contain', 'min-h-0')
     expect(scrollable).toContainElement(screen.getByRole('button', { name: /sixth/ }))
     expect(screen.getByRole('button', { name: /current/ })).toHaveAttribute('aria-current', 'page')
+    expect(within(screen.getByRole('button', { name: /active/ })).getByRole('img', { name: 'Codex' })).toBeInTheDocument()
+    expect(within(screen.getByRole('button', { name: /current/ })).getByRole('img', { name: 'Claude' })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /active/ }))
     expect(onSwitchSession).toHaveBeenCalledWith('active', true)
   })

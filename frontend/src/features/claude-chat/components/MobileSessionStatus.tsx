@@ -29,6 +29,8 @@ import { currentActivityElapsed, hasExecutionNotice } from '../lib/mobileExecuti
 import { useMobileViewport } from '../hooks/useMobileViewport'
 import { useControlSheetViewport } from '../hooks/useControlSheetViewport'
 import { turnResultLabel } from '../lib/turnFailure'
+import { EngineIcon } from './EngineIcon'
+import { engineDisplayName } from './chatStatus'
 
 export type MobileSessionStatusModel = {
   kind: 'running' | 'background' | 'warning' | 'completed' | 'usage'
@@ -265,6 +267,8 @@ function SessionShortcuts({ title, sessions, currentId, onSelect }: {
         <button type="button" onClick={() => onSelect(session)} aria-current={session.id === currentId ? 'page' : undefined}
           className="flex min-h-11 w-full items-center gap-2 py-2 text-left focus-visible:outline-2 focus-visible:outline-[var(--color-ring)]">
           <span className="shrink-0 text-xs text-[var(--color-muted-foreground)]">{boardSessionState(session)}</span>
+          <EngineIcon engine={session.engine || 'claude'} thirdParty={session.providerKind === 'thirdParty'} className="size-3.5"
+            title={engineDisplayName(session.engine ?? 'claude', session.providerKind)} />
           <span className="min-w-0 flex-1 truncate font-medium">{sessionDisplayName(session)}</span>
           {session.id === currentId && <span className="shrink-0 text-xs text-[var(--color-muted-foreground)]">当前</span>}
           <span className="max-w-24 shrink-0 truncate text-xs text-[var(--color-muted-foreground)]" title={session.cwd}>{sessionWorkspaceLabel(session.cwd)}</span>
