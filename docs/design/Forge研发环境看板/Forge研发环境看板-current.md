@@ -24,7 +24,7 @@ Forge 研发环境看板把本机基础运行时、AI 研发工具和公司套�
 |---|---|---|
 | 核心前置 | Git、Node.js/npm、Python、uv、Claude Code、Codex CLI | 命令可执行且满足最低版本；缺失会阻断相关后续步骤 |
 | 研发方法工具 | Graphify、OpenSpec | CLI 可执行；Graphify 使用 `graphifyy` 包，OpenSpec 要求 Node.js 20.19+ |
-| 公司套件 | `project-coding-profiles`、`team-standards`、`yoooni-daily-plugin` | Claude Code 与 Codex 两端安装状态可见 |
+| 公司套件 | `project-coding-profiles`、`team-standards` | Claude Code 与 Codex 两端安装状态可见 |
 | 公司知识能力 | `domain-knowledge`、`cross-topology` | MCP 已注册，知识仓存在且引擎已构建 |
 | 公司依赖仓 | 五个固定 Gitee 仓库 | 本地仓存在、origin 匹配、提交状态可读 |
 | 本地源码构建 | Java 21、Maven 使用 Java 21 | 作为完整开发链告警；不阻断已打包 Forge 的环境初始化 |

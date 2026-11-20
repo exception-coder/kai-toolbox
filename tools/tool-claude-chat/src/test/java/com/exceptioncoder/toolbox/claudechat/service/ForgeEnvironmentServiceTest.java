@@ -155,7 +155,6 @@ class ForgeEnvironmentServiceTest {
         return List.of(
                 suite("team-standards", "plugin", "1.0.0", "1.0.0", null),
                 suite("project-coding-profiles", "plugin", "1.0.0", "1.0.0", null),
-                suite("yoooni-daily-plugin", "plugin", "1.0.0", "1.0.0", null),
                 suite("domain-knowledge", "mcp", null, null, "abc123"),
                 suite("cross-topology", "mcp", null, null, "def456"));
     }
@@ -169,7 +168,7 @@ class ForgeEnvironmentServiceTest {
 
     private List<TeamRepositoryStatusView> readyRepositories() {
         return List.of("cross-project-topology", "project-coding-profiles", "project-domain-knowledge",
-                        "team-standards", "yoooni-daily-plugin")
+                        "team-standards")
                 .stream()
                 .map(name -> new TeamRepositoryStatusView(name, true, "gitee", true,
                         "abc123", "2026-08-26", null, 0, 0, false, false))

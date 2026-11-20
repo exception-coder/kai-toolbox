@@ -70,7 +70,7 @@ public class PluginUpdateService {
 
     private static final List<String> DEPENDENCY_REPOS = List.of(
             "project-coding-profiles",
-            "team-standards", "yoooni-daily-plugin");
+            "team-standards");
     private static final long MAX_NEW_FILE_BYTES = 2L * 1024 * 1024;
     private static final List<String> APPROVED_NEW_ROOTS = List.of(
             ".agents", ".claude", ".claude-plugin", ".codex-plugin", "docs", "hooks", "knowledge",
@@ -86,12 +86,10 @@ public class PluginUpdateService {
     private static final String SYNC_STATE_FILE = ".forge-sync-state.json";
     private static final Map<String, String> GITEE_OWNERS = Map.ofEntries(
             Map.entry("project-coding-profiles", "wyoooni"),
-            Map.entry("team-standards", "wyoooni"),
-            Map.entry("yoooni-daily-plugin", "wyoooni"));
+            Map.entry("team-standards", "wyoooni"));
     private static final Map<String, String> GITHUB_OWNERS = Map.ofEntries(
             Map.entry("project-coding-profiles", "exception-coder"),
-            Map.entry("team-standards", "exception-coder"),
-            Map.entry("yoooni-daily-plugin", "exception-coder"));
+            Map.entry("team-standards", "exception-coder"));
 
     public PluginUpdateService(PluginUpdateProperties props, ClaudeChatProperties chatProps,
                                ClaudeChatSessionRepository sessionRepository,

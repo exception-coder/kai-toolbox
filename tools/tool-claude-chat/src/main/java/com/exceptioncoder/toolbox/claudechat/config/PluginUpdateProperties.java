@@ -41,7 +41,7 @@ public class PluginUpdateProperties {
 
     /** 「团队套件」面板展示的插件（按此顺序），从 ~/.claude/plugins 读版本。 */
     private List<String> watchedPlugins = List.of(
-            "project-coding-profiles", "team-standards", "yoooni-daily-plugin");
+            "project-coding-profiles", "team-standards");
 
     /** 「团队套件」面板展示的 MCP server（按此顺序），从 ~/.claude.json 的 mcpServers 判断是否已配置。 */
     private List<String> watchedMcps = List.of();

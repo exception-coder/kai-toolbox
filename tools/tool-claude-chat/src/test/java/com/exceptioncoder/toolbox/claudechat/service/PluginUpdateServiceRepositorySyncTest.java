@@ -40,7 +40,7 @@ class PluginUpdateServiceRepositorySyncTest {
         try (MockedStatic<PluginUpdateService> routes = mockStatic(PluginUpdateService.class, CALLS_REAL_METHODS)) {
             routes.when(() -> PluginUpdateService.repoUrl(anyString(), anyString())).thenReturn(remote.toString());
             List<Map<String, Object>> first = service.syncRepositories("first", "github");
-            assertEquals(3, first.size());
+            assertEquals(2, first.size());
             assertTrue(first.stream().allMatch(PluginUpdateService::stepSucceeded));
             assertFalse(Files.exists(workspace.resolve("cross-project-topology")));
             assertTrue(first.stream().allMatch(result -> result.get("step").toString().startsWith("clone:")));
