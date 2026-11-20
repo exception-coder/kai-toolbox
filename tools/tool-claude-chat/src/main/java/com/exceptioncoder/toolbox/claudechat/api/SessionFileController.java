@@ -171,6 +171,13 @@ public class SessionFileController {
         return linkedText(id, path, SessionArtifactReferenceService.Kind.SQL, MAX_LINKED_DOCUMENT_BYTES, "SQL 文件");
     }
 
+    /** 只读 HTML 原文，由前端放入无同源权限的沙箱渲染；后端不执行、不改写页面。 */
+    @GetMapping("/html")
+    @RequireAuth
+    public FileContentView html(@PathVariable String id, @RequestParam String path) {
+        return linkedText(id, path, SessionArtifactReferenceService.Kind.HTML, MAX_LINKED_DOCUMENT_BYTES, "HTML 文件");
+    }
+
     private FileContentView linkedText(String id, String path, SessionArtifactReferenceService.Kind kind,
                                        int maxBytes, String label) {
         if (!sessionAccess.canAccessCurrentUser(id)) {
@@ -192,12 +199,14 @@ public class SessionFileController {
             case DIAGRAM -> ".drawio / .drawio.xml";
             case MARKDOWN -> ".md / .markdown";
             case SQL -> ".sql";
+            case HTML -> ".html / .htm";
             default -> throw new IllegalArgumentException("不支持的文本预览类型");
         };
         boolean supported = switch (kind) {
             case DIAGRAM -> lower.endsWith(".drawio") || lower.endsWith(".drawio.xml");
             case MARKDOWN -> lower.endsWith(".md") || lower.endsWith(".markdown");
             case SQL -> lower.endsWith(".sql");
+            case HTML -> lower.endsWith(".html") || lower.endsWith(".htm");
             default -> false;
         };
         if (!supported || !Files.isRegularFile(target)) {

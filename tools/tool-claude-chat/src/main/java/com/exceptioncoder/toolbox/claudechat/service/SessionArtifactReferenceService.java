@@ -27,7 +27,8 @@ public class SessionArtifactReferenceService {
     private static final Pattern INLINE_CODE = Pattern.compile("`([^`\\r\\n]+)`");
     private static final Pattern IMAGE_FILE = Pattern.compile("(?i).+\\.(?:png|jpe?g|gif|webp|bmp|avif)$");
     private static final Pattern LOCATION_SUFFIX = Pattern.compile("(?::\\d+(?::\\d+)?|#L\\d+)$", Pattern.CASE_INSENSITIVE);
-    public enum Kind { IMAGE, DIAGRAM, MARKDOWN, SQL }
+    private static final Pattern HTML_FILE = Pattern.compile("(?i).+\\.html?$");
+    public enum Kind { IMAGE, DIAGRAM, MARKDOWN, SQL, HTML }
     private record Reference(Kind kind, Path path) { }
     private final SessionHistoryService history;
     private final ProjectAccess projectAccess;
@@ -51,14 +52,14 @@ public class SessionArtifactReferenceService {
                 while (matches.find()) {
                     String raw = matches.group(1) == null ? matches.group(2) : matches.group(1);
                     String linkedPath = kind == Kind.IMAGE ? raw : LOCATION_SUFFIX.matcher(raw).replaceFirst("");
-                    if (kind == Kind.MARKDOWN || kind == Kind.SQL) linkedPath = linkedPath.split("#", 2)[0];
+                    if (kind == Kind.MARKDOWN || kind == Kind.SQL || kind == Kind.HTML) linkedPath = linkedPath.split("#", 2)[0];
                     Path path = localPath(linkedPath);
                     if (path != null && path.isAbsolute() && supports(kind, path)) {
                         paths.add(new Reference(kind, path.normalize()));
                     }
                 }
             }
-            // 助手也常以普通链接或行内代码给出图片路径；仅按图片扩展名登记，读取时仍校验内容。
+            // 助手也常以普通链接或行内代码给出图片或 HTML 路径；仅按扩展名登记，读取时仍校验内容。
             for (Pattern pattern : List.of(LINK, INLINE_CODE)) {
                 var matches = pattern.matcher(item.text());
                 while (matches.find()) {
@@ -67,6 +68,8 @@ public class SessionArtifactReferenceService {
                     Path path = localPath(raw);
                     if (path != null && path.isAbsolute() && IMAGE_FILE.matcher(path.toString()).matches()) {
                         paths.add(new Reference(Kind.IMAGE, path.normalize()));
+                    } else if (path != null && path.isAbsolute() && HTML_FILE.matcher(path.toString()).matches()) {
+                        paths.add(new Reference(Kind.HTML, path.normalize()));
                     }
                 }
             }
@@ -118,6 +121,7 @@ public class SessionArtifactReferenceService {
             case DIAGRAM -> name.endsWith(".drawio") || name.endsWith(".drawio.xml");
             case MARKDOWN -> name.endsWith(".md") || name.endsWith(".markdown");
             case SQL -> name.endsWith(".sql");
+            case HTML -> name.endsWith(".html") || name.endsWith(".htm");
         };
     }
 

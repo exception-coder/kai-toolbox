@@ -22,6 +22,7 @@ import '../styles/content-rendering.css'
 const MessageDrawioDialog = lazy(() => import('./messages/MessageDrawioDialog').then(module => ({ default: module.MessageDrawioDialog })))
 const MessageMarkdownDialog = lazy(() => import('./messages/MessageMarkdownDialog').then(module => ({ default: module.MessageMarkdownDialog })))
 const MessageSqlDialog = lazy(() => import('./messages/MessageSqlDialog').then(module => ({ default: module.MessageSqlDialog })))
+const MessageHtmlDialog = lazy(() => import('./messages/MessageHtmlDialog').then(module => ({ default: module.MessageHtmlDialog })))
 const LocalImageViewer = lazy(() => import('./messages/LocalImageViewer').then(module => ({ default: module.LocalImageViewer })))
 const InlineLocalFile = lazy(() => import('./messages/InlineLocalFile').then(module => ({ default: module.InlineLocalFile })))
 
@@ -147,10 +148,11 @@ function MarkdownPart({ text, className, sessionId, documentPath, onOpenMarkdown
   const [diagram, setDiagram] = useState<{ sessionId: string; path: string; trigger: HTMLElement } | null>(null)
   const [markdownDocument, setMarkdownDocument] = useState<{ sessionId: string; path: string; trigger: HTMLElement } | null>(null)
   const [sqlDocument, setSqlDocument] = useState<{ sessionId: string; path: string; trigger: HTMLElement } | null>(null)
+  const [htmlDocument, setHtmlDocument] = useState<{ sessionId: string; path: string; trigger: HTMLElement } | null>(null)
   const [pagePreview, setPagePreview] = useState<{ sessionId?: string; path: string; trigger: HTMLAnchorElement } | null>(null)
   const [imageViewer, setImageViewer] = useState<{ src: string; alt: string } | null>(null)
   const [localImage, setLocalImage] = useState<{ sessionId: string; path: string; trigger: HTMLElement } | null>(null)
-  useEffect(() => { setDiagram(null); setMarkdownDocument(null); setSqlDocument(null); setPagePreview(null); setImageViewer(null); setLocalImage(null) }, [sessionId, documentPath])
+  useEffect(() => { setDiagram(null); setMarkdownDocument(null); setSqlDocument(null); setHtmlDocument(null); setPagePreview(null); setImageViewer(null); setLocalImage(null) }, [sessionId, documentPath])
   const openImage = useCallback((src: string, alt: string) => setImageViewer({ src, alt }), [])
   const [imageTargets, setImageTargets] = useState<{ html: string | null; sessionId?: string; targets: HTMLSpanElement[] }>({ html: null, targets: [] })
   const html = useMemo(() => {
@@ -163,6 +165,7 @@ function MarkdownPart({ text, className, sessionId, documentPath, onOpenMarkdown
         delete anchor.dataset.diagramPath
         delete anchor.dataset.markdownPath
         delete anchor.dataset.sqlPath
+        delete anchor.dataset.htmlPath
         delete anchor.dataset.pagePreview
         delete anchor.dataset.imagePath
         if (documentPath) {
@@ -194,6 +197,13 @@ function MarkdownPart({ text, className, sessionId, documentPath, onOpenMarkdown
           anchor.dataset.sqlPath = sqlPath
           anchor.href = '#'
           anchor.title = `预览 SQL：${sqlPath}`
+          return
+        }
+        const htmlPath = htmlPathFromHref(anchor.getAttribute('href'))
+        if (htmlPath) {
+          anchor.dataset.htmlPath = htmlPath
+          anchor.href = '#'
+          anchor.title = `预览 HTML：${htmlPath}`
           return
         }
         const imagePath = localImageReference(anchor.getAttribute('href'))
@@ -233,15 +243,17 @@ function MarkdownPart({ text, className, sessionId, documentPath, onOpenMarkdown
           ;(heading as HTMLElement).dataset.documentAnchor = count ? `${slug}-${count}` : slug
         })
       }
-      // 助手常把图片路径写成行内代码；包成可点的查看入口，手机端也能经会话读取原图。
+      // 助手常把图片、HTML 路径写成行内代码；包成可点的查看入口，手机端也能经会话读取原文件。
       doc.querySelectorAll<HTMLElement>('code').forEach(code => {
         if (code.closest('pre, a')) return
-        const imagePath = localImageReference(code.textContent?.trim() ?? null)
-        if (!imagePath) return
+        const value = code.textContent?.trim() ?? null
+        const imagePath = localImageReference(value)
+        const htmlPath = imagePath ? null : localHtmlReference(value)
+        if (!imagePath && !htmlPath) return
         const anchor = doc.createElement('a')
         anchor.href = '#'
-        anchor.dataset.imagePath = imagePath
-        anchor.title = `查看图片：${imagePath}`
+        if (imagePath) { anchor.dataset.imagePath = imagePath; anchor.title = `查看图片：${imagePath}` }
+        else { anchor.dataset.htmlPath = htmlPath!; anchor.title = `预览 HTML：${htmlPath}` }
         code.replaceWith(anchor)
         anchor.append(code)
       })
@@ -269,7 +281,7 @@ function MarkdownPart({ text, className, sessionId, documentPath, onOpenMarkdown
   }, [text, documentPath])
 
   const markup = useMemo(() => ({ __html: html ?? '' }), [html])
-  const fileBlocks = useMemo(() => inlineFiles && !documentPath && html && /data-(?:(?:diagram|markdown|sql)-path|page-preview)=/.test(html)
+  const fileBlocks = useMemo(() => inlineFiles && !documentPath && html && /data-(?:(?:diagram|markdown|sql|html)-path|page-preview)=/.test(html)
     ? inlineFileBlocks(html, { files: !!sessionId, pages: !inlinePagePreviewsSuppressed() })
     : null, [inlineFiles, sessionId, documentPath, html])
 
@@ -278,6 +290,7 @@ function MarkdownPart({ text, className, sessionId, documentPath, onOpenMarkdown
     const selection = { sessionId, path: reference.path, trigger }
     if (reference.kind === 'diagram') setDiagram(selection)
     else if (reference.kind === 'markdown') setMarkdownDocument(selection)
+    else if (reference.kind === 'html') setHtmlDocument(selection)
     else setSqlDocument(selection)
   }
 
@@ -356,6 +369,13 @@ function MarkdownPart({ text, className, sessionId, documentPath, onOpenMarkdown
       event.preventDefault()
       if (!sessionId) setLocalPathNotice({ tone: 'error', text: '当前视图没有可用的会话，无法读取 SQL 文件' })
       else setSqlDocument({ sessionId, path: sqlLink.dataset.sqlPath!, trigger: sqlLink })
+      return
+    }
+    const htmlLink = target.closest<HTMLAnchorElement>('a[data-html-path]')
+    if (htmlLink) {
+      event.preventDefault()
+      if (!sessionId) setLocalPathNotice({ tone: 'error', text: '当前视图没有可用的会话，无法读取 HTML 文件' })
+      else setHtmlDocument({ sessionId, path: htmlLink.dataset.htmlPath!, trigger: htmlLink })
       return
     }
     const imageLink = target.closest<HTMLAnchorElement>('a[data-image-path]')
@@ -492,6 +512,12 @@ function MarkdownPart({ text, className, sessionId, documentPath, onOpenMarkdown
         const target = sqlDocument.trigger.isConnected ? sqlDocument.trigger : replacement ?? content.current
         target?.focus({ preventScroll: true })
       }} /></Suspense>}
+      {htmlDocument && sessionId && htmlDocument.sessionId === sessionId && <Suspense fallback={<p role="status" className="mt-2 text-sm">正在打开 HTML 预览…</p>}><MessageHtmlDialog key={`${sessionId}:${htmlDocument.path}`} sessionId={sessionId} path={htmlDocument.path} onClose={() => setHtmlDocument(null)} returnFocus={() => {
+        const replacement = Array.from(content.current?.querySelectorAll<HTMLAnchorElement>('a[data-html-path]') ?? [])
+          .find(anchor => anchor.dataset.htmlPath === htmlDocument.path)
+        const target = htmlDocument.trigger.isConnected ? htmlDocument.trigger : replacement ?? content.current
+        target?.focus({ preventScroll: true })
+      }} /></Suspense>}
       {imageViewer && <ImageLightbox src={imageViewer.src} alt={imageViewer.alt} onClose={() => setImageViewer(null)} />}
       {localImage && sessionId && localImage.sessionId === sessionId && <Suspense fallback={null}><LocalImageViewer key={`${sessionId}:${localImage.path}`}
         sessionId={sessionId} path={localImage.path} onClose={() => {
@@ -558,6 +584,19 @@ function diagramPathFromHref(href: string | null): string | null {
     const decoded = decodeURIComponent(value)
     return isDrawioFile(decoded) ? decoded : null
   } catch { return null }
+}
+
+const LOCAL_HTML_EXTENSION = /\.html?$/i
+
+/** 链接指向本地 HTML 文件；网页 URL 与站内路由保持普通链接。 */
+function htmlPathFromHref(href: string | null): string | null {
+  return textPathFromHref(href, LOCAL_HTML_EXTENSION)
+}
+
+/** 行内代码只识别明确的本地绝对或相对路径，避免把普通文件名当成可读取引用。 */
+function localHtmlReference(value: string | null): string | null {
+  const path = localPathFromHref(value)
+  return path && LOCAL_HTML_EXTENSION.test(path) ? path : null
 }
 
 function markdownPathFromHref(href: string | null): string | null {

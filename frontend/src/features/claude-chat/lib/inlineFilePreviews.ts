@@ -1,6 +1,6 @@
 import { inlinePagePreviewEntryFromHref } from '@/features/browser-request/public-api/page-preview'
 
-export type InlineFileKind = 'markdown' | 'sql' | 'diagram'
+export type InlineFileKind = 'markdown' | 'sql' | 'diagram' | 'html'
 export interface InlineFileReference { kind: InlineFileKind; path: string; label: string }
 export interface InlinePageReference { path: string; label: string }
 export interface InlineFileBlock { html: string; files: InlineFileReference[]; pages: InlinePageReference[] }
@@ -26,8 +26,8 @@ export function inlineFileBlocks(html: string, options = { files: true, pages: f
         }
         if (!options.files) continue
         const kind: InlineFileKind | undefined = element.dataset.diagramPath ? 'diagram'
-          : element.dataset.markdownPath ? 'markdown' : element.dataset.sqlPath ? 'sql' : undefined
-        const path = element.dataset.diagramPath || element.dataset.markdownPath || element.dataset.sqlPath
+          : element.dataset.markdownPath ? 'markdown' : element.dataset.sqlPath ? 'sql' : element.dataset.htmlPath ? 'html' : undefined
+        const path = element.dataset.diagramPath || element.dataset.markdownPath || element.dataset.sqlPath || element.dataset.htmlPath
         if (!kind || !path) continue
         const key = `${kind}:${path.replace(/\\/g, '/')}`
         if (seen.has(key)) continue

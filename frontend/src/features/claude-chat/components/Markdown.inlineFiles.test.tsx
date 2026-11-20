@@ -3,8 +3,8 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, expect, it, vi } from 'vitest'
 import { Markdown } from './Markdown'
 
-const api = vi.hoisted(() => ({ markdown: vi.fn(), sql: vi.fn(), diagram: vi.fn(), open: vi.fn() }))
-vi.mock('../api', () => ({ readSessionMarkdown: api.markdown, readSessionSql: api.sql, readSessionDiagram: api.diagram, openSessionLocalPath: api.open }))
+const api = vi.hoisted(() => ({ markdown: vi.fn(), sql: vi.fn(), diagram: vi.fn(), html: vi.fn(), open: vi.fn() }))
+vi.mock('../api', () => ({ readSessionMarkdown: api.markdown, readSessionSql: api.sql, readSessionDiagram: api.diagram, readSessionHtml: api.html, openSessionLocalPath: api.open }))
 vi.mock('@uiw/react-codemirror', () => ({ default: ({ value }: { value: string }) => <pre data-testid="sql-content">{value}</pre> }))
 vi.mock('@/features/doc-viewer/public-api/drawio', () => ({ isDrawioFile: (path: string) => /\.drawio(?:\.xml)?$/i.test(path), DrawioPreview: ({ content }: { content: string }) => <div data-testid="diagram-content">{content}</div> }))
 const clients: QueryClient[] = []
@@ -85,4 +85,24 @@ it('cancels inline reads on session change and ignores the late old-session resu
   await act(async () => finish(file('old session text')))
   expect(screen.queryByText('old session text')).not.toBeInTheDocument()
   expect(screen.queryByTestId('sql-content')).not.toBeInTheDocument()
+})
+
+it('renders local HTML from links or inline code in an isolated sandbox and expands it', async () => {
+  vi.stubGlobal('IntersectionObserver', undefined)
+  api.html.mockResolvedValue(file('<h1>流程图</h1><script>window.ok = 1</script>', 'D:/project/flow.html'))
+  const view = setup('文件位置：`D:\\project\\flow.html`。\n\n[同一文件](D:/project/flow.html) [网页](https://example.org/page.html)\n\n```text\nD:/project/never.html\n```')
+  const region = await screen.findByRole('region', { name: 'HTML 文件预览：D:\\project\\flow.html' })
+  await waitFor(() => expect(region.querySelector('iframe')).not.toBeNull())
+  const frame = region.querySelector('iframe')!
+  expect(frame).toHaveAttribute('sandbox', 'allow-scripts allow-popups')
+  expect(frame.getAttribute('sandbox')).not.toContain('allow-same-origin')
+  expect(frame).toHaveAttribute('srcdoc', '<h1>流程图</h1><script>window.ok = 1</script>')
+  // 反斜杠与正斜杠写法指向同一文件，只渲染一次。
+  expect(view.container.querySelectorAll('[data-inline-file]')).toHaveLength(1)
+  expect(api.html).toHaveBeenCalledExactlyOnceWith('session', 'D:\\project\\flow.html', expect.any(AbortSignal))
+  expect(api.html).not.toHaveBeenCalledWith('session', 'D:/project/never.html', expect.anything())
+  expect(screen.getByRole('link', { name: '网页' })).not.toHaveAttribute('data-html-path')
+  fireEvent.click(within(region).getByRole('button', { name: /^展开文件/ }))
+  const dialog = await screen.findByRole('dialog')
+  await waitFor(() => expect(dialog.querySelector('iframe')).toHaveAttribute('sandbox', 'allow-scripts allow-popups'))
 })

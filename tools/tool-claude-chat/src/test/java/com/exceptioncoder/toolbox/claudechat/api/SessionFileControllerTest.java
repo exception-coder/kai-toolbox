@@ -55,6 +55,22 @@ class SessionFileControllerTest {
     }
 
     @Test
+    void htmlReadsSourceOnlyWithinTheSessionBoundary(@TempDir Path directory) throws Exception {
+        var controller = controller(directory, List.of());
+        String page = "<!doctype html><h1>流程</h1><script>render()</script>";
+        Files.writeString(directory.resolve("flow.HTML"), page);
+        Files.writeString(directory.resolve("legacy.htm"), "<p>旧页</p>");
+        assertEquals(page, controller.html("session", "flow.HTML").content());
+        assertEquals("<p>旧页</p>", controller.html("session", "legacy.htm").content());
+        assertThrows(IllegalArgumentException.class, () -> controller.html("session", "../outside.html"));
+        assertThrows(IllegalArgumentException.class, () -> controller.sql("session", "flow.HTML"));
+        Files.writeString(directory.resolve("notes.txt"), "text");
+        assertThrows(IllegalArgumentException.class, () -> controller.html("session", "notes.txt"));
+        var denied = new SessionFileController(repository(directory), access(List.of()), references(), mock(ClaudeChatSessionAccessPolicy.class));
+        assertEquals(403, assertThrows(ResponseStatusException.class, () -> denied.html("session", "flow.HTML")).getStatusCode().value());
+    }
+
+    @Test
     void readsCompleteDiagramAboveTextPreviewLimit(@TempDir Path directory) throws IOException {
         var controller = controller(directory, List.of());
         String text = "<mxGraphModel><!--" + " ".repeat(600 * 1024) + "--><root/></mxGraphModel>";

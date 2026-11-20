@@ -11,7 +11,7 @@
 [data-workbench-theme] .markdown-body mark { color: var(--wb-emphasis); background: color-mix(in oklab, var(--wb-emphasis) 14%, var(--wb-surface)); border-radius: 3px; padding-inline: .15em; }
 [data-workbench-theme] .markdown-body :is(ul,ol) > li::marker { color: var(--wb-heading); font-weight: 600; }
 [data-workbench-theme] .markdown-body a { color: var(--wb-link); text-decoration-thickness: 1px; }
-[data-workbench-theme] .markdown-body a:is([data-local-path],[data-markdown-path],[data-sql-path],[data-diagram-path]) { font-family: var(--font-mono, monospace); text-underline-offset: 4px; }
+[data-workbench-theme] .markdown-body a:is([data-local-path],[data-markdown-path],[data-sql-path],[data-diagram-path],[data-html-path]) { font-family: var(--font-mono, monospace); text-underline-offset: 4px; }
 [data-workbench-theme] .markdown-body :not(pre) > code { color: var(--wb-inline-code); background: color-mix(in oklab, var(--wb-inline-code) 10%, var(--wb-sidebar)); border: 1px solid color-mix(in oklab, var(--wb-inline-code) 24%, var(--wb-border)); padding: .1em .35em; }
 [data-workbench-theme] .markdown-body code[data-reference='api'] { color: var(--wb-syntax-function); }
 [data-workbench-theme] .markdown-body code[data-reference='path'] { border-bottom-color: var(--wb-inline-code); }

@@ -509,6 +509,11 @@ export function readSessionSql(sessionId: string, path: string, signal?: AbortSi
   return http<FileContent>(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/sql?path=${encodeURIComponent(path)}`, { signal })
 }
 
+/** 只读 HTML 原文，前端放入无同源权限的沙箱渲染。 */
+export function readSessionHtml(sessionId: string, path: string, signal?: AbortSignal) {
+  return http<FileContent>(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/html?path=${encodeURIComponent(path)}`, { signal })
+}
+
 /** 本地图片经会话鉴权读取；不把服务器磁盘路径作为浏览器 URL。 */
 export async function readSessionImage(sessionId: string, path: string, signal?: AbortSignal): Promise<Blob> {
   const response = await authFetch(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/image?path=${encodeURIComponent(path)}`, { signal })

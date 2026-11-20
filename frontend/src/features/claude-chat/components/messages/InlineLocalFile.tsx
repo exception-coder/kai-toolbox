@@ -3,14 +3,15 @@ import { useQuery } from '@tanstack/react-query'
 import { Copy, Maximize2, RefreshCw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { DrawioPreview } from '@/features/doc-viewer/public-api/drawio'
-import { readSessionDiagram, readSessionMarkdown, readSessionSql } from '../../api'
+import { readSessionDiagram, readSessionHtml, readSessionMarkdown, readSessionSql } from '../../api'
+import { HtmlFileFrame } from './HtmlFileFrame'
 import type { InlineFileReference } from '../../lib/inlineFilePreviews'
 
 const Markdown = lazy(() => import('../Markdown').then(module => ({ default: module.Markdown })))
 const SqlFileContent = lazy(() => import('./SqlFileContent').then(module => ({ default: module.SqlFileContent })))
-const readers = { markdown: readSessionMarkdown, sql: readSessionSql, diagram: readSessionDiagram }
-const keys = { markdown: 'message-markdown', sql: 'message-sql', diagram: 'message-drawio' }
-const labels = { markdown: 'Markdown', sql: 'SQL', diagram: 'draw.io' }
+const readers = { markdown: readSessionMarkdown, sql: readSessionSql, diagram: readSessionDiagram, html: readSessionHtml }
+const keys = { markdown: 'message-markdown', sql: 'message-sql', diagram: 'message-drawio', html: 'message-html' }
+const labels = { markdown: 'Markdown', sql: 'SQL', diagram: 'draw.io', html: 'HTML' }
 
 /** Visible references read themselves; nested document references remain ordinary preview links. */
 export function InlineLocalFile({ sessionId, reference, onExpand }: {
@@ -52,12 +53,13 @@ export function InlineLocalFile({ sessionId, reference, onExpand }: {
       <Button variant="ghost" className="min-h-11 min-w-11 px-2" aria-label={`展开文件 ${label}`} onClick={event => onExpand(event.currentTarget)}><Maximize2 className="size-4" /></Button>
     </header>
     {notice && <p role="status" className="px-3 py-2 text-xs">{notice}</p>}
-    <div className={kind === 'diagram' ? 'h-96 min-w-0 overflow-hidden' : 'h-72 min-w-0 overflow-auto overscroll-contain [&_.cm-editor]:h-full [&_.cm-scroller]:overflow-auto'}>
+    <div className={kind === 'diagram' || kind === 'html' ? 'h-96 min-w-0 overflow-hidden' : 'h-72 min-w-0 overflow-auto overscroll-contain [&_.cm-editor]:h-full [&_.cm-scroller]:overflow-auto'}>
       {!visible || file.isPending ? <p role="status" className="p-3 text-xs text-[var(--color-muted-foreground)]">{visible ? '正在读取文件…' : '进入阅读区域后自动显示…'}</p>
         : file.isError ? <div role="alert" className="space-y-2 p-3 text-sm"><p>{file.error.message}</p><Button variant="outline" disabled={file.isFetching} onClick={() => void file.refetch()}>重试读取</Button></div>
           : !file.data.content.trim() ? <p className="p-3 text-sm text-[var(--color-muted-foreground)]">文件为空。</p>
             : <Suspense fallback={<p role="status" className="p-3 text-xs">正在渲染文件…</p>}>
               {kind === 'diagram' ? <DrawioPreview content={file.data.content} name={file.data.name} />
+                : kind === 'html' ? <HtmlFileFrame content={file.data.content} title={label} />
                 : kind === 'sql' ? <SqlFileContent content={file.data.content} />
                   : <div className="p-3"><Markdown text={file.data.content} sessionId={sessionId} documentPath={file.data.path} /></div>}
             </Suspense>}
