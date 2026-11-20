@@ -5,6 +5,7 @@ import { fetchUsage, type EngineUsage, type SessionUsage, type UsageWindow } fro
 import { SubscriptionQuotaSection, type QuotaContext } from './SubscriptionQuotaSection'
 import type { ClaudeChatSessionView, EngineCatalogView } from '../types'
 import { abbr } from '../lib/metrics'
+import { cn } from '@/lib/utils'
 
 const ENGINE_LABEL: Record<string, string> = { claude: 'Claude Code', codex: 'Codex', antigravity: 'Antigravity' }
 const WINDOWS = [
@@ -18,7 +19,8 @@ export function UsagePanel({ onClose, session, quotaContext, quotaSessions, engi
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [onClose])
-  return <div className="fixed inset-0 z-[70] flex items-start justify-center bg-black/40 p-4 pt-[8vh]" onClick={onClose}><UsageContent session={session} quotaContext={quotaContext} quotaSessions={quotaSessions} engineCatalog={engineCatalog} onClose={onClose} /></div>
+  // 手机为底部抽屉，桌面为居中弹层；两者都只有正文一个滚动区。
+  return <div className="fixed inset-0 z-[70] flex items-end justify-center bg-black/40 sm:items-start sm:p-4 sm:pt-[8vh]" onClick={onClose}><UsageContent session={session} quotaContext={quotaContext} quotaSessions={quotaSessions} engineCatalog={engineCatalog} onClose={onClose} /></div>
 }
 
 export function UsageWorkspace({ session, quotaContext, quotaSessions, engineCatalog }: { session?: SessionUsage | null; quotaContext?: QuotaContext; quotaSessions?: readonly ClaudeChatSessionView[]; engineCatalog?: EngineCatalogView }) {
@@ -29,34 +31,38 @@ function UsageContent({ session, quotaContext, quotaSessions, engineCatalog, emb
   const usageQuery = useQuery({ queryKey: ['claude-chat-usage'], queryFn: fetchUsage, staleTime: 30_000 })
   const [win, setWin] = useState<WindowKey>('today')
   return (
-    <section role={embedded ? 'region' : 'dialog'} aria-label={embedded ? '会话用量' : '本地用量'}
-      className={embedded ? 'flex min-h-0 flex-1 flex-col overflow-hidden bg-[var(--color-background)]' : 'flex max-h-[80vh] w-full max-w-3xl flex-col overflow-hidden rounded-xl border border-[var(--color-border)] bg-[var(--color-card)] shadow-xl'}
+    <section role={embedded ? 'region' : 'dialog'} aria-label={embedded ? '会话用量' : '用量与额度'}
+      className={embedded ? 'flex min-h-0 flex-1 flex-col overflow-hidden bg-[var(--color-background)]'
+        : 'flex max-h-[85dvh] w-full flex-col overflow-hidden rounded-t-2xl border border-[var(--color-border)] bg-[var(--color-card)] shadow-xl sm:max-h-[80vh] sm:max-w-xl sm:rounded-xl'}
       onClick={event => event.stopPropagation()}>
-      <header className="flex min-h-14 items-center gap-3 border-b border-[var(--color-border)] px-5">
-        <div><h2 className="text-sm font-semibold">用量</h2><p className="text-xs text-[var(--color-muted-foreground)]">本地日志统计与账号额度</p></div>
-        <div className="ml-auto flex items-center gap-1 rounded-lg bg-[var(--color-muted)]/60 p-1" aria-label="统计时间范围">
-          {WINDOWS.map(item => <button key={item.key} type="button" onClick={() => setWin(item.key)} aria-pressed={win === item.key}
-            className={`rounded-md px-3 py-1.5 text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-ring)] ${win === item.key ? 'bg-[var(--color-background)] font-medium text-[var(--color-foreground)] shadow-sm' : 'text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]'}`}>{item.label}</button>)}
-        </div>
-        {onClose && <button type="button" onClick={onClose} aria-label="关闭" className="rounded-md p-2 text-[var(--color-muted-foreground)] hover:bg-[var(--color-muted)] hover:text-[var(--color-foreground)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-ring)]"><X className="size-4" /></button>}
+      <header className="relative flex min-h-12 shrink-0 items-center gap-2 border-b border-[var(--color-border)] px-4">
+        {!embedded && <span aria-hidden="true" className="absolute left-1/2 top-1.5 h-1 w-10 -translate-x-1/2 rounded-full bg-[var(--color-border)] sm:hidden" />}
+        <h2 className="text-sm font-semibold">用量与额度</h2>
+        {onClose && <button type="button" onClick={onClose} aria-label="关闭" className="ml-auto grid size-9 place-items-center rounded-md text-[var(--color-muted-foreground)] hover:bg-[var(--color-muted)] hover:text-[var(--color-foreground)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-ring)]"><X className="size-4" /></button>}
       </header>
-      <div className="flex-1 overflow-y-auto"><div className="mx-auto w-full max-w-5xl px-5 py-6">
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain"><div className={cn('mx-auto w-full px-4 py-4', embedded ? 'max-w-5xl' : '')}>
         <SubscriptionQuotaSection context={quotaContext} sessions={quotaSessions} catalog={engineCatalog} />
-        {session && session.turns > 0 ? <SessionUsageSection usage={session} engine={quotaContext?.engine} model={quotaContext?.model} /> : <p className="border-b border-[var(--color-border)] pb-6 text-sm text-[var(--color-muted-foreground)]">当前会话尚未产生可统计的模型用量。</p>}
-        <section className="pt-6" aria-labelledby="usage-range-heading">
-          <div className="flex items-end justify-between gap-4"><div><p className="text-[11px] font-medium uppercase tracking-[0.12em] text-[var(--color-muted-foreground)]">{WINDOWS.find(item => item.key === win)?.label}</p><h3 id="usage-range-heading" className="mt-1 text-base font-semibold">本地引擎汇总</h3></div>
-            {!usageQuery.isLoading && !usageQuery.error && <span className="text-xs text-[var(--color-muted-foreground)]">{usageQuery.data?.length ?? 0} 个引擎</span>}</div>
-          {usageQuery.isLoading && <div role="status" className="mt-5 flex items-center gap-2 border-t border-[var(--color-border)] py-6 text-sm text-[var(--color-muted-foreground)]"><Loader2 className="size-4 animate-spin" />正在读取本地会话日志…</div>}
-          {usageQuery.error && <div role="alert" className="mt-5 border-t border-[var(--color-border)] py-6"><p className="text-sm font-medium">用量汇总暂时不可用</p><p className="mt-1 text-xs leading-relaxed text-[var(--color-muted-foreground)]">当前会话数据仍可查看。请检查本地日志访问状态后重试。</p><button type="button" onClick={() => void usageQuery.refetch()} className="mt-3 inline-flex items-center gap-1.5 rounded-md border border-[var(--color-border)] px-3 py-1.5 text-xs font-medium hover:bg-[var(--color-muted)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-ring)]"><RefreshCw className="size-3.5" />重新读取</button></div>}
-          {usageQuery.data && usageQuery.data.length > 0 && <div className="mt-4 divide-y divide-[var(--color-border)] border-y border-[var(--color-border)]">{usageQuery.data.map(engine => <EngineUsageRow key={engine.engine} usage={engine} win={win} />)}</div>}
-          {usageQuery.data?.length === 0 && <div className="mt-5 border-t border-[var(--color-border)] py-6"><p className="text-sm font-medium">尚无本地汇总数据</p><p className="mt-1 text-xs text-[var(--color-muted-foreground)]">完成一次模型调用后，此处会按引擎显示 Token 和会话数量。</p></div>}
-          <details className="mt-5 text-xs text-[var(--color-muted-foreground)]"><summary className="w-fit cursor-pointer select-none font-medium text-[var(--color-foreground)] hover:underline">统计口径</summary><p className="mt-2 max-w-3xl leading-relaxed">Token 来自本机 CLI 会话日志，只读统计实际模型调用；缓存读仍属于吞吐，但以较低价格计费。此处汇总扫描本机默认日志目录，不代表当前订阅账号。订阅额度单独从当前会话账号的服务商接口读取；费用只按 GPT-6 Sol 标准 API 单价估算。</p></details>
+        <section className="pt-4" aria-labelledby="usage-range-heading">
+          <div className="flex min-w-0 items-center gap-2">
+            <h3 id="usage-range-heading" className="text-sm font-semibold">本地用量统计</h3>
+            <span className="truncate text-[11px] text-[var(--color-muted-foreground)]">本机 CLI 日志</span>
+          </div>
+          <div role="group" aria-label="统计时间范围" className="mt-2 grid grid-cols-3 gap-1 rounded-lg bg-[var(--color-muted)]/60 p-1">
+            {WINDOWS.map(item => <button key={item.key} type="button" onClick={() => setWin(item.key)} aria-pressed={win === item.key}
+              className={`min-h-8 whitespace-nowrap rounded-md px-2 text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-ring)] ${win === item.key ? 'bg-[var(--color-background)] font-medium text-[var(--color-foreground)] shadow-sm' : 'text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]'}`}>{item.label}</button>)}
+          </div>
+          {usageQuery.isLoading && <div role="status" className="flex items-center gap-2 py-4 text-xs text-[var(--color-muted-foreground)]"><Loader2 className="size-3.5 animate-spin" />正在读取本地会话日志…</div>}
+          {usageQuery.error && <div role="alert" className="py-4"><p className="text-sm font-medium">用量汇总暂时不可用</p><p className="mt-1 text-xs leading-relaxed text-[var(--color-muted-foreground)]">请检查本地日志访问状态后重试。</p><button type="button" onClick={() => void usageQuery.refetch()} className="mt-2 inline-flex min-h-9 items-center gap-1.5 rounded-md border border-[var(--color-border)] px-3 text-xs font-medium hover:bg-[var(--color-muted)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-ring)]"><RefreshCw className="size-3.5" />重新读取</button></div>}
+          {usageQuery.data && usageQuery.data.length > 0 && <div className="mt-2 divide-y divide-[var(--color-border)]">{usageQuery.data.map(engine => <EngineUsageRow key={engine.engine} usage={engine} win={win} />)}</div>}
+          {usageQuery.data?.length === 0 && <div className="py-4"><p className="text-sm font-medium">尚无本地汇总数据</p><p className="mt-1 text-xs text-[var(--color-muted-foreground)]">完成一次模型调用后，此处会按引擎显示 Token 和会话数量。</p></div>}
         </section>
+        {session && session.turns > 0 ? <SessionUsageSection usage={session} engine={quotaContext?.engine} model={quotaContext?.model} />
+          : <p className="mt-4 border-t border-[var(--color-border)] pt-4 text-xs text-[var(--color-muted-foreground)]">当前会话尚未产生可统计的模型用量。</p>}
+        <details className="mt-4 text-[11px] text-[var(--color-muted-foreground)]"><summary className="w-fit cursor-pointer select-none hover:text-[var(--color-foreground)]">统计口径</summary><p className="mt-1.5 leading-relaxed">Token 来自本机 CLI 会话日志，只读统计实际模型调用；缓存读仍属于吞吐，但以较低价格计费。本地汇总扫描本机默认日志目录，不代表当前订阅账号，也不受订阅额度影响。订阅额度单独从各会话账号的服务商接口读取；费用只按 GPT-6 Sol 标准 API 单价估算。</p></details>
       </div></div>
     </section>
   )
 }
-
 const GPT_6_SOL_PRICE = { input: 2, output: 10, cacheWrite: 2.5, cacheRead: 0.2 }
 const USD_TO_CNY = 7.2
 
@@ -67,16 +73,16 @@ function SessionUsageSection({ usage, engine, model }: { usage: SessionUsage; en
   const costUsd = (usage.inputTokens * GPT_6_SOL_PRICE.input + usage.outputTokens * GPT_6_SOL_PRICE.output + usage.cacheCreateTokens * GPT_6_SOL_PRICE.cacheWrite + usage.cacheReadTokens * GPT_6_SOL_PRICE.cacheRead) / 1e6
   const costCny = costUsd * USD_TO_CNY
   const cost = `¥${costCny < 1 ? costCny.toFixed(2) : Math.round(costCny).toLocaleString()}`
-  return <section className="border-b border-[var(--color-border)] pb-6" aria-labelledby="session-usage-heading">
-    <div className="flex flex-wrap items-end justify-between gap-3"><div><p className="text-[11px] font-medium uppercase tracking-[0.12em] text-[var(--color-muted-foreground)]">当前会话</p><h3 id="session-usage-heading" className="mt-1 text-base font-semibold">本会话用量</h3></div><p className="text-xs text-[var(--color-muted-foreground)]">{usage.turns} 轮{hit != null ? ` · 缓存命中 ${hit}%` : ''}</p></div>
-    <div className="mt-5 grid gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(14rem,1fr)]"><div className="grid grid-cols-2 gap-x-6 gap-y-5 sm:grid-cols-3">
+  return <section className="mt-4 border-t border-[var(--color-border)] pt-4" aria-labelledby="session-usage-heading">
+    <div className="flex min-w-0 items-center gap-2"><h3 id="session-usage-heading" className="text-sm font-semibold">本会话用量</h3><p className="ml-auto truncate text-[11px] text-[var(--color-muted-foreground)]">{usage.turns} 轮{hit != null ? ` · 缓存命中 ${hit}%` : ''}</p></div>
+    <div className="mt-3 grid gap-4"><div className="grid grid-cols-3 gap-x-4 gap-y-3">
       <Metric label="总吞吐" value={abbr(usage.totalTokens)} hint="含缓存读" primary /><Metric label="实际消耗" value={abbr(real)} hint="不含缓存读" /><Metric label="输入 / 输出" value={`${abbr(usage.inputTokens)} / ${abbr(usage.outputTokens)}`} /><Metric label="缓存读" value={abbr(usage.cacheReadTokens)} /><Metric label="缓存写" value={abbr(usage.cacheCreateTokens)} /><Metric label="模型步骤" value={String(usage.steps ?? usage.turns)} hint={usage.steps == null ? '按轮次计' : undefined} />
-    </div>{engine === 'codex' && <div className="border-t border-[var(--color-border)] pt-4 lg:border-l lg:border-t-0 lg:pl-6 lg:pt-0"><p className="text-xs font-medium text-[var(--color-muted-foreground)]">GPT-6 Sol API 标准价估算</p><p className="mt-1 text-2xl font-semibold tabular-nums tracking-tight">≈ {cost}</p><p className="mt-2 text-xs leading-relaxed text-[var(--color-muted-foreground)]">输入 $2、输出 $10、缓存写 $2.5、缓存读 $0.2 / 百万 Token；参考汇率 7.2。{model && model !== 'gpt-6-sol' ? `当前选择 ${model}，仅按 GPT-6 Sol 价格参照。` : ''}日志仅有累计用量，无法判定单次请求是否超过 272K 输入 Token；未计入长上下文、处理档位及地区附加费。并非实际账单或订阅余额。</p></div>}</div>
+    </div>{engine === 'codex' && <div className="border-t border-[var(--color-border)] pt-3"><div className="flex items-baseline justify-between gap-2"><p className="text-xs font-medium text-[var(--color-muted-foreground)]">GPT-6 Sol API 标准价估算</p><p className="text-lg font-semibold tabular-nums tracking-tight">≈ {cost}</p></div><details className="mt-1 text-[11px] text-[var(--color-muted-foreground)]"><summary className="w-fit cursor-pointer select-none">估算口径</summary><p className="mt-1 leading-relaxed">输入 $2、输出 $10、缓存写 $2.5、缓存读 $0.2 / 百万 Token；参考汇率 7.2。{model && model !== 'gpt-6-sol' ? `当前选择 ${model}，仅按 GPT-6 Sol 价格参照。` : ''}日志仅有累计用量，无法判定单次请求是否超过 272K 输入 Token；未计入长上下文、处理档位及地区附加费。并非实际账单或订阅余额。</p></details></div>}</div>
   </section>
 }
 
 function Metric({ label, value, hint, primary = false }: { label: string; value: string; hint?: string; primary?: boolean }) {
-  return <div className="min-w-0"><p className="text-xs text-[var(--color-muted-foreground)]">{label}</p><p className={`mt-1 truncate text-lg font-semibold tabular-nums tracking-tight ${primary ? 'text-[var(--color-primary)]' : ''}`} title={value}>{value}</p>{hint && <p className="mt-0.5 text-[11px] text-[var(--color-muted-foreground)]">{hint}</p>}</div>
+  return <div className="min-w-0"><p className="truncate text-[11px] text-[var(--color-muted-foreground)]">{label}</p><p className={`mt-0.5 truncate text-base font-semibold tabular-nums tracking-tight ${primary ? 'text-[var(--color-primary)]' : ''}`} title={value}>{value}</p>{hint && <p className="mt-0.5 text-[11px] text-[var(--color-muted-foreground)]">{hint}</p>}</div>
 }
 
 function EngineUsageRow({ usage, win }: { usage: EngineUsage; win: WindowKey }) {

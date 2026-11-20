@@ -21,9 +21,12 @@ describe('引擎账号汇总', () => {
   })
   it('展示所有登记引擎，不给第三方或无适配接口的引擎发查询', () => {
     const rows = subscriptionQuotaRows([session('a', undefined, { providerKind: 'thirdParty' }), session('p', undefined, { engine: 'pi' })])
-    expect(new Set(rows.map(row => row.engine)).size).toBe(9)
+    expect(new Set(rows.map(row => row.engine)).size).toBe(11)
     expect(rows.filter(row => row.queryable)).toHaveLength(0)
     expect(rows.find(row => row.engine === 'pi')?.reason).toContain('尚无已核验')
+    expect(rows.find(row => row.engine === 'pi')?.billing).toBe('unsupported')
+    expect(rows.find(row => row.engine === 'codex')?.billing).toBe('metered')
+    expect(rows.find(row => row.engine === 'qwen')?.billing).toBe('unbound')
   })
   it('尊重权威目录，保留已加载会话的其他历史引擎', () => {
     const catalog: EngineCatalogView = { protocolVersion: 1, engines: [{ id: 'codex', displayName: 'Codex', capabilities: [], selectable: true, availability: 'stable', probe: { status: 'ready' } }] }

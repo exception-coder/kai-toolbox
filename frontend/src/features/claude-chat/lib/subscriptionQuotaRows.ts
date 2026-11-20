@@ -1,7 +1,11 @@
 import type { ClaudeChatSessionView, Engine, EngineCatalogView } from '../types'
 
+/** subscription=可查询服务商订阅窗口；metered=API 按量计费；unsupported=引擎无已核验额度接口；unbound=尚无会话账号。 */
+export type QuotaBilling = 'subscription' | 'metered' | 'unsupported' | 'unbound'
+
 export interface QuotaAccountRow {
   key: string
+  billing: QuotaBilling
   engine: Engine
   label: string
   account: string
@@ -50,13 +54,13 @@ export function subscriptionQuotaRows(
       if (existing) { existing.sessionCount++; continue }
       const supported = engine === 'claude' || engine === 'codex'
       accounts.set(key, {
-        key, engine, label, account: thirdParty ? '第三方 / API 计费' : home.split(/[\\/]/).filter(Boolean).at(-1) || '默认官方账号',
+        key, billing: thirdParty ? 'metered' : supported ? 'subscription' : 'unsupported', engine, label, account: thirdParty ? '第三方 / API 计费' : home.split(/[\\/]/).filter(Boolean).at(-1) || '默认官方账号',
         sessionId: session.id, current: session.id === currentId, sessionCount: 1,
         queryable: !thirdParty && supported,
         reason: thirdParty ? 'API 计费不提供订阅窗口' : !supported ? '此引擎尚无已核验的对应额度接口' : undefined,
       })
     }
-    if (!accounts.size) rows.push({ key: `${engine}:none`, engine, label, account: '未绑定会话账号', current: false, sessionCount: 0, queryable: false, reason: '请先为该引擎建立会话' })
+    if (!accounts.size) rows.push({ key: `${engine}:none`, billing: 'unbound', engine, label, account: '未绑定会话账号', current: false, sessionCount: 0, queryable: false, reason: '请先为该引擎建立会话' })
     else rows.push(...accounts.values())
   }
   return rows.sort((a, b) => Number(b.current) - Number(a.current))
