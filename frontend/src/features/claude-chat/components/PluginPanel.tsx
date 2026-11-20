@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { RefreshCw, Download, UploadCloud, X, Copy, Check } from 'lucide-react'
+import { RefreshCw, Download, UploadCloud, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { GitStatusPanel } from '@/components/git/GitStatusPanel'
 import { authEventSource } from '@/lib/api'
@@ -7,7 +7,6 @@ import { RuntimeVersionSection } from './RuntimeVersionSection'
 import {
   fetchTeamRepositoryGitFileDiff,
   fetchTeamRepositoryGitStatus,
-  getSidecarVersion,
   getTeamDependencyEnvironment,
   businessWorkspaceSyncStreamPath,
   listBusinessSystemWorkspaces,
@@ -20,15 +19,12 @@ import type {
   BusinessRepositoryStatus,
   BusinessSystemWorkspace,
   EngineCatalogView,
-  SidecarEngineVersion,
-  SidecarVersion,
   SuiteStatus,
   TeamDependencyEnvironment,
   TeamRepositoryStatus,
 } from '../types'
 import { suiteRemoteLabel, suiteRemoteState } from '../lib/suiteVersionStatus'
-import { SdkUpgradeActions } from './SdkUpgradeActions'
-import { engineDependencyRows } from './engineDependencyRows'
+import { EngineRuntimeSection } from './EngineUpdatePanel'
 
 const GIT_SOURCE_KEY = 'kai-toolbox:team-dependencies:git-source'
 
@@ -54,21 +50,6 @@ export function dependencySyncLabel(repositories: TeamRepositoryStatus[] | null)
   return missingCount > 0 ? `初始化缺失仓库（${missingCount}）` : '拉取 / 更新全部'
 }
 
-/** 兼容新旧 sidecar 版本响应，统一生成引擎卡片数据。 */
-function sidecarEngines(sdk: SidecarVersion): SidecarEngineVersion[] {
-  if (sdk.engines?.length) return sdk.engines
-  return [{
-    id: 'claude',
-    name: 'Claude Code',
-    packageName: '@anthropic-ai/claude-agent-sdk',
-    declared: sdk.declared,
-    installed: sdk.installed,
-    cliVersion: sdk.cliVersion,
-    latest: sdk.latest,
-    outdated: sdk.outdated,
-    error: sdk.error,
-  }]
-}
 
 /**
  * 团队套件面板：展示对话引擎运行包、3 插件与 2 MCP 状态，并一键更新插件（SSE 实时回显）。
@@ -83,11 +64,6 @@ export function PluginPanel({ sessionId, catalog, onClose }: {
   const [suiteCheckError, setSuiteCheckError] = useState<string | null>(null)
   const [updating, setUpdating] = useState(false)
   const [lines, setLines] = useState<string[]>([])
-  const [sdk, setSdk] = useState<SidecarVersion | null>(null)
-  const [sdkError, setSdkError] = useState<string | null>(null)
-  const engineRows = engineDependencyRows(catalog, sdk && !sdk.error ? sidecarEngines(sdk) : sdk?.engines)
-  const [sdkChecking, setSdkChecking] = useState(false)
-  const [copied, setCopied] = useState(false)
   const [gitSource, setGitSource] = useState<'gitee' | 'github'>(initialGitSource)
   const [environment, setEnvironment] = useState<TeamDependencyEnvironment | null>(null)
   const [environmentLoading, setEnvironmentLoading] = useState(false)
@@ -128,23 +104,6 @@ export function PluginPanel({ sessionId, catalog, onClose }: {
     try { setEnvironment(await getTeamDependencyEnvironment(sessionId)) } catch { /* 静默 */ } finally { setEnvironmentLoading(false) }
   }
 
-  /** check=true 才联网查 npm 最新版；进面板时只读本地版本，不联网。 */
-  const loadSdk = async (check = false) => {
-    if (check) setSdkChecking(true)
-    setSdkError(null)
-    try { setSdk(await getSidecarVersion(check)) } catch {
-      setSdkError('版本读取失败，请重新检查。')
-    } finally { setSdkChecking(false) }
-  }
-
-  const copyUpgrade = async () => {
-    if (!sdk?.upgradeCommand) return
-    try {
-      await navigator.clipboard.writeText(sdk.upgradeCommand)
-      setCopied(true)
-      setTimeout(() => setCopied(false), 1500)
-    } catch { /* 剪贴板不可用则忽略，命令本身可见可手抄 */ }
-  }
 
   /** 从所选 Git 源读取插件 manifest 与 MCP 提交，不修改本地工作树。 */
   const checkRemote = async () => {
@@ -162,7 +121,6 @@ export function PluginPanel({ sessionId, catalog, onClose }: {
 
   useEffect(() => {
     void refresh()
-    void loadSdk()
     void checkEnvironment()
     return () => esRef.current?.close()
   }, [sessionId])
@@ -441,61 +399,7 @@ export function PluginPanel({ sessionId, catalog, onClose }: {
 
       <RuntimeVersionSection />
 
-      <div className="mb-2 rounded-md border px-2 py-1.5 text-xs">
-        <div className="flex items-center gap-2">
-          <span className="font-medium">对话引擎运行时（{engineRows.length}）</span>
-          {engineRows.some(engine => engine.version?.outdated) && (
-            <span className="rounded bg-amber-100 px-1 text-[10px] text-amber-700 dark:bg-amber-900 dark:text-amber-200">
-              可升级
-            </span>
-          )}
-          <button type="button" onClick={() => void loadSdk(true)} disabled={sdkChecking}
-            className="ml-auto rounded border px-1.5 py-0.5 text-[10px] text-[var(--color-muted-foreground)] hover:bg-[var(--color-accent)] disabled:opacity-50">
-            {sdkChecking ? '查询中…' : '检查更新'}
-          </button>
-        </div>
-        {(sdkError || sdk?.error) && <p role="alert" className="mt-1 text-[var(--color-destructive)]">{sdkError ?? sdk?.error}</p>}
-        {catalog?.error && <p className="mt-1 text-[var(--color-muted-foreground)]">{catalog.error}</p>}
-        <ul aria-label="对话引擎运行时" className="mt-1.5 grid grid-cols-1 gap-1.5 sm:grid-cols-2 xl:grid-cols-4">
-          {engineRows.map(engine => {
-            const { version, probe } = engine
-            const available = engine.selectable === undefined ? '可用性待检测' : engine.selectable ? '会话可选' : '会话不可选'
-            const installed = version?.installed ?? probe?.sdkVersion
-            const runtime = version?.cliVersion ?? probe?.runtimeVersion
-            const detail = version?.error || (probe?.status !== 'ready' ? probe?.detail : undefined)
-            return <li key={engine.id} className="min-w-0 rounded-md border px-2 py-1.5">
-              <div className="flex flex-wrap items-baseline justify-between gap-x-2">
-                <span className="font-medium">{engine.name}</span>
-                <span className="text-[var(--color-muted-foreground)]">{available}</span>
-              </div>
-              <div className="mt-1 break-words text-[var(--color-muted-foreground)]">
-                {engine.upgradeMode}{version?.outdated && ' · 有更新'}
-              </div>
-              <div className="mt-0.5 flex flex-wrap gap-x-2 break-all text-[var(--color-muted-foreground)]">
-                <span>{version?.packageName ?? probe?.runtimeName}</span>
-                {installed && <span>已装 {installed}</span>}
-                {version?.latest && <span>远端 {version.latest}</span>}
-                {runtime && runtime !== installed && <span>运行时 {runtime}</span>}
-              </div>
-              {detail && <div className="mt-0.5 break-words text-[var(--color-muted-foreground)]">{detail}</div>}
-            </li>
-          })}
-        </ul>
-        {engineRows.some(engine => engine.version?.outdated) && sdk?.upgradeCommand && (
-          <>
-            <p className="mt-1 text-[10px] leading-relaxed text-[var(--color-muted-foreground)]">
-              手动命令会更新支持批量升级的 Sidecar SDK 并重新构建。
-            </p>
-            <button type="button" onClick={() => void copyUpgrade()}
-              className="mt-1 flex w-full items-center gap-1.5 rounded-md bg-[var(--color-muted)] px-2 py-1 text-left text-[10px] hover:bg-[var(--color-accent)]">
-              <code className="min-w-0 flex-1 break-all">{sdk.upgradeCommand}</code>
-              {copied ? <Check className="size-3 shrink-0 text-emerald-600" /> : <Copy className="size-3 shrink-0 opacity-60" />}
-            </button>
-          </>
-        )}
-      </div>
-
-      <SdkUpgradeActions options={engineRows} onUpdated={() => void loadSdk(true)} />
+      <EngineRuntimeSection catalog={catalog} />
 
       <div className="mb-1.5 mt-4 text-xs font-medium">插件与 MCP（5）</div>
       {suites == null ? (

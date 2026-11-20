@@ -12,7 +12,7 @@ import { NewSessionEngineSettings } from '../components/NewSessionEngineSettings
 import { registerWorkspaceRoot } from '@/features/project-workspace/public-api'
 import { VibeCodingGuide } from '../components/guide/VibeCodingGuide'
 import type { GuideTarget } from '../components/guide/guideContent'
-import { AtSign, Globe2, SlidersHorizontal } from 'lucide-react'
+import { AtSign, Cpu, Download, Globe2, SlidersHorizontal } from 'lucide-react'
 import { useGuideRoute } from '../hooks/useGuideRoute'
 import '../components/guide/guide.css'
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentProps, type ComponentType, type Ref, type ReactNode } from 'react'
@@ -140,6 +140,7 @@ const HistoryList = deferredPanel(() => import('../components/HistoryList').then
 const CodexDesktopSyncDialog = deferredPanel(() => import('../components/CodexDesktopSyncDialog').then(m => ({ default: m.CodexDesktopSyncDialog })))
 const NotifySettings = deferredPanel(() => import('../components/NotifySettings').then(m => ({ default: m.NotifySettings })))
 const PluginPanel = deferredPanel(() => import('../components/PluginPanel').then(m => ({ default: m.PluginPanel })))
+const EngineUpdatePanel = deferredPanel(() => import('../components/EngineUpdatePanel').then(m => ({ default: m.EngineUpdatePanel })))
 const LogsPanel = deferredPanel(() => import('../components/LogsPanel').then(m => ({ default: m.LogsPanel })))
 const GestureDebugPanel = deferredPanel(() => import('../components/GestureDebugPanel').then(m => ({ default: m.GestureDebugPanel })))
 const ExportSessionDialog = deferredPanel(() => import('../components/ExportSessionDialog').then(m => ({ default: m.ExportSessionDialog })))
@@ -161,7 +162,7 @@ const PlanReviewDialog = deferredPanel(() => import('../components/PlanReviewDia
 const ReviewWorkspace = deferredPanel(() => import('../components/ReviewWorkspace').then(m => ({ default: m.ReviewWorkspace })), workspaceLoading)
 const OpenSpecInitializationDialog = deferredPanel(() => import('../components/OpenSpecInitializationDialog').then(m => ({ default: m.OpenSpecInitializationDialog })))
 
-type Panel = 'none' | 'sessions' | 'settings' | 'new' | 'plugins' | 'providers' | 'clone' | 'onboard' | 'caps' | 'filetree'
+type Panel = 'none' | 'sessions' | 'settings' | 'new' | 'plugins' | 'engines' | 'providers' | 'clone' | 'onboard' | 'caps' | 'filetree'
 
 interface PendingOpenSpecInitialization {
   request: OpenSpecProjectRequest
@@ -396,7 +397,7 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
       setPanel('none'); setSessionView('conversation')
     } else {
       setPanel('none'); setHeaderMenu(true)
-      setMenuGroup(target === 'workspace' ? 'workspace' : target === 'delivery' ? 'session' : 'system')
+      setMenuGroup(target === 'workspace' ? 'workspace' : target === 'delivery' ? 'session' : 'view')
     }
   }, [])
   // 形态变化即写回本地
@@ -1313,9 +1314,12 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
               setHeaderMenu(open)
               if (open) { setMenuGroup(null); setPanel(current => current === 'new' ? 'none' : current) }
             }} triggerRef={sessionToolsTriggerRef}>
-            {!menuGroup && <div className="grid grid-cols-2 gap-1 border-b px-1 pb-1 md:hidden" role="group" aria-label="常用会话操作">
-              <HeaderMenuItem icon={<Plus className="size-4" />} label="新建会话" onClick={() => { setHeaderMenu(false); setPanel('new') }} />
-              <HeaderMenuItem icon={<List className="size-4" />} label="会话列表" onClick={() => { setHeaderMenu(false); setPanel('sessions') }} />
+            {!menuGroup && <div className="grid grid-cols-3 gap-1 border-b px-1 pb-1 md:grid-cols-1" role="group" aria-label="常用会话操作">
+              <span className="contents md:hidden">
+                <HeaderMenuItem icon={<Plus className="size-4" />} label="新建会话" onClick={() => { setHeaderMenu(false); setPanel('new') }} />
+                <HeaderMenuItem icon={<List className="size-4" />} label="会话列表" onClick={() => { setHeaderMenu(false); setPanel('sessions') }} />
+              </span>
+              <HeaderMenuItem icon={<Download className="size-4" />} label="引擎更新" onClick={() => { setHeaderMenu(false); setPanel('engines') }} />
             </div>}
             <MenuSection icon={<ListChecks className="size-4" />} {...SESSION_TOOL_GROUPS.navigation} open={menuGroup === 'navigation'} onToggle={() => setMenuGroup('navigation')}>
                 <SessionWorkViews view={sessionView} hasSession={!!chat.sessionId} siteCount={linkedSites.length}
@@ -1382,8 +1386,7 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
               <HeaderMenuItem nested icon={<EyeOff className="size-4" />} label={hideToolCalls ? '隐藏工具调用 · 开' : '隐藏工具调用 · 关'} hint="消息流里不再显示 MCP/命令/读写等工具调用气泡" onClick={() => { setHideToolCalls(!hideToolCalls) }} />
               <HeaderMenuItem nested icon={<Hand className="size-4" />} label={gestureOn ? '手势控制·开' : '手势控制·关'} hint={gestureOn ? '握拳=弹出悬浮窗；张手=返回会话页' : '开启后：握拳弹窗 / 张手返回(仅本模块)'} onClick={() => { setHeaderMenu(false); toggleGesture() }} />
             </MenuSection>
-            <MenuSection icon={<Settings className="size-4" />} {...SESSION_TOOL_GROUPS.system} open={menuGroup === 'system'} onToggle={() => setMenuGroup('system')}>
-              <p className="px-3 py-2 text-xs text-[var(--color-muted-foreground)]">连接与能力</p>
+            <MenuSection icon={<Cpu className="size-4" />} {...SESSION_TOOL_GROUPS.engine} open={menuGroup === 'engine'} onToggle={() => setMenuGroup('engine')}>
               <details className="md:hidden">
                 <summary className="flex min-h-11 cursor-pointer items-center gap-2 px-3 text-sm"><Sparkles className="size-4" />切换 Agent<ChevronDown className="ml-auto size-4" /></summary>
                 {selectableEngines.map(engine => (
@@ -1400,6 +1403,7 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
                   </button>
                 ))}
               </details>
+              <HeaderMenuItem nested icon={<Download className="size-4" />} label="对话引擎更新" hint="检查并更新 Claude Code、Codex 等引擎，新模型通常随引擎更新出现" onClick={() => { setHeaderMenu(false); setPanel('engines') }} />
               <HeaderMenuItem nested icon={<Sparkles className="size-4" />} label="会话能力" hint="MCP / Tools / Plugins / Skills" onClick={() => {
                 setHeaderMenu(false)
                 if (panel === 'caps') {
@@ -1415,9 +1419,10 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
               {!mockMode && (!codexSyncAuth.user || codexSyncAuth.user.roles.includes('ADMIN')) && (
                 <HeaderMenuItem nested icon={<RefreshCw className="size-4" />} label="同步 Codex 项目与会话" hint="读取本机账号目录，导入历史并续接原会话" onClick={() => { setHeaderMenu(false); setCodexSyncOpen(true) }} />
               )}
-              <p className="border-t px-3 py-2 text-xs text-[var(--color-muted-foreground)]">服务与依赖</p>
-              <AssistantRestoreMenuItem />
               <HeaderMenuItem nested icon={<Server className="size-4" />} label="服务商" hint="第三方网关(按会话,不动官方)" onClick={() => { setHeaderMenu(false); setPanel(p => p === 'providers' ? 'none' : 'providers') }} />
+            </MenuSection>
+            <MenuSection icon={<Settings className="size-4" />} {...SESSION_TOOL_GROUPS.system} open={menuGroup === 'system'} onToggle={() => setMenuGroup('system')}>
+              <AssistantRestoreMenuItem />
               <HeaderMenuItem nested icon={<Package className="size-4" />} label="团队依赖" hint="拉取仓库并安装到 Claude Code / Codex" onClick={() => { setHeaderMenu(false); setPanel(p => p === 'plugins' ? 'none' : 'plugins') }} />
               <p className="border-t px-3 py-2 text-xs text-[var(--color-muted-foreground)]">诊断与恢复</p>
               <HeaderMenuItem nested icon={<FileText className="size-4" />} label="最新日志" hint="后端+sidecar 日志，一键复制排查" onClick={() => { setHeaderMenu(false); setShowLogs(true) }} />
@@ -1573,6 +1578,11 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
       {panel === 'settings' && (
         <div className="scrollbar-autohide max-h-[60vh] overflow-y-auto border-b">
           <NotifySettings onClose={() => setPanel('none')} />
+        </div>
+      )}
+      {panel === 'engines' && (
+        <div className="scrollbar-autohide max-h-[70vh] overflow-y-auto">
+          <EngineUpdatePanel catalog={engineCatalogQuery.data} onClose={() => setPanel('none')} />
         </div>
       )}
       {panel === 'plugins' && (

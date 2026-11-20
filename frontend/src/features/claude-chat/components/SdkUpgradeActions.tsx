@@ -12,8 +12,16 @@ interface UpgradeStatus {
   logPath: string | null
 }
 
-/** 所选引擎共用一次升级；轮询任务以支持面板关闭后继续。 */
-export function SdkUpgradeActions({ options, onUpdated }: { options: EngineDependencyRow[]; onUpdated: () => void }) {
+/**
+ * 所选引擎共用一次升级；轮询任务以支持面板关闭后继续。
+ * recommended 为检查到有更新的引擎，未运行升级时默认勾选；confirmUpgrade 让独立入口在执行前说明影响。
+ */
+export function SdkUpgradeActions({ options, onUpdated, recommended, confirmUpgrade }: {
+  options: EngineDependencyRow[]
+  onUpdated: () => void
+  recommended?: string[]
+  confirmUpgrade?: (engines: string[]) => Promise<boolean>
+}) {
   const { user } = useAuth()
   const admin = user?.roles.includes('ADMIN') ?? false
   const [engines, setEngines] = useState<string[]>(['codex'])
@@ -21,6 +29,13 @@ export function SdkUpgradeActions({ options, onUpdated }: { options: EngineDepen
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [refresh, setRefresh] = useState(0)
+  const recommendedKey = recommended?.join(',') ?? ''
+
+  useEffect(() => {
+    if (recommendedKey && !status?.running) setEngines(recommendedKey.split(','))
+    // 只跟随检查结果变化；运行中的批次由服务端状态恢复。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [recommendedKey])
 
   useEffect(() => {
     if (!admin) return
@@ -51,6 +66,7 @@ export function SdkUpgradeActions({ options, onUpdated }: { options: EngineDepen
   }, [status?.phase])
 
   const upgrade = async () => {
+    if (confirmUpgrade && !await confirmUpgrade(engines)) return
     setSubmitting(true)
     setError(null)
     try {

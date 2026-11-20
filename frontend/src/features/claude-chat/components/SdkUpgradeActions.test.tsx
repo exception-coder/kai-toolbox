@@ -35,6 +35,20 @@ it('lists every known engine and selects only the four eligible SDKs', () => {
   expect(screen.getByRole('checkbox', { name: /DeepSeek Harness/ })).toBeDisabled()
 })
 
+it('preselects engines with updates and waits for confirmation before upgrading', async () => {
+  const confirmUpgrade = vi.fn().mockResolvedValueOnce(false).mockResolvedValueOnce(true)
+  render(<SdkUpgradeActions options={options} recommended={['claude', 'qwen']} confirmUpgrade={confirmUpgrade} onUpdated={vi.fn()} />)
+  expect(screen.getByRole('checkbox', { name: 'Claude Code' })).toBeChecked()
+  expect(screen.getByRole('checkbox', { name: 'Qwen Code' })).toBeChecked()
+  expect(screen.getByRole('checkbox', { name: 'Codex' })).not.toBeChecked()
+  fireEvent.click(screen.getByRole('button', { name: '检查并升级所选 2 项' }))
+  await waitFor(() => expect(confirmUpgrade).toHaveBeenCalledWith(['claude', 'qwen']))
+  expect(http.mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false)
+  fireEvent.click(screen.getByRole('button', { name: '检查并升级所选 2 项' }))
+  await waitFor(() => expect(http).toHaveBeenCalledWith(
+    '/claude-chat/sidecar/upgrade?engines=claude&engines=qwen', { method: 'POST' }))
+})
+
 it('retains administrator-only access', () => {
   auth.user.roles = ['USER']
   render(<SdkUpgradeActions options={options} onUpdated={vi.fn()} />)
