@@ -1987,7 +1987,7 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
               pausedReason: chat.queuePausedReason,
               waitingReason: chat.backgroundTasks.length > 0 && chat.queued.length > 0 ? '后台任务仍在执行，结束后继续处理队列。' : null,
               canSendNow: !chat.running && !chat.pending && chat.backgroundTasks.length === 0,
-              onSendNow: chat.sendQueuedNow, onRemove: chat.removeQueued, onStop: chat.stopQueued, onPause: chat.pauseQueued, onClear: chat.clearQueued }}
+              onSendNow: chat.sendQueuedNow, onRemove: chat.removeQueued, onEdit: chat.editQueued, onStop: chat.stopQueued, onPause: chat.pauseQueued, onClear: chat.clearQueued }}
             voiceEnabled={chatControlMode(location.search) === 'CODE_AGENT' && chat.currentEngine === 'codex' && chat.currentProviderKind !== 'thirdParty' && !reviewOnlySession}
             voiceDisabled={planLocked || chat.state !== 'ready'} onStartVoice={() => nativeVoiceControlRef.current?.start()}
             storage={<CurrentSessionStorage session={currentSession} compact />}

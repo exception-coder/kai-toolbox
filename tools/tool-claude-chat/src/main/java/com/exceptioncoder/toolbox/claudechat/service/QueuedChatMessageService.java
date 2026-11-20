@@ -139,6 +139,23 @@ public class QueuedChatMessageService {
                 .ifPresent(delivery -> deliveryStore.removePending(sessionId, delivery.messageId()));
     }
 
+    /** 调用方持有会话锁，与派发互斥；编辑保留身份、附件和排队位置。 */
+    public QueuedChatMessage editPending(String sessionId, String messageId, String text) {
+        requireSession(sessionId);
+        if (messageId.startsWith("autopilot:") || deliveryStore.delivery(sessionId)
+                .filter(d -> d.messageId().equals(messageId)).isPresent()) {
+            throw new IllegalStateException("消息已派发或正在核对，请先终止；可复制内容另行编辑");
+        }
+        var original = repository.findBySessionId(sessionId).stream().filter(m -> m.id().equals(messageId))
+                .findFirst().orElseThrow(() -> new IllegalStateException("消息已离开队列，请刷新后核对"));
+        String value = text == null ? "" : text.trim();
+        if (value.isEmpty() && original.attachments().isEmpty()) throw new IllegalArgumentException("消息不能为空");
+        var updated = new QueuedChatMessage(original.id(), sessionId, value, null,
+                original.developerInstructions(), original.attachments(), original.createdAt(), original.serverContext());
+        repository.upsert(updated);
+        return updated;
+    }
+
     public void delete(String sessionId, String messageId) {
         requireSession(sessionId);
         if (deliveryStore == null) repository.delete(sessionId, messageId);

@@ -1156,6 +1156,12 @@ export function initializeOpenSpecProject(request: OpenSpecProjectRequest) {
   })
 }
 
+export function editQueuedMessage(sessionId: string, messageId: string, text: string) {
+  return http<PersistedQueuedMessage>(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/queue/${encodeURIComponent(messageId)}`, {
+    method: 'PUT', body: JSON.stringify({ text }),
+  })
+}
+
 export function deleteQueuedMessage(sessionId: string, messageId: string): Promise<void> {
   return http(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/queue/${encodeURIComponent(messageId)}`, {
     method: 'DELETE',
@@ -1163,11 +1169,11 @@ export function deleteQueuedMessage(sessionId: string, messageId: string): Promi
 }
 
 export function stopQueuedMessage(sessionId: string, messageId: string): Promise<void> {
-  return http(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/queue/${encodeURIComponent(messageId)}/stop`, { method: 'POST' })
+  return http(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/queue/${encodeURIComponent(messageId)}/stop`, { method: 'POST' }, 'empty')
 }
 
 export function pauseQueuedMessage(sessionId: string, messageId: string): Promise<void> {
-  return http(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/queue/${encodeURIComponent(messageId)}/pause`, { method: 'POST' })
+  return http(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/queue/${encodeURIComponent(messageId)}/pause`, { method: 'POST' }, 'empty')
 }
 
 export function clearQueuedMessages(sessionId: string, messageIds?: string[]): Promise<void> {

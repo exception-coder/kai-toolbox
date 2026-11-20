@@ -46,6 +46,15 @@ public class QueuedChatMessageController {
                 request.developerInstructions(), request.attachments(), request.createdAt());
     }
 
+    @org.springframework.web.bind.annotation.PutMapping("/{messageId}")
+    public QueuedChatMessage edit(@PathVariable String sessionId, @PathVariable String messageId,
+                                  @RequestBody EditRequest request) {
+        requireAccess(sessionId);
+        return chat.editQueuedMessage(sessionId, messageId, request.text());
+    }
+
+    public record EditRequest(String text) { }
+
     @PostMapping("/confirm")
     public ResponseEntity<Void> confirm(@PathVariable String sessionId) {
         requireAccess(sessionId);

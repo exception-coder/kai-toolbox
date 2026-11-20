@@ -117,6 +117,32 @@ class QueueReliabilityTest {
         assertThat(sends()).isEqualTo(1);
     }
 
+    @Test void queuedEditKeepsIdentityPositionAndRejectsDispatchedOrDeletedInput() {
+        var updated = chat.editQueuedMessage("s", "q2", "changed");
+        assertThat(updated.createdAt()).isEqualTo(2);
+        assertThat(queue.findBySessionId("s")).extracting(QueuedChatMessage::id).containsExactly("q1", "q2");
+        assertThat(queue.findBySessionId("s").get(1).text()).isEqualTo("changed");
+        store.begin("s", "t1", "q1", "epoch");
+        assertThatThrownBy(() -> chat.editQueuedMessage("s", "q1", "unsafe"))
+                .isInstanceOf(IllegalStateException.class);
+        queue.delete("s", "q2");
+        assertThatThrownBy(() -> chat.editQueuedMessage("s", "q2", "revived"))
+                .isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test void stopWithBackgroundWorkStillInterruptsMatchingTurnAndCanRetry() throws Exception {
+        store.begin("s", "t1", "q1", "epoch");
+        var active = (com.fasterxml.jackson.databind.node.ObjectNode) snapshot("null");
+        active.put("active", true).put("activeTurnId", "t1").put("backgroundTaskCount", 2);
+        state(active);
+        when(dep(SidecarClient.class).interrupt("s", "t1")).thenReturn(false, true);
+        chat.cancelQueuedMessage("s", "q1", false);
+        chat.cancelQueuedMessage("s", "q2", false);
+        verify(dep(SidecarClient.class), times(2)).interrupt("s", "t1");
+        assertThat(store.runtime("s").orElseThrow().stopReason()).isEqualTo("user_cancelled");
+        assertThat(sends()).isZero();
+    }
+
     @Test void deletingActiveHeadTargetsItsTurnAndLateSuccessDoesNotReleaseTheNextMessage() throws Exception {
         store.begin("s", "t1", "q1", "epoch");
         var active = (com.fasterxml.jackson.databind.node.ObjectNode) snapshot("null");

@@ -95,3 +95,27 @@ it('pauses checks without invoking stop, delete or send', async () => {
   expect(onRemove).not.toHaveBeenCalled()
   expect(onSendNow).not.toHaveBeenCalled()
 })
+
+it('copies full text and keeps edits after a rejected save', async () => {
+  const writeText = vi.fn().mockResolvedValue(undefined)
+  Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })
+  const onEdit = vi.fn().mockRejectedValueOnce(new Error('消息已派发')).mockResolvedValue(undefined)
+  render(<QueuedList items={[message('draft')]} onEdit={onEdit} onRemove={vi.fn()} onSendNow={vi.fn()} onClear={vi.fn()} />)
+  fireEvent.click(screen.getByRole('button', { name: '复制' }))
+  await waitFor(() => expect(writeText).toHaveBeenCalledWith('消息 draft'))
+  fireEvent.click(screen.getByRole('button', { name: '编辑' }))
+  fireEvent.change(screen.getByLabelText('编辑队列消息'), { target: { value: '修改内容' } })
+  fireEvent.click(screen.getByRole('button', { name: '保存' }))
+  await screen.findByText('消息已派发')
+  expect(screen.getByLabelText('编辑队列消息')).toHaveValue('修改内容')
+  fireEvent.click(screen.getByRole('button', { name: '保存' }))
+  await screen.findByText('已保存，保留原排队位置')
+  expect(onEdit).toHaveBeenLastCalledWith('draft', '修改内容')
+})
+
+it('does not offer editing for dispatched or uncertain work', () => {
+  render(<QueuedList items={[message('active', 'ACCEPTED'), message('unknown', 'UNKNOWN')]}
+    onEdit={vi.fn()} onRemove={vi.fn()} onSendNow={vi.fn()} onClear={vi.fn()} />)
+  expect(screen.queryByRole('button', { name: '编辑' })).not.toBeInTheDocument()
+  expect(screen.getAllByRole('button', { name: '复制' })).toHaveLength(2)
+})

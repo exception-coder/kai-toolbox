@@ -7,11 +7,13 @@ vi.mock('@/lib/auth', () => ({
   withAuthToken: (path: string) => path,
 }))
 
-import { confirmQueueAndContinue, dispatchQueuedMessage, listQueuedMessages } from './api'
+import { confirmQueueAndContinue, dispatchQueuedMessage, listQueuedMessages, stopQueuedMessage, pauseQueuedMessage } from './api'
 
 afterEach(() => { vi.unstubAllGlobals(); localStorage.clear() })
 
 const commands = [
+  { name: '终止询问', run: () => stopQueuedMessage('session/one', 'message/one'), path: '/api/claude-chat/sessions/session%2Fone/queue/message%2Fone/stop' },
+  { name: '暂停核对', run: () => pauseQueuedMessage('session/one', 'message/one'), path: '/api/claude-chat/sessions/session%2Fone/queue/message%2Fone/pause' },
   { name: '确认继续', run: () => confirmQueueAndContinue('session/one'), path: '/api/claude-chat/sessions/session%2Fone/queue/confirm' },
   { name: '立即发送', run: () => dispatchQueuedMessage('session/one', 'message/one'), path: '/api/claude-chat/sessions/session%2Fone/queue/message%2Fone/dispatch' },
 ]

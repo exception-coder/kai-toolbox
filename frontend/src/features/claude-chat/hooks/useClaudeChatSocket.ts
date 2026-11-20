@@ -9,7 +9,7 @@ import { isVoiceTranscriptItem, upsertVoiceTranscript } from '../lib/voiceTransc
 import { appendAssistantDelta, applyToolResult, upsertToolUse } from '../lib/chatItemReducers'
 import { applyCodexActivity, applySubagentSnapshot, applyToolActivity, applyTurnActivity, engineConnectionItem, engineSubagentSummary, isRunningActivity } from '../lib/activityItems'
 import type { VoiceTransport } from '../lib/nativeVoice'
-import { clearQueuedMessages, confirmQueueAndContinue, deleteQueuedMessage, dispatchQueuedMessage, listQueuedMessages, loadMessages, loadPublicReviewMessages, saveQueuedMessage, stopQueuedMessage, pauseQueuedMessage } from '../api'
+import { clearQueuedMessages, confirmQueueAndContinue, deleteQueuedMessage, dispatchQueuedMessage, listQueuedMessages, loadMessages, loadPublicReviewMessages, saveQueuedMessage, editQueuedMessage, stopQueuedMessage, pauseQueuedMessage } from '../api'
 import { notifyPrompt } from '../browserNotify'
 import { pushDebug } from '../lib/debugLog'
 import { playNotifySound } from '../sound'
@@ -263,6 +263,7 @@ export interface UseClaudeChatSocket {
   /** 入队一条待发送消息（running 时排队；空闲时也可入队，会立即触发发送）。displayText 同 send()。 */
   enqueue: (text: string, attachments?: SendAttachment[], displayText?: string, developerInstructions?: string) => void
   /** 移除队列中某条 */
+  editQueued: (id: string, text: string) => Promise<void>
   removeQueued: (id: string) => void
   pauseQueued: (id: string) => void
   stopQueued: (id: string) => void
@@ -1718,6 +1719,17 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
         if (sessionIdRef.current === sessionId) setSyncWarning(`终止队列询问失败：${error instanceof Error ? error.message : String(error)}`)
       })
   }, [publicWithoutLogin])
+  const editQueued = useCallback(async (id: string, text: string) => {
+    const owner = sessionIdRef.current
+    if (!owner) throw new Error('请重新进入会话后编辑')
+    if (publicWithoutLogin || reviewOnlyRef.current) {
+      setQueued(prev => prev.map(item => item.id === id ? { ...item, text, displayText: undefined } : item))
+      return
+    }
+    const updated = await editQueuedMessage(owner, id, text)
+    if (sessionIdRef.current === owner) setQueued(prev => prev.map(item => item.id === id
+      ? { ...item, ...updated, ownerSessionId: owner } : item))
+  }, [publicWithoutLogin])
   const removeQueued = useCallback((id: string) => {
     if (publicWithoutLogin || reviewOnlyRef.current) {
       setQueued(prev => prev.filter(q => q.id !== id))
@@ -2107,5 +2119,5 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
     }
   }, [sendRaw, connect])
 
-  return { reviewOnly, followUpPrediction, dismissFollowUpPrediction, voiceTransport: voiceChannel.transport, state, sessionId, items, pending, pendingSessions, running, interrupting, queueCheck: running ? queueCheck : null, runtimeRevision, errorMessage, collaborationAccessLost, syncWarning, dismissSyncWarning, mode, autoApprove, slashCommands, skills, skillDetails, plugins, agents, mcpServers, outputStyle, capabilitySource, capabilityRefreshedAt, capabilityErrors, capabilitiesRefreshing, models, modelsRefreshing, currentModel, codexReasoningEffort, codexSpeed, claudeOptions, activeModelConfiguration, currentEngine, engineSwitching, currentProviderKind, currentProviderBaseUrl, providerDiag, turnTokens, backgroundTasks, open, switchTo, duplicateSession, duplicatingSessionId, duplicationOperation, dismissDuplication, resumeHistory, resumeCurrent, send, steer, queued, queuePausedReason, enqueue, removeQueued, pauseQueued, stopQueued, sendQueuedNow, clearQueued, decide, interrupt, setMode, setAutoApprove, setModel, refreshModels, refreshCapabilities, setCodexOptions, setClaudeOptions, switchEngine, switchProvider, forkSession, cleanRetry, historyLoading, historyExhausted, historyError, loadHistory }
+  return { reviewOnly, followUpPrediction, dismissFollowUpPrediction, voiceTransport: voiceChannel.transport, state, sessionId, items, pending, pendingSessions, running, interrupting, queueCheck: running ? queueCheck : null, runtimeRevision, errorMessage, collaborationAccessLost, syncWarning, dismissSyncWarning, mode, autoApprove, slashCommands, skills, skillDetails, plugins, agents, mcpServers, outputStyle, capabilitySource, capabilityRefreshedAt, capabilityErrors, capabilitiesRefreshing, models, modelsRefreshing, currentModel, codexReasoningEffort, codexSpeed, claudeOptions, activeModelConfiguration, currentEngine, engineSwitching, currentProviderKind, currentProviderBaseUrl, providerDiag, turnTokens, backgroundTasks, open, switchTo, duplicateSession, duplicatingSessionId, duplicationOperation, dismissDuplication, resumeHistory, resumeCurrent, send, steer, queued, queuePausedReason, enqueue, editQueued, removeQueued, pauseQueued, stopQueued, sendQueuedNow, clearQueued, decide, interrupt, setMode, setAutoApprove, setModel, refreshModels, refreshCapabilities, setCodexOptions, setClaudeOptions, switchEngine, switchProvider, forkSession, cleanRetry, historyLoading, historyExhausted, historyError, loadHistory }
 }

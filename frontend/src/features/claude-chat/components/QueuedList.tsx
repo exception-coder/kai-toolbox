@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { AlertTriangle, Clock, Pause, Send, Square, X } from 'lucide-react'
+import { AlertTriangle, Clock, Copy, Pencil, Pause, Send, Square, X } from 'lucide-react'
 import { useConfirm } from '@/components/ui/confirm-dialog'
 import type { QueuedMessage } from '../hooks/useClaudeChatSocket'
 import { cn } from '@/lib/utils'
@@ -8,13 +8,14 @@ import { cn } from '@/lib/utils'
  * 待发送队列：回答执行中排队的消息，本轮结束后按序自动发出。
  * 桌面输入区与移动端详情抽屉共用，可逐条移除或一键清空。空队列不渲染。
  */
-export function QueuedList({ items, pausedReason, waitingReason, canSendNow, onSendNow, onRemove, onStop, onPause, onClear, className, compact = false }: {
+export function QueuedList({ items, pausedReason, waitingReason, canSendNow, onSendNow, onRemove, onEdit, onStop, onPause, onClear, className, compact = false }: {
   items: QueuedMessage[]
   pausedReason?: string | null
   waitingReason?: string | null
   canSendNow?: boolean
   onSendNow: (id: string) => void
   onRemove: (id: string) => void
+  onEdit?: (id: string, text: string) => Promise<void>
   onStop?: (id: string) => void
   onPause?: (id: string) => void
   onClear: () => void
@@ -53,6 +54,7 @@ export function QueuedList({ items, pausedReason, waitingReason, canSendNow, onS
                 <span className="ml-1 text-xs text-[var(--color-muted-foreground)]">+{q.attachments.length} 附件</span>
               )}
             </div>
+            <QueueMessageEditor key={q.id} message={q} onEdit={onEdit} disabled={busy} />
             <div className="ml-auto flex flex-wrap items-center gap-1">
             {i === 0 && onPause && q.deliveryState && !['PAUSED', 'CANCELLED'].includes(q.deliveryState) && (
               <button type="button" disabled={busy} onClick={() => { void perform(() => onPause(q.id)) }}
@@ -61,10 +63,10 @@ export function QueuedList({ items, pausedReason, waitingReason, canSendNow, onS
                 <Pause className="size-3" />暂停核对
               </button>
             )}
-            {i === 0 && onStop && q.deliveryState && q.deliveryState !== 'CANCELLED' && (
+            {i === 0 && onStop && q.deliveryState && (q.deliveryState !== 'CANCELLED' || !canSendNow) && (
               <button type="button" disabled={busy} onClick={() => { void perform(() => onStop(q.id)) }} title="终止当前任务和自动追问，保留其余消息"
                 className="inline-flex min-h-11 items-center gap-1 rounded px-2 text-xs text-[var(--color-destructive)] hover:bg-[var(--color-accent)]">
-                <Square className="size-3" />终止询问
+                <Square className="size-3" />{q.deliveryState === 'CANCELLED' ? '重试终止' : '终止询问'}
               </button>
             )}
             {i === 0 && (canSendNow || ['BLOCKED', 'UNKNOWN', 'FAILED', 'CANCELLED', 'PAUSED'].includes(q.deliveryState ?? '')) && !['ACCEPTED', 'DISPATCHING', 'CHECKING'].includes(q.deliveryState ?? '') && (
@@ -126,4 +128,41 @@ function QueueClearMenu({ items, onClear, busy }: { items: QueuedMessage[]; onCl
     }}>清空队列</button>
     {notice && <p role="status" className="max-w-40 whitespace-normal text-xs">{notice}</p>}
   </details>
+}
+
+function QueueMessageEditor({ message, onEdit, disabled }: {
+  message: QueuedMessage; onEdit?: (id: string, text: string) => Promise<void>; disabled: boolean
+}) {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(message.text)
+  const [saving, setSaving] = useState(false)
+  const [notice, setNotice] = useState('')
+  const editable = onEdit && !message.id.startsWith('autopilot:') && (!message.deliveryState || message.deliveryState === 'CANCELLED')
+  const button = 'inline-flex min-h-11 items-center gap-1 rounded px-2 text-xs hover:bg-[var(--color-accent)]'
+  return <div className="min-w-0 basis-full">
+    <div className="flex flex-wrap gap-1">
+      <button type="button" className={button} onClick={async () => {
+        try { await navigator.clipboard.writeText(message.text); setNotice('已复制完整消息') }
+        catch { setNotice('复制失败，请重试或检查浏览器剪贴板权限') }
+      }}><Copy className="size-3.5" />复制</button>
+      {editable && <button type="button" className={button} disabled={disabled || saving} onClick={() => {
+        setDraft(message.text); setEditing(true); setNotice('')
+      }}><Pencil className="size-3.5" />编辑</button>}
+    </div>
+    {editing && <form onSubmit={async event => {
+      event.preventDefault()
+      if (!editable || saving) return
+      setSaving(true)
+      try { await onEdit(message.id, draft); setEditing(false); setNotice('已保存，保留原排队位置') }
+      catch (error) { setNotice(error instanceof Error ? error.message : '保存失败，修改内容已保留，请重试') }
+      finally { setSaving(false) }
+    }}>
+      <textarea aria-label="编辑队列消息" autoFocus value={draft} disabled={saving} onChange={event => setDraft(event.target.value)}
+        className="min-h-24 w-full resize-y rounded border border-[var(--color-border)] bg-[var(--color-background)] p-2"
+        onKeyDown={event => { if (event.key === 'Escape' && !saving) { event.preventDefault(); setEditing(false) } }} />
+      <div className="flex gap-2"><button className={button} type="submit" disabled={saving || disabled || !editable}>保存</button>
+        <button className={button} type="button" disabled={saving} onClick={() => setEditing(false)}>取消</button></div>
+    </form>}
+    {notice && <p role="status" className="wrap-anywhere text-xs text-[var(--color-muted-foreground)]">{notice}</p>}
+  </div>
 }
