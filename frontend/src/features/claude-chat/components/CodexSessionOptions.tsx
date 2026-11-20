@@ -2,6 +2,7 @@ import { useState } from 'react'
 import type { ReactNode } from 'react'
 import { AlertTriangle, Check, ChevronDown, ChevronLeft, ChevronRight, FolderKey, Gauge, RefreshCw, SlidersHorizontal, Zap } from 'lucide-react'
 import type { CodexReasoningEffort, CodexSpeed, ModelInfo } from '../types'
+import { codexSpeedLabel, codexSpeedOptions, codexSpeedSupported } from '../lib/codexSpeed'
 
 interface Props {
   models: ModelInfo[]
@@ -69,11 +70,6 @@ function effortLabel(value: string) {
   return `${label} · 扩展`
 }
 
-const SPEEDS: Array<{ value: CodexSpeed; label: string }> = [
-  { value: 'default', label: '标准' },
-  { value: 'fast', label: '快速' },
-]
-
 export function CodexSessionOptions({
   models,
   embedded = false,
@@ -106,12 +102,13 @@ export function CodexSessionOptions({
   const effectiveModel = selectedModel ?? (!model ? defaultModel : undefined)
   const supportedEfforts = effectiveModel?.reasoningEfforts?.length ? effectiveModel.reasoningEfforts : DEFAULT_EFFORTS
   const visibleEfforts = supportedEfforts.map(value => ({ value, label: effortLabel(value) }))
-  const fastSupported = !effectiveModel || effectiveModel.fastSupported !== false
+  // 目录未加载时保留历史的标准/快速两档，不因未知能力收窄选择。
+  const speedOptions = codexSpeedOptions(effectiveModel ?? { value: '', displayName: '', description: '', fastSupported: true })
   const authHomeLabel = codexHome?.trim() || '默认目录（%USERPROFILE%\\.codex）'
   const modelLabel = selectedModel?.displayName || model || (defaultModel ? `默认 · ${defaultModel.displayName}` : '默认模型')
   const modelDisplayLabel = modelAuthMismatch ? `${modelLabel} · 当前 Auth 不可用` : modelLabel
   const effortValueLabel = EFFORT_LABELS[reasoningEffort] ?? reasoningEffort
-  const speedLabel = SPEEDS.find(item => item.value === speed)?.label ?? speed
+  const speedLabel = codexSpeedLabel(speed, effectiveModel)
   const activeAdvancedOption = advancedOptions.find(item => item.id === activeSection)
 
   const changeModel = (nextModel: string) => {
@@ -122,7 +119,7 @@ export function CodexSessionOptions({
     const nextEffort = nextEfforts.length && !nextEfforts.includes(reasoningEffort)
       ? next?.defaultReasoningEffort ?? nextEfforts[0]
       : reasoningEffort
-    onOptionsChange(nextEffort, next?.fastSupported === false ? 'default' : speed)
+    onOptionsChange(nextEffort, codexSpeedSupported(next, speed) ? speed : 'default')
   }
 
   const close = () => {
@@ -300,12 +297,11 @@ export function CodexSessionOptions({
                   {activeSection === 'effort' && visibleEfforts.map(item => (
                     <OptionRow key={item.value} label={item.label} selected={item.value === reasoningEffort} onClick={() => pickEffort(item.value)} />
                   ))}
-                  {activeSection === 'speed' && SPEEDS.map(item => (
+                  {activeSection === 'speed' && speedOptions.map(item => (
                     <OptionRow
                       key={item.value}
                       label={item.label}
                       selected={item.value === speed}
-                      disabled={item.value === 'fast' && !fastSupported}
                       onClick={() => pickSpeed(item.value)}
                     />
                   ))}

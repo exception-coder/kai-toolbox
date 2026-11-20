@@ -35,6 +35,28 @@ describe('模型配置统一入口', () => {
     expect(callbacks.onChange).not.toHaveBeenCalled()
   })
 
+  it('Codex 按模型目录显示超快等档位，并在切到不支持的模型时回到标准', () => {
+    const tiered: ModelInfo[] = [
+      { value: 'sol', displayName: 'Sol', description: '', reasoningEfforts: ['high'], fastSupported: true, speedTiers: [
+        { value: 'fast', label: 'Fast', description: '2x speed' },
+        { value: 'ultrafast', label: 'Ultrafast', description: 'The fastest available responses.' },
+      ] },
+      { value: 'astra', displayName: 'Astra', description: '', reasoningEfforts: ['high'], fastSupported: true, speedTiers: [
+        { value: 'fast', label: 'Fast', description: '2x speed' },
+      ] },
+    ]
+    const callbacks = setup('codex', tiered, 'sol', { effort: 'high', speed: 'ultrafast', ultracode: false })
+    const speed = screen.getByRole('combobox', { name: '速度模式' })
+    expect([...speed.querySelectorAll('option')].map(option => option.textContent)).toEqual(['标准', '快速', '超快'])
+    expect(screen.getByText('The fastest available responses.')).toBeInTheDocument()
+    fireEvent.change(speed, { target: { value: 'fast' } })
+    expect(callbacks.onSpeedChange).toHaveBeenCalledWith('fast')
+    fireEvent.change(screen.getByRole('combobox', { name: '模型' }), { target: { value: 'astra' } })
+    expect(screen.getByRole('status')).toHaveTextContent('速度调整为标准')
+    fireEvent.click(screen.getByRole('button', { name: '确认切换' }))
+    expect(callbacks.onChange).toHaveBeenCalledWith('astra', { effort: 'high', speed: 'default', ultracode: false })
+  })
+
   it('Codex 切换不兼容模型先说明并确认强度和速度变化', () => {
     const callbacks = setup('codex', codexModels, 'a')
     fireEvent.change(screen.getByRole('combobox', { name: '模型' }), { target: { value: 'b' } })

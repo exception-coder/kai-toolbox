@@ -55,7 +55,7 @@ final class SessionSettingsNormalizer {
     }
 
     static String normalizeCodexSpeed(String speed) {
-        return "fast".equals(speed) ? "fast" : "default";
+        return CodexSpeedTiers.normalize(speed);
     }
 
     static String duplicateTitle(String title) {

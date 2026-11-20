@@ -15,6 +15,7 @@ import { Permissions, type Decision } from './permissions.js'
 import { createWelfareDbServer } from './welfareDb.js'
 import { createForgePendingSqlServer, FORGE_PENDING_SQL_STEER } from './forgePendingSql.js'
 import { codexMcpCapabilities, normalizeCodexHome, runCodexTurn, runEphemeralCodexTurn, steerCodexTurn, type CodexReasoningEffort, type CodexSpeed } from './codexEngine.js'
+import { normalizeCodexSpeed } from './codexSpeedTiers.js'
 import {
   configuredMcpServerNames,
   createClaudeConsultSourceServer,
@@ -1518,7 +1519,7 @@ export class SessionManager {
     s.codexReasoningEffort = isCodexReasoningEffort(codexReasoningEffort)
       ? codexReasoningEffort
       : undefined
-    s.codexSpeed = codexSpeed === 'fast' ? 'fast' : 'default'
+    s.codexSpeed = normalizeCodexSpeed(codexSpeed)
     this.applyCodexOptions(id, s)
     // 演示会话：cwd 即副本根，权限走 demo 沙箱硬裁决（忽略 mode），注入 welfare_db。
     if (demo) {
@@ -1783,7 +1784,7 @@ export class SessionManager {
       reasoningEffort: isCodexReasoningEffort(reasoningEffort)
       ? reasoningEffort
       : undefined,
-      speed: speed === 'fast' ? 'fast' as const : 'default' as const,
+      speed: normalizeCodexSpeed(speed),
     }
     this.pendingCodexOptions.set(id, options)
     const session = this.sessions.get(id)
@@ -1974,7 +1975,7 @@ export class SessionManager {
           reasoningEffort: isCodexReasoningEffort(options?.reasoningEffort)
             ? options?.reasoningEffort
             : undefined,
-          speed: options?.speed === 'fast' ? 'fast' : 'default',
+          speed: normalizeCodexSpeed(options?.speed),
           apiBaseUrl: options?.apiBaseUrl,
           authToken: options?.authToken,
           codexHome: options?.codexHome,
@@ -2000,7 +2001,7 @@ export class SessionManager {
     s.codexReasoningEffort = isCodexReasoningEffort(options?.reasoningEffort)
       ? options?.reasoningEffort
       : undefined
-    s.codexSpeed = options?.speed === 'fast' ? 'fast' : 'default'
+    s.codexSpeed = normalizeCodexSpeed(options?.speed)
     s.toolPolicy = options?.toolPolicy || 'default'
     s.permissionMode = 'bypassPermissions'
     s.perms.setMode('bypassPermissions')

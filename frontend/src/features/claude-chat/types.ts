@@ -429,7 +429,9 @@ export type PermissionMode = 'default' | 'acceptEdits' | 'plan' | 'bypassPermiss
 /** 会话引擎。DeepSeek Harness 仅在 Sidecar 运行时握手通过后由引擎目录开放。 */
 export type Engine = 'claude' | 'codex' | 'qwen' | 'trae' | 'zcode' | 'hermes' | 'antigravity' | 'opencode' | 'pi' | 'copilot' | 'deepseekHarness'
 export type CodexReasoningEffort = string
-export type CodexSpeed = 'default' | 'fast'
+/** default=标准，fast=Codex priority，其余为 Codex 目录声明的档位 id（如 ultrafast）。 */
+export type CodexSpeed = 'default' | 'fast' | (string & {})
+export interface CodexSpeedTier { value: CodexSpeed; label: string; description: string }
 
 export type EngineProbeStatus = 'ready' | 'disabled' | 'dependencyMissing' | 'incompatible' | 'unavailable'
 
@@ -616,7 +618,7 @@ export interface ActiveModelConfiguration {
   engine: Engine
   model: string | null
   effort: string | null
-  speed: 'default' | 'fast' | null
+  speed: CodexSpeed | null
   ultracode: boolean | null
 }
 
@@ -628,6 +630,8 @@ export interface ModelInfo {
   reasoningEfforts?: CodexReasoningEffort[]
   defaultReasoningEffort?: CodexReasoningEffort | null
   fastSupported?: boolean | null
+  /** Codex 目录声明的非标准速度档位；缺失表示目录未提供，按 fastSupported 兜底。 */
+  speedTiers?: CodexSpeedTier[] | null
   /** Codex App Server 标记的当前授权目录默认模型。 */
   isDefault?: boolean
   supportsEffort?: boolean | null

@@ -55,8 +55,9 @@ import {
   isRetryableThreadWriterConflict,
   runCodexAppServerWithStartupRetry,
 } from './codexAppServerRetry.js'
+import { codexServiceTier, type CodexSpeed } from './codexSpeedTiers.js'
 
-export type CodexSpeed = 'default' | 'fast'
+export type { CodexSpeed } from './codexSpeedTiers.js'
 export type CodexReasoningEffort = string
 type CodexTransport = 'appServer' | 'sdkFallback' | 'thirdPartySdk'
 const THREAD_WRITER_RETRY_DELAY_MS = 1_500
@@ -275,8 +276,9 @@ function buildCodexConfig(speed: CodexSpeed, toolPolicy: string, codexHome?: str
         '仅使用实际可用工具；用户授权的原生站点登录不以账号表单为前提。禁止写入文件、Git、配置、数据库或业务数据；不得扩大系统和环境授权。',
         turnDeveloperInstructions ?? ''].join('\n\n')
     : buildCodexDeveloperInstructions(toolPolicy, sessionId, forgeSqlRegistration, turnDeveloperInstructions)
+  const serviceTier = codexServiceTier(speed)
   return {
-    ...(speed === 'fast' ? { service_tier: 'priority' } : {}),
+    ...(serviceTier ? { service_tier: serviceTier } : {}),
     ...(developerInstructions ? { developer_instructions: developerInstructions } : {}),
     ...(toolPolicy === CONSULT_READONLY_POLICY
       ? filterCodexAssembly(consultReadonlyCodexConfig(codexHome, sessionId, sourceRoot, consultEvidenceSystems, forgeSqlRegistration), assembly)

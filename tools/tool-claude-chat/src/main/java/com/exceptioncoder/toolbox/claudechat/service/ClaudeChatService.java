@@ -1316,7 +1316,7 @@ public class ClaudeChatService {
         }
         if (accessGuard.rejectReviewMutation(ws, ctx)) return;
         ctx.codexReasoningEffort = msg.reasoningEffort();
-        ctx.codexSpeed = msg.speed();
+        ctx.codexSpeed = normalizeCodexSpeed(msg.speed());
         repo.updateCodexOptions(ctx.sessionId, ctx.codexReasoningEffort, ctx.codexSpeed);
         sidecar.setCodexOptions(ctx.sessionId, ctx.codexReasoningEffort, ctx.codexSpeed);
         log.info("[claude-chat] 会话 {} 更新 Codex 配置 model={} effort={} speed={}（下一轮生效）",

@@ -1,10 +1,11 @@
-import type { Engine, ModelInfo } from '../types'
+import type { CodexSpeed, Engine, ModelInfo } from '../types'
+import { codexSpeedOptions } from './codexSpeed'
 
 /** 引擎目录中已声明的能力；未知不是不支持，也不推测可选项。 */
 export interface EngineModelCapabilities {
   model: ModelInfo | undefined
   reasoning: { options: string[]; defaultValue: string | null } | null
-  speed: { options: Array<'default' | 'fast'> } | null
+  speed: { options: CodexSpeed[] } | null
   known: boolean
 }
 
@@ -27,7 +28,7 @@ export function modelConfigurationCapabilities(engine: Engine, models: ModelInfo
       model,
       reasoning: model.reasoningEfforts?.length
         ? { options: model.reasoningEfforts, defaultValue: model.defaultReasoningEffort ?? null } : null,
-      speed: engine === 'codex' && model.fastSupported === true ? { options: ['default', 'fast'] } : null,
+      speed: engine === 'codex' && codexSpeedOptions(model).length > 1 ? { options: codexSpeedOptions(model).map(option => option.value) } : null,
       known: Boolean(model.reasoningEfforts?.length),
     }
   }

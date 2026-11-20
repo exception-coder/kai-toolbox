@@ -73,6 +73,7 @@ import { ProviderProfilesPanel } from '../components/ProviderProfilesPanel'
 import { ModelConfigurationPicker } from '../components/ModelConfigurationPicker'
 import { ClaudeUltracodeOption } from '../components/ClaudeSessionOptions'
 import { CodexAuthDirectory } from '../components/CodexAuthDirectory'
+import { codexSpeedLabel, codexSpeedSupported } from '../lib/codexSpeed'
 import { modelConfigurationCapabilities, REASONING_LABELS } from '../lib/modelConfigurationCapabilities'
 import { AssistantRestoreMenuItem } from '@/assistant-sdk/AssistantBridge'
 import { SlashCommandMenu } from '../components/SlashCommandMenu'
@@ -899,7 +900,7 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
     || chat.currentModel
     || currentEngineLabel
   const sessionEffortLabel = QUICK_EFFORT_LABELS[chat.codexReasoningEffort] || chat.codexReasoningEffort
-  const sessionSpeedLabel = chat.codexSpeed === 'fast' ? '快速' : '标准'
+  const sessionSpeedLabel = codexSpeedLabel(chat.codexSpeed, selectedSessionModel)
   const claudeOptions = chat.claudeOptions ?? { effort: 'auto' as const, ultracode: false }
   const claudeSummary = ` · ${REASONING_LABELS[claudeOptions.effort]}${claudeOptions.ultracode ? ' · Ultracode' : ''}`
   const modelCapabilities = modelConfigurationCapabilities(chat.currentEngine, chat.models, chat.currentModel)
@@ -917,14 +918,14 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
     chat.models.find(item => activeModel.model && (item.value === activeModel.model || item.resolvedModel === activeModel.model))?.displayName
       || activeModel.model || '引擎默认模型',
     activeModel.effort ? (REASONING_LABELS[activeModel.effort] ?? activeModel.effort) : null,
-    activeModel.speed ? (activeModel.speed === 'fast' ? '快速' : '标准') : null,
+    activeModel.speed ? codexSpeedLabel(activeModel.speed, selectedSessionModel) : null,
     activeModel.ultracode ? 'Ultracode' : null,
   ].filter(Boolean).join(' · ')
   const sessionConfigSummary = sessionModelLabel + (chat.currentEngine === 'codex'
-    ? ` · 推理强度 ${sessionEffortLabel}${modelCapabilities.speed || chat.codexSpeed === 'fast' ? ` · 速度模式 ${sessionSpeedLabel}` : ''}`
+    ? ` · 推理强度 ${sessionEffortLabel}${modelCapabilities.speed || chat.codexSpeed !== 'default' ? ` · 速度模式 ${sessionSpeedLabel}` : ''}`
     : chat.currentEngine === 'claude' ? claudeSummary : modelCapabilities.reasoning ? ` · ${REASONING_LABELS[modelSelection.effort] ?? modelSelection.effort}` : '')
   const sessionConfigCompactSummary = compactSessionModelLabel(sessionModelLabel) + (chat.currentEngine === 'codex'
-    ? ` · ${sessionEffortLabel}${modelCapabilities.speed || chat.codexSpeed === 'fast' ? ` · ${sessionSpeedLabel}` : ''}`
+    ? ` · ${sessionEffortLabel}${modelCapabilities.speed || chat.codexSpeed !== 'default' ? ` · ${sessionSpeedLabel}` : ''}`
     : chat.currentEngine === 'claude' ? claudeSummary : modelCapabilities.reasoning ? ` · ${REASONING_LABELS[modelSelection.effort] ?? modelSelection.effort}` : '')
 
   const startNew = (selected?: NewSessionPreferences) => {
@@ -2183,7 +2184,7 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
                     effort={chat.codexReasoningEffort} speed={chat.codexSpeed} refreshing={chat.modelsRefreshing} disabled={planLocked}
                     onCustom={onCustom} onApply={preset => {
                       if (preset.model !== chat.currentModel) chat.setModel(preset.model)
-                      chat.setCodexOptions(preset.effort, preset.fastSupported ? chat.codexSpeed : 'default')
+                      chat.setCodexOptions(preset.effort, codexSpeedSupported(preset.catalogModel, chat.codexSpeed) ? chat.codexSpeed : 'default')
                     }} /> : undefined}
             >
               {!reviewOnlySession && supportsModelCatalog && <section className="space-y-3">

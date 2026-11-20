@@ -37,7 +37,11 @@ class SessionSettingsNormalizerTest {
         assertThat(SessionSettingsNormalizer.normalizeCodexReasoningEffort("high")).isEqualTo("high");
         assertThat(SessionSettingsNormalizer.normalizeCodexReasoningEffort("HIGH; rm")).isEqualTo("low");
         assertThat(SessionSettingsNormalizer.normalizeCodexSpeed("fast")).isEqualTo("fast");
-        assertThat(SessionSettingsNormalizer.normalizeCodexSpeed("turbo")).isEqualTo("default");
+        assertThat(SessionSettingsNormalizer.normalizeCodexSpeed("turbo")).isEqualTo("turbo");
+        assertThat(SessionSettingsNormalizer.normalizeCodexSpeed("priority")).isEqualTo("fast");
+        assertThat(SessionSettingsNormalizer.normalizeCodexSpeed("ultrafast")).isEqualTo("ultrafast");
+        assertThat(SessionSettingsNormalizer.normalizeCodexSpeed("Fast; rm")).isEqualTo("default");
+        assertThat(SessionSettingsNormalizer.normalizeCodexSpeed(null)).isEqualTo("default");
         assertThat(SessionSettingsNormalizer.duplicateTitle("需求")).isEqualTo("需求（副本）");
         assertThat(SessionSettingsNormalizer.duplicateTitle("  ")).isNull();
     }

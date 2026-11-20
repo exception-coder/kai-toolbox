@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { normalizeCodexSpeed } from '../lib/codexSpeed'
 import type { ActiveModelConfiguration, ClaudeSessionOptions } from '../types'
 import { reportVibeEntry } from '@/lib/vibeEntryDiagnostics'
 import { ApiError } from '@/lib/api'
@@ -56,7 +57,7 @@ function loadCodexOptions(sid: string): CodexOptions {
     const reasoningEffort = /^[a-z][a-z0-9_-]{0,31}$/.test(parsed.reasoningEffort ?? '')
       ? parsed.reasoningEffort as CodexReasoningEffort
       : DEFAULT_CODEX_OPTIONS.reasoningEffort
-    return { reasoningEffort, speed: parsed.speed === 'fast' ? 'fast' : 'default' }
+    return { reasoningEffort, speed: normalizeCodexSpeed(parsed.speed) }
   } catch { return DEFAULT_CODEX_OPTIONS }
 }
 // 用全局唯一 id（非可重置计数器）：避免 Vite HMR 热更重置模块级计数器后，

@@ -3,6 +3,7 @@ import { ChevronRight, SlidersHorizontal } from 'lucide-react'
 import type { CodexReasoningEffort, CodexSpeed, ModelInfo } from '../../types'
 import { codexQuickPresets, QUICK_EFFORT_LABELS, type CodexQuickPreset } from '../../lib/codexQuickPresets'
 import { compactSessionModelLabel } from '../SessionConfigSheet'
+import { codexSpeedLabel, codexSpeedSupported } from '../../lib/codexSpeed'
 import '../../styles/codex-quick-picker.css'
 
 interface Props {
@@ -37,7 +38,7 @@ export function CodexQuickPicker({ models, model, effort, speed = 'default', ref
   const apply = (index: number) => {
     const choice = presets[index]
     if (!locked && choice && (choice.model !== effectiveModel || choice.effort !== effort)) {
-      if (speed === 'fast' && !choice.fastSupported) setPendingSpeedChange(choice)
+      if (!codexSpeedSupported(choice.catalogModel, speed)) setPendingSpeedChange(choice)
       else onApply(choice)
     }
     cancel()
@@ -51,7 +52,7 @@ export function CodexQuickPicker({ models, model, effort, speed = 'default', ref
     </button>
     <p className="cc-quick-hint">滑动选择模型与推理强度，松手后下轮生效。</p>
     {pendingSpeedChange && <div role="status" className="space-y-2 rounded-md border p-2 text-xs">
-      <p>目标模型不支持快速模式，切换后速度会调整为标准。</p>
+      <p>目标模型不支持{codexSpeedLabel(speed)}模式，切换后速度会调整为标准。</p>
       <div className="flex gap-3"><button type="button" disabled={disabled || refreshing} onClick={() => { onApply(pendingSpeedChange); setPendingSpeedChange(null) }}>确认切换</button>
         <button type="button" onClick={() => setPendingSpeedChange(null)}>取消</button></div>
     </div>}

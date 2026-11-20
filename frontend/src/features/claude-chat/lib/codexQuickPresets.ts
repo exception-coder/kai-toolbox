@@ -7,6 +7,8 @@ export interface CodexQuickPreset {
   effortLabel: string
   label: string
   fastSupported: boolean
+  /** 目录中的模型，用于判断当前速度档位是否可沿用。 */
+  catalogModel: ModelInfo
 }
 
 export const QUICK_EFFORT_LABELS: Record<string, string> = {
@@ -29,6 +31,6 @@ export function codexQuickPresets(models: ModelInfo[]): CodexQuickPreset[] {
     if (seen.has(key)) return []
     seen.add(key)
     return [{ model: model.value, modelLabel: model.displayName, effort, effortLabel: QUICK_EFFORT_LABELS[effort],
-      label: `${model.displayName} ${QUICK_EFFORT_LABELS[effort]}`, fastSupported: model.fastSupported !== false }]
+      label: `${model.displayName} ${QUICK_EFFORT_LABELS[effort]}`, fastSupported: model.fastSupported !== false, catalogModel: model }]
   })
 }

@@ -63,7 +63,7 @@ export interface ConsultSessionView {
   engine: 'claude' | 'codex'
   model: string | null
   codexReasoningEffort: string | null
-  codexSpeed: 'default' | 'fast' | null
+  codexSpeed: 'default' | 'fast' | (string & {}) | null
   codexHome: string | null
   orchestrationVersion: ConsultOrchestrationVersion
   errorMsg: string | null
@@ -137,7 +137,7 @@ export interface StartSessionRequest {
   engine: 'claude' | 'codex'
   model?: string | null
   codexReasoningEffort?: string | null
-  codexSpeed?: 'default' | 'fast' | null
+  codexSpeed?: 'default' | 'fast' | (string & {}) | null
   codexHome?: string | null
   orchestrationVersion?: ConsultOrchestrationVersion
 }

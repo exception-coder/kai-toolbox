@@ -45,7 +45,12 @@ class CodexModelCatalogServiceTest {
                       "visibility": "list",
                       "supported_in_api": false,
                       "default_reasoning_level": "high",
-                      "supported_reasoning_levels": [{"effort": "high"}]
+                      "supported_reasoning_levels": [{"effort": "high"}],
+                      "additional_speed_tiers": ["fast", "ultrafast"],
+                      "service_tiers": [
+                        {"id": "priority", "name": "Fast", "description": "2x speed"},
+                        {"id": "ultrafast", "name": "Ultrafast", "description": "Fastest"}
+                      ]
                     },
                     {"slug": "hidden-model", "visibility": "hide"}
                   ]
@@ -62,6 +67,10 @@ class CodexModelCatalogServiceTest {
         assertThat(models.getFirst().fastSupported()).isTrue();
         assertThat(models.get(1).value()).isEqualTo("gpt-5.3-codex-spark");
         assertThat(models.get(1).reasoningEfforts()).containsExactly("high");
+        assertThat(models.getFirst().speedTiers()).extracting(tier -> tier.value()).containsExactly("fast");
+        assertThat(models.get(1).fastSupported()).isTrue();
+        assertThat(models.get(1).speedTiers()).extracting(tier -> tier.value() + ":" + tier.label())
+                .containsExactly("fast:Fast", "ultrafast:Ultrafast");
     }
 
     @Test

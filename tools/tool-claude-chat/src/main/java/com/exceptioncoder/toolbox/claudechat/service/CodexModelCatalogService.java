@@ -111,13 +111,9 @@ public class CodexModelCatalogService {
             if (!REASONING_EFFORT.matcher(defaultEffort).matches()) {
                 defaultEffort = null;
             }
-            boolean fastSupported = false;
-            for (JsonNode speedTier : model.path("additional_speed_tiers")) {
-                if ("fast".equals(speedTier.asText())) {
-                    fastSupported = true;
-                    break;
-                }
-            }
+            List<ModelInfo.SpeedTier> speedTiers = CodexSpeedTiers.fromCatalog(
+                    model.path("service_tiers"), model.path("additional_speed_tiers"));
+            boolean fastSupported = speedTiers.stream().anyMatch(tier -> "fast".equals(tier.value()));
             String displayName = model.path("display_name").asText("").trim();
             models.add(new ModelInfo(
                     slug,
@@ -126,7 +122,11 @@ public class CodexModelCatalogService {
                     List.copyOf(efforts),
                     defaultEffort,
                     fastSupported,
-                    false
+                    false,
+                    null,
+                    List.of(),
+                    null,
+                    speedTiers
             ));
         }
         return List.copyOf(models);

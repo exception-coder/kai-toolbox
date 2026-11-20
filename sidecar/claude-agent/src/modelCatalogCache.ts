@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { query } from '@anthropic-ai/claude-agent-sdk'
 import { normalizeCodexHome, type CodexReasoningEffort } from './codexEngine.js'
 import type { CodexModelInfo } from './codexAppServer.js'
+import { codexSpeedTiers, speedFields } from './codexSpeedTiers.js'
 
 /*
  * 模型目录缓存：Claude 按 provider 分别缓存 supportedModels，Codex 读取本地 models_cache.json。
@@ -48,6 +49,7 @@ export function loadCodexModels(sessionCodexHome?: string): CodexModelInfo[] {
         default_reasoning_level?: string
         supported_reasoning_levels?: Array<{ effort?: string }>
         additional_speed_tiers?: string[]
+        service_tiers?: Array<{ id?: string; name?: string; description?: string }>
       }>
     }
     return (raw.models ?? []).flatMap((model) => {
@@ -63,7 +65,7 @@ export function loadCodexModels(sessionCodexHome?: string): CodexModelInfo[] {
         defaultReasoningEffort: isCodexReasoningEffort(model.default_reasoning_level)
           ? model.default_reasoning_level
           : null,
-        fastSupported: (model.additional_speed_tiers ?? []).includes('fast'),
+        ...speedFields(codexSpeedTiers(model.service_tiers, model.additional_speed_tiers)),
         isDefault: false,
       }]
     })

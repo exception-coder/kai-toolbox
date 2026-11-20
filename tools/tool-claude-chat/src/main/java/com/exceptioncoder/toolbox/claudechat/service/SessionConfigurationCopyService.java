@@ -83,7 +83,7 @@ public class SessionConfigurationCopyService {
                     .apiBaseUrl(source.getApiBaseUrl()).authToken(source.getAuthToken()).codexHome(source.getCodexHome())
                     .selectedModel(source.getSelectedModel())
                     .codexReasoningEffort(effort != null && effort.matches("[a-z][a-z0-9_-]{0,31}") ? effort : "low")
-                    .codexSpeed("fast".equals(source.getCodexSpeed()) ? "fast" : "default")
+                    .codexSpeed(CodexSpeedTiers.normalize(source.getCodexSpeed()))
                     .executionPolicy(policy).consultEvidenceSystems(source.getConsultEvidenceSystems())
                     .status(SessionStatus.IDLE).startedAt(now).lastSeenAt(now).build());
             sessions.updateGroup(targetId, source.getGroupName(), source.getSubgroupName());

@@ -24,6 +24,7 @@ import {
 import { configuredMcpServerNames, type RequiredMcpTool } from './codexSecurity.js'
 import { CodexMcpStartupWarnings } from './codexMcpStartupWarnings.js'
 import { CodexAppServerWarnings, codexWarningMessage } from './codexAppServerWarnings.js'
+import { codexSpeedTiers, speedFields, type CodexSpeedTier } from './codexSpeedTiers.js'
 import {
   buildCodexCapabilitySnapshot,
   parseMcpCapabilities,
@@ -81,6 +82,7 @@ type AppServerModel = {
   defaultReasoningEffort?: string
   supportedReasoningEfforts?: Array<{ reasoningEffort?: string }>
   additionalSpeedTiers?: string[]
+  serviceTiers?: Array<{ id?: string; name?: string; description?: string }>
 }
 
 export type CodexModelInfo = {
@@ -90,6 +92,7 @@ export type CodexModelInfo = {
   reasoningEfforts: string[]
   defaultReasoningEffort: string | null
   fastSupported: boolean
+  speedTiers?: CodexSpeedTier[]
   isDefault: boolean
 }
 
@@ -515,7 +518,7 @@ export function normalizeCodexModel(item: AppServerModel): CodexModelInfo | null
     defaultReasoningEffort: isReasoningEffort(item.defaultReasoningEffort)
       ? item.defaultReasoningEffort
       : null,
-    fastSupported: (item.additionalSpeedTiers ?? []).includes('fast'),
+    ...speedFields(codexSpeedTiers(item.serviceTiers, item.additionalSpeedTiers)),
     isDefault: item.isDefault === true,
   }
 }

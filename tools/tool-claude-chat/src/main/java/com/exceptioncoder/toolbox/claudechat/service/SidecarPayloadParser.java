@@ -135,7 +135,7 @@ final class SidecarPayloadParser {
                     e.path("fastSupported").isBoolean() ? e.path("fastSupported").asBoolean() : null,
                     e.path("isDefault").asBoolean(false),
                     e.path("supportsEffort").isBoolean() ? e.path("supportsEffort").asBoolean() : null, claudeEfforts,
-                    e.path("resolvedModel").asText(null)));
+                    e.path("resolvedModel").asText(null), CodexSpeedTiers.fromSidecar(e.path("speedTiers"))));
         }
         return out;
     }

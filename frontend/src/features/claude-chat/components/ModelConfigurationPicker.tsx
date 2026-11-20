@@ -1,11 +1,12 @@
 import { useEffect, useId, useState } from 'react'
 import { RefreshCw } from 'lucide-react'
-import type { Engine, ModelInfo } from '../types'
+import type { CodexSpeed, Engine, ModelInfo } from '../types'
 import { modelConfigurationCapabilities, REASONING_LABELS } from '../lib/modelConfigurationCapabilities'
+import { codexSpeedLabel, codexSpeedOptions, codexSpeedSupported } from '../lib/codexSpeed'
 
 export interface ModelConfigurationSelection {
   effort: string
-  speed: 'default' | 'fast'
+  speed: CodexSpeed
   ultracode: boolean
 }
 
@@ -20,7 +21,7 @@ interface Props {
   refreshing?: boolean
   onChange: (model: string, selection?: ModelConfigurationSelection) => void
   onEffortChange: (value: string) => void
-  onSpeedChange: (value: 'default' | 'fast') => void
+  onSpeedChange: (value: CodexSpeed) => void
   onResetClaudeOptions: () => void
   onRefresh: () => void
 }
@@ -35,7 +36,9 @@ export function ModelConfigurationPicker({ engine, engineLabel, models, model, s
   const capabilities = modelConfigurationCapabilities(engine, models, model)
   const selectedMissing = Boolean(model && !capabilities.model)
   const effortUnsupported = capabilities.reasoning && !capabilities.reasoning.options.includes(selection.effort)
-  const fastUnavailable = engine === 'codex' && selection.speed === 'fast' && capabilities.model?.fastSupported === false
+  const speedOptions = codexSpeedOptions(capabilities.model)
+  const speedUnavailable = engine === 'codex' && Boolean(capabilities.model) && !codexSpeedSupported(capabilities.model, selection.speed)
+  const speedDescription = speedOptions.find(option => option.value === selection.speed)?.description
   const claudeOptionsUnsupported = engine === 'claude' && capabilities.known && selection.effort !== 'auto'
     && (capabilities.model?.supportsEffort === false || effortUnsupported)
 
@@ -53,7 +56,7 @@ export function ModelConfigurationPicker({ engine, engineLabel, models, model, s
       replacement.effort = 'auto'
       changes.push('推理强度恢复自动')
     }
-    if (engine === 'codex' && next.model?.fastSupported === false && selection.speed === 'fast') {
+    if (engine === 'codex' && !codexSpeedSupported(next.model, selection.speed)) {
       replacement.speed = 'default'
       changes.push('速度调整为标准')
     }
@@ -106,12 +109,14 @@ export function ModelConfigurationPicker({ engine, engineLabel, models, model, s
     {capabilities.speed && <div className="space-y-2">
       <label htmlFor={`${id}-speed`} className="text-sm font-medium">速度模式</label>
       <select id={`${id}-speed`} value={selection.speed} disabled={disabled} className={controlClass}
-        onChange={event => onSpeedChange(event.target.value as 'default' | 'fast')}>
-        <option value="default">标准</option><option value="fast">快速</option>
+        onChange={event => onSpeedChange(event.target.value)}>
+        {speedUnavailable && <option disabled value={selection.speed}>{codexSpeedLabel(selection.speed, capabilities.model)} · 当前模型不支持</option>}
+        {speedOptions.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
       </select>
+      {speedDescription && <p className="text-xs text-[var(--color-muted-foreground)]">{speedDescription}</p>}
     </div>}
-    {fastUnavailable && <div role="status" className="text-xs text-[var(--color-muted-foreground)]">
-      当前模型不支持已选的快速模式。<button type="button" disabled={disabled} className="underline disabled:opacity-50" onClick={() => onSpeedChange('default')}>切换为标准</button>
+    {speedUnavailable && <div role="status" className="text-xs text-[var(--color-muted-foreground)]">
+      当前模型不支持已选的{codexSpeedLabel(selection.speed, capabilities.model)}模式。<button type="button" disabled={disabled} className="underline disabled:opacity-50" onClick={() => onSpeedChange('default')}>切换为标准</button>
     </div>}
     {claudeOptionsUnsupported && <div role="status" className="text-xs leading-relaxed text-[var(--color-muted-foreground)]">
       当前模型不支持已保存的强度，请调整后发送。{' '}
