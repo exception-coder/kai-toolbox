@@ -34,7 +34,7 @@ import {
 } from './codexSecurity.js'
 import { FORGE_PENDING_SQL_STEER } from './forgePendingSql.js'
 import { CODEX_COMPUTER_USE_RECOVERY_STEER } from './codexComputerUsePolicy.js'
-import { VIBE_BROWSER_SERVER, VIBE_BROWSER_INSTRUCTION, vibeBrowserRequestForTurn, vibeBrowserServerConfig } from './vibeBrowser.js'
+import { VIBE_BROWSER_SERVER, VIBE_BROWSER_TOOL, VIBE_BROWSER_INSTRUCTION, vibeBrowserRequestForTurn, vibeBrowserServerConfig } from './vibeBrowser.js'
 import { takeCodexVoice } from './codexRealtime.js'
 import {
   CodexAppServerTurnError,
@@ -476,6 +476,11 @@ export async function runCodexTurn(ctx: CodexTurnCtx): Promise<void> {
     const mcpServers = codexMcpCapabilities(ctx.toolPolicy ?? 'default', ctx.sessionId, ctx.forgeSqlRegistration,
       { codexHome: home, sourceRoot: consultSourceRoot, evidenceSystems: ctx.consultEvidenceSystems })
     if (browser) mcpServers.push({ name: VIBE_BROWSER_SERVER, status: 'configured' })
+    const requiredMcpTools = consultReadonly
+      ? consultReadonlyRequiredMcpTools(consultSourceRoot, ctx.consultEvidenceSystems)
+        .filter(item => assemblyAllows(ctx.consultToolAssembly, item.server, item.tool))
+      : []
+    if (browser) requiredMcpTools.push({ server: VIBE_BROWSER_SERVER, tool: VIBE_BROWSER_TOOL })
     const appServerOptions: Parameters<typeof runCodexAppServerTurn>[0] = {
       voice,
       sessionId: ctx.sessionId ?? `ephemeral:${Date.now()}:${Math.random()}`,
@@ -499,10 +504,7 @@ export async function runCodexTurn(ctx: CodexTurnCtx): Promise<void> {
       onTransportSelected: selection => { transportSelection = selection },
       canUseTool: ctx.canUseTool,
       mcpServers,
-      requiredMcpTools: consultReadonly
-        ? consultReadonlyRequiredMcpTools(consultSourceRoot, ctx.consultEvidenceSystems)
-          .filter(item => assemblyAllows(ctx.consultToolAssembly, item.server, item.tool))
-        : browser ? [{ server: VIBE_BROWSER_SERVER, tool: 'browser_open_and_click' }] : undefined,
+      requiredMcpTools: consultReadonly || browser ? requiredMcpTools : undefined,
       forbidMcpTools: reviewOnly,
     }
     const runAppServer = (options: Parameters<typeof runCodexAppServerTurn>[0]) => runCodexAppServerWithStartupRetry(

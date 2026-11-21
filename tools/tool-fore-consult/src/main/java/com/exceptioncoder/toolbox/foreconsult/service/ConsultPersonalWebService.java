@@ -81,7 +81,7 @@ public class ConsultPersonalWebService {
         return locked(session, () -> {
             var value = required(session);
             if (!"READY".equals(value.loginStatus())) { gateway.closePersonal(key(value)); }
-            Object result = perform(value, null);
+            Object result = perform(value, null, null);
             return state(checked(value, result), result);
         });
     }
@@ -109,13 +109,17 @@ public class ConsultPersonalWebService {
             if (!"READY".equals(value.loginStatus())) {
                 throw new IllegalArgumentException("个人账号上次登录未成功，请在个人账号入口检查登录或更新账号，不自动重复尝试");
             }
-            return perform(value, request.url());
+            return perform(value, request.url(), request.menuName());
         });
     }
-    private Object perform(Account value, String url) {
+    private Object perform(Account value, String url, String menuName) {
         try {
             Object result = gateway.readPersonal(key(value), value.sourcePath(), target(value),
-                    new WebResourceGateway.Request(value.id(), url, value.environment(), value.loginPage()));
+                    new WebResourceGateway.Request(value.id(), url, value.environment(), value.loginPage(), menuName));
+            // 菜单未展开属于页面能力结果，不修改已核验的账号登录状态。
+            if (menuName != null && "MENU_UNAVAILABLE".equals(mapper.valueToTree(result).path("page").path("status").asText())) {
+                return result;
+            }
             var next = checked(value, result);
             // 错误业务路径/403/404不等于账号失效，不阻断后续更正路径的读取。
             if (url == null || !"FAILED".equals(next.loginStatus())) {

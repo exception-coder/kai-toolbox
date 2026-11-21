@@ -365,6 +365,16 @@ public class SidecarClient implements ReviewThreadForkGateway {
                             List<com.exceptioncoder.toolbox.llm.spi.AgentOneShotRunner.ImageInput> images,
                             String turnToolPolicy, String voiceCallId, Map<String, Object> consultAccount,
                             boolean queueCheck, ClaudeSessionOptions configuredClaudeOptions) {
+        userMessage(sessionId, text, developerInstructions, sessionContext, additionalDirectories, turnId, traceContext,
+                telemetry, images, turnToolPolicy, voiceCallId, consultAccount, queueCheck, configuredClaudeOptions, null);
+    }
+
+    void userMessage(String sessionId, String text, String developerInstructions,
+                     String sessionContext, List<String> additionalDirectories, String turnId,
+                     TraceContext traceContext, AgentRunMetadata telemetry,
+                     List<com.exceptioncoder.toolbox.llm.spi.AgentOneShotRunner.ImageInput> images,
+                     String turnToolPolicy, String voiceCallId, Map<String, Object> consultAccount,
+                     boolean queueCheck, ClaudeSessionOptions configuredClaudeOptions, ConsultRuntimeCoordinator.BrowserInput browserInput) {
         Map<String, Object> message = new LinkedHashMap<>();
         message.put("type", "user");
         message.put("sessionId", sessionId);
@@ -392,6 +402,13 @@ public class SidecarClient implements ReviewThreadForkGateway {
                     trustedAssembly.put("mcpServers", assembly.mcpServers());
                     trustedAssembly.put("runtimeSessionId", sessionId);
                     trustedAssembly.put("runtimeToken", assembly.runtimeToken());
+                    if (browserInput != null && consultAccount != null
+                            && assembly.tools().contains("browser_open_and_click") && assembly.mcpServers().contains("forge_browser")) {
+                        trustedAssembly.put("browserUserRequest", browserInput.userRequest());
+                        if (browserInput.previousUserRequest() != null) {
+                            trustedAssembly.put("previousBrowserUserRequest", browserInput.previousUserRequest());
+                        }
+                    }
                     message.put("consultToolAssembly", trustedAssembly);
                     message.put("developerInstructions", assembly.instructions());
                 });

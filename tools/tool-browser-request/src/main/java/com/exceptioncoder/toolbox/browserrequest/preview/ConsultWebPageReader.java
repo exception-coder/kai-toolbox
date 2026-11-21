@@ -19,7 +19,7 @@ class ConsultWebPageReader implements WebPageReader {
     ConsultWebPageReader(PreviewBrowser browser) { this.browser = browser; }
 
     @Override
-    public synchronized Page read(String key, BrowserLoginTarget account, String path, String loginPage) {
+    public synchronized Page read(String key, BrowserLoginTarget account, String path, String loginPage, String menuName) {
         String fingerprint = fingerprint(account);
         Context current = contexts.get(key);
         if (current != null && !current.fingerprint.equals(fingerprint)) { close(key, current); current = null; }
@@ -42,12 +42,17 @@ class ConsultWebPageReader implements WebPageReader {
             if (key.startsWith("personal:") && current.authenticated && "WAITING_LOGIN".equals(result.status())) {
                 // 仅已成功登录后失效才自动恢复一次；新context失败时不递归撞密码。
                 close(key, current);
-                return read(key, account, path, loginPage);
+                return read(key, account, path, loginPage, menuName);
             }
             if (!"READY".equals(result.status())) {
                 return new Page(result.status(), result.url(), "登录或页面读取未完成", "未返回页面正文；请核对账号、登录页或目标路径。");
             }
             current.authenticated = true;
+            if (menuName != null) {
+                // 菜单事件只在断网的上下文中执行。销毁后不会携带待发送请求或页面本地修改继续访问业务系统。
+                try { result = browser.readMenu(current.id, account.baseUrl(), menuName); }
+                finally { close(key, current); }
+            }
             return new Page(result.status(), result.url(), redact(result.title(), account.password()), redact(result.text(), account.password()));
         } catch (RuntimeException failed) {
             current.status.set("FAILED");

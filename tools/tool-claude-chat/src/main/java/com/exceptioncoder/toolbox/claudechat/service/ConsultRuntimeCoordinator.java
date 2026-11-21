@@ -12,12 +12,21 @@ import org.springframework.stereotype.Service;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
+import java.util.regex.Pattern;
 
 /** Called under the existing per-session admission lock, including persistent queue dispatch. */
 @Service
 public class ConsultRuntimeCoordinator {
+    // A relative click may refer only to the immediately preceding user's explicit link request.
+    private static final Pattern REPEAT_LINK_CLICK = Pattern.compile(
+            "(?:请|你)?\\s*(?:再|尝试|试着|重新)?\\s*(?:点击|点)(?:一下|一次)?\\s*"
+                    + "(?:刚才|之前|上次|对应)(?:的)?(?:站点|网站|页面|网页)?(?:的)?(?:那个|这个)?(?:链接|菜单按钮)"
+                    + "(?:[，,\\s]*(?:看看|确认)(?:是否|能否)(?:可以)?(?:点击|跳转))?[。！？!?]?"
+                    + "|(?:please\\s+)?click\\s+the\\s+(?:same|previous)\\s+link(?:\\s+again)?[.!]?",
+            Pattern.CASE_INSENSITIVE);
     private final List<ConsultationRuntimePolicy> policies;
     private final AgentAccountValidator validator;
     private final ConsultRuntimeRepository repository;
@@ -65,7 +74,24 @@ public class ConsultRuntimeCoordinator {
                 || previous != null && previous.nativeId() == null;
         String segment = switched || previous == null ? UUID.randomUUID().toString() : previous.id();
         String context = switched ? context(selection, session.getId()) : "";
-        return new Plan(selection, segment, switched, context);
+        return new Plan(selection, segment, switched, context, browserInput(session.getId(), message));
+    }
+
+    private BrowserInput browserInput(String sessionId, ClientMessage.Send message) {
+        if (message.voice() != null || message.text() == null || message.text().length() > 4096) {
+            return null;
+        }
+        String text = message.text().strip();
+        if (text.toLowerCase(Locale.ROOT).contains("https://")) {
+            return new BrowserInput(text, null);
+        }
+        if ((message.attachments() == null || message.attachments().isEmpty()) && REPEAT_LINK_CLICK.matcher(text).matches()) {
+            return repository.precedingUserInput(sessionId)
+                    .filter(value -> value.toLowerCase(Locale.ROOT).contains("https://"))
+                    .map(previous -> new BrowserInput(text, previous))
+                    .orElse(null);
+        }
+        return null;
     }
 
     private void bootstrap(ClaudeChatSession session, String savedHistory) {
@@ -149,7 +175,11 @@ public class ConsultRuntimeCoordinator {
     public void tool(String session, ChatMessageView tool) { repository.importMessage(session, tool); }
     public void settled(String session, String turn, String state) { repository.settled(session, turn, state); }
 
-    public record Plan(ConsultationRuntimePolicy.Selection selection, String segment, boolean switched, String context) {
+    /** Kept separate from enriched prompts. The worker scope is parsed and validated in the sidecar. */
+    record BrowserInput(String userRequest, String previousUserRequest) { }
+
+    public record Plan(ConsultationRuntimePolicy.Selection selection, String segment, boolean switched, String context,
+                       BrowserInput browserInput) {
         public Map<String, Object> configuration() {
             return Map.of("codexHome", selection.codexHome(), "model", selection.model(), "segmentId", segment,
                     "resetThread", switched, "policyVersion", selection.version());

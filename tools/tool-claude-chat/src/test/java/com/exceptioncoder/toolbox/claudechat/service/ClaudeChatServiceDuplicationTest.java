@@ -145,7 +145,7 @@ class ClaudeChatServiceDuplicationTest {
         var contexts = (java.util.Map<String, Object>) org.springframework.test.util.ReflectionTestUtils.getField(service, "sessions");
         Object ctx = contexts.get("source");
         var plan = new ConsultRuntimeCoordinator.Plan(new com.exceptioncoder.toolbox.llm.spi.ConsultationRuntimePolicy.Selection(
-                "consult", "B", "new-model", 2, "scope"), "segment-B", true, "context");
+                "consult", "B", "new-model", 2, "scope"), "segment-B", true, "context", null);
         org.springframework.test.util.ReflectionTestUtils.setField(ctx, "consultAccountPlan", plan);
         org.springframework.test.util.ReflectionTestUtils.setField(ctx, "consultAccountCommitted", false);
         org.springframework.test.util.ReflectionTestUtils.setField(ctx, "status", SessionStatus.RUNNING);

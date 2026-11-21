@@ -62,6 +62,14 @@ public class ConsultRuntimeRepository implements ConsultationHistoryReader {
                 """, session, key, kind, text == null ? "" : text, System.currentTimeMillis(), replace);
     }
 
+    /** Only dispatched user inputs are eligible. Imported transcripts and prior assistant/tool output grant no scope. */
+    public Optional<String> precedingUserInput(String session) {
+        return jdbc.query("""
+                SELECT CASE WHEN payload IS NULL AND length(text) <= 4096 THEN text ELSE '' END
+                FROM claude_consult_history WHERE session_id=? AND kind='user' ORDER BY seq DESC LIMIT 1
+                """, (rs, i) -> rs.getString(1), session).stream().filter(value -> !value.isBlank()).findFirst();
+    }
+
     public MessagePage messages(String session, Integer before, int limit) {
         var rows = jdbc.query("""
                 SELECT seq, kind, text, payload, created_at FROM claude_consult_history

@@ -67,6 +67,11 @@ test('readonly resource MCP forwards trusted session header and refuses writes b
     await request('tools/call', { name: 'read_consult_history', arguments: { offset: 12000, maxChars: 2000 } })
     assert.equal(requests[6].url, '/api/fore-consult/context/sessions/runtime-test?offset=12000&maxChars=2000')
     assert.equal(requests[6].token, 'trusted-test-token')
+    await request('tools/call', { name: 'consult_web', arguments: { operation: 'READ', bindingId: 'web-uat', menuName: '业务菜单' } })
+    assert.deepEqual(JSON.parse(requests[7].body), { bindingId: 'web-uat', menuName: '业务菜单' })
+    const invalidMenu = await request('tools/call', { name: 'consult_web', arguments: { operation: 'READ', bindingId: 'web-uat', menuName: ' ' } })
+    assert.equal(invalidMenu.result.isError, true)
+    assert.equal(requests.length, 8)
   } finally {
     child.kill(); lines.close(); await new Promise<void>(resolve => server.close(() => resolve()))
   }

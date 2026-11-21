@@ -3,7 +3,11 @@ package com.exceptioncoder.toolbox.common.resource;
 /** 隔离浏览器的受控登录与页面读取端口，不向调用方暴露凭据或任意脚本执行。 */
 public interface WebPageReader {
     /** 在会话隔离的登录上下文读取同源页面。 */
-    Page read(String contextKey, BrowserLoginTarget target, String path, String loginPage);
+    default Page read(String contextKey, BrowserLoginTarget target, String path, String loginPage) {
+        return read(contextKey, target, path, loginPage, null);
+    }
+    /** 指定菜单时，仅展开并读取已授权页面中的导航菜单。 */
+    Page read(String contextKey, BrowserLoginTarget target, String path, String loginPage, String menuName);
     /** 主动撤销个人授权时释放该隔离登录态。 */
     void closeContext(String contextKey);
 

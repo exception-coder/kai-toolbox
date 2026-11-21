@@ -39,6 +39,7 @@ class PlaywrightPreviewBrowser implements PreviewBrowser {
             BrowserContext context = browser.newContext(options);
             contexts.put(id, context);
             if (plan.readOnly()) {
+                context.routeWebSocket("**/*", socket -> socket.close());
                 context.addInitScript("window.WebSocket = class { constructor() { throw new Error('咨询不开放WebSocket'); } }; navigator.sendBeacon = () => false;");
             }
             context.setDefaultTimeout(15000);
@@ -207,6 +208,11 @@ class PlaywrightPreviewBrowser implements PreviewBrowser {
                     url.getScheme() + "://" + url.getRawAuthority() + url.getRawPath(), page.title(),
                     text.length() > 20000 ? text.substring(0, 20000) : text);
         });
+    }
+
+    @Override
+    public com.exceptioncoder.toolbox.common.resource.WebPageReader.Page readMenu(String id, String baseUrl, String menuName) {
+        return manager.withRenderingBrowser(browser -> ConsultMenu.read(required(id), baseUrl, menuName));
     }
 
     @Override

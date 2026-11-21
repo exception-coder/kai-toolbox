@@ -10,6 +10,10 @@ export interface ConsultUpgradeNote {
 /** 仅登记业务人员直接受益的业务咨询重大变化；管理员配置、流程发布、开发排障及其他工具更新不收录。保留历史；日期使用YYYY-MM-DD，同日新增记录会重新提示纸签。 */
 export const CONSULT_UPGRADE_NOTES: readonly ConsultUpgradeNote[] = [
   {
+    id: '2026-11-21-consult-browser-navigation', date: '2026-11-21', title: '在咨询里核对链接和菜单',
+    summary: '发来公开网页和链接文字，就能核对点击后的网址。查看已授权测试账号的折叠菜单时，请写出菜单名称。公开链接已实测，具体业务站点的菜单仍待核验。',
+  },
+  {
     id: '2026-11-18-consult-personal-direct', date: '2026-11-18', title: '授权后直接登录查看',
     summary: '待部署及原生引擎验收：明确授权 AI 登录站点后，有原生浏览器能力时可直接查看，无需先填账号表单或登记资源。“我的系统账号”仅用于可选保存复用，也支持内网测试地址和自定义端口。',
   },

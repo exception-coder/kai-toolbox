@@ -1,3 +1,5 @@
+import { VIBE_BROWSER_SERVER, VIBE_BROWSER_TOOL } from './vibeBrowser.js'
+
 export const CODEX_COMPUTER_USE_RECOVERY_STEER = [
   '【浏览器动态节点恢复】使用 cua_repl 操作会实时刷新的页面时，可访问性节点编号只对最近一次页面快照有效。',
   '每次点击、输入、滚动或页面导航后，必须重新读取 getAXState，再从新快照定位下一目标；不得复用动作前的节点编号。',
@@ -69,6 +71,7 @@ export function consultBrowserNotice(input: readonly Record<string, unknown>[],
     && /浏览器|点击|点选|网页取数|页面筛选|下拉框|computer.use|browser.use|cua_repl/i.test(item.text))
   if (!requested) return undefined
   if (!statuses) return '未能核对本轮原生浏览器工具目录，点击能力未验证。'
+  if (statuses.some(server => server.name === VIBE_BROWSER_SERVER && server.tools.has(VIBE_BROWSER_TOOL))) return undefined
   if (statuses.some(server => server.name === 'cua_repl' && server.tools.has('js'))) return undefined
   return '本轮 Codex 未提供用于点击的 cua_repl 工具。可继续尝试已授权的只读接口，页面点击需要宿主提供原生浏览器连接。'
 }

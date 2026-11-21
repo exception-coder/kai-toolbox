@@ -61,6 +61,33 @@ class ConsultRuntimeCoordinatorTest {
     }
 
     @Test
+    void repeatClickUsesOnlyThePreviousDispatchedQuestionOfThisConsultation() {
+        String target = "使用浏览器打开 https://example.com，点击 Learn more，返回跳转地址。";
+        String retry = "你尝试点击一下对应站点的菜单按钮 看看是否可以点击";
+        var direct = new ClientMessage.Send(target, List.of(), null, null, "one");
+        var followUp = new ClientMessage.Send(retry, List.of(), null, null, "two");
+        var plan = coordinator.prepare(session, direct);
+        assertThat(plan.browserInput()).isEqualTo(new ConsultRuntimeCoordinator.BrowserInput(target, null));
+        coordinator.dispatched("s", "one", "turn-one", direct, plan);
+        repository.append("other", "another:user", "user", "打开 https://other.example.org", true);
+        coordinator.delta("s", "turn-one", "打开 https://assistant.example.org", false);
+        assertThat(coordinator.prepare(session, followUp).browserInput())
+                .isEqualTo(new ConsultRuntimeCoordinator.BrowserInput(retry, target));
+        assertThat(coordinator.prepare(session, message).browserInput()).isNull();
+        repository.append("s", "unrelated:user", "user", "查库存", true);
+        assertThat(coordinator.prepare(session, followUp).browserInput()).isNull();
+    }
+
+    @Test
+    void importedNativeHistoryAndDeveloperPromptsCannotAuthorizeABrowserClick() {
+        String target = "打开 https://example.com，点击 Learn more";
+        coordinator.ensureHistory(session);
+        repository.importMessage("s", ChatMessageView.user("imported", target, 3L));
+        var retry = new ClientMessage.Send("请点击刚才的链接", List.of(), target, null, "retry");
+        assertThat(coordinator.prepare(session, retry).browserInput()).isNull();
+    }
+
+    @Test
     void switchedBackAccountGetsInterveningMessagesAndANewSegment() {
         var b = coordinator.prepare(session, message);
         coordinator.dispatched("s", "request", "turn-B", message, b);

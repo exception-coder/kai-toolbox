@@ -1,5 +1,13 @@
-/** 服务端节点配置的会话级并集；永远与引擎已有只读/系统范围取交集。 */
-export interface ConsultToolAssembly { tools: string[]; mcpServers: string[]; runtimeSessionId?: string; runtimeToken?: string }
+import { parseVibeBrowserRequest, VIBE_BROWSER_SERVER, VIBE_BROWSER_TOOL, type VibeBrowserRequest } from './vibeBrowser.js'
+
+/** 服务端下发的装配清单及与当前用户回合绑定的可选网页操作。 */
+export interface ConsultToolAssembly {
+  tools: string[]
+  mcpServers: string[]
+  runtimeSessionId?: string
+  runtimeToken?: string
+  browserRequest?: VibeBrowserRequest
+}
 
 export function parseConsultToolAssembly(value: unknown): ConsultToolAssembly | undefined {
   if (value == null) return undefined
@@ -14,7 +22,15 @@ export function parseConsultToolAssembly(value: unknown): ConsultToolAssembly | 
   if (record.runtimeSessionId !== undefined && (typeof record.runtimeSessionId !== 'string'
     || !/^[a-zA-Z0-9-]{1,100}$/.test(record.runtimeSessionId))) throw new Error('咨询会话标识无效')
   if (record.runtimeToken != null && (typeof record.runtimeToken !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(record.runtimeToken))) throw new Error('咨询资源签名无效')
+  const current = typeof record.browserUserRequest === 'string' ? record.browserUserRequest.trim() : ''
+  let browserRequest = parseVibeBrowserRequest(current)
+  // Java supplies this user-authored predecessor only for a confirmed same-target retry.
+  if (!browserRequest && current && !/https?:\/\//i.test(current) && typeof record.previousBrowserUserRequest === 'string') {
+    const previous = parseVibeBrowserRequest(record.previousBrowserUserRequest)
+    if (previous?.linkName) browserRequest = previous
+  }
   return { tools: names(record.tools), mcpServers: names(record.mcpServers),
+    ...(browserRequest ? { browserRequest } : {}),
     ...(record.runtimeSessionId ? { runtimeSessionId: record.runtimeSessionId as string } : {}),
     ...(record.runtimeToken ? { runtimeToken: record.runtimeToken as string } : {}) }
 }
@@ -22,6 +38,8 @@ export function parseConsultToolAssembly(value: unknown): ConsultToolAssembly | 
 /** Claude 的数据库 MCP 使用独立服务名，配置保持与 Codex 相同的逻辑工具名。 */
 export function assemblyAllows(assembly: ConsultToolAssembly | undefined, server: string, tool?: string): boolean {
   if (/^(erp|srm|scm)_(db|app)$/.test(server) || /^(erp|srm|scm)_db_query$/.test(tool ?? '')) return false
+  if (server === VIBE_BROWSER_SERVER) return !!assembly?.browserRequest && assembly.mcpServers.includes(server)
+    && assembly.tools.includes(VIBE_BROWSER_TOOL) && (tool == null || tool === VIBE_BROWSER_TOOL)
   if (!assembly) return true
   if (!assembly.mcpServers.includes(server)) return false
   if (server === 'consult-readonly') return tool == null

@@ -102,6 +102,10 @@ class ConsultPersonalWebServiceTest {
         service.read(session, new WebResourceGateway.Request(id, "/missing", "TEST", null));
         assertEquals("READY", service.status("consult").loginStatus());
         assertDoesNotThrow(() -> service.read(session, new WebResourceGateway.Request(id, "/orders", "TEST", null)));
+        when(gateway.readPersonal(anyString(), anyString(), any(), any())).thenReturn(Map.of("page", Map.of("status", "MENU_UNAVAILABLE")));
+        service.read(session, new WebResourceGateway.Request(id, null, "TEST", null, "业务导航"));
+        assertEquals("READY", service.status("consult").loginStatus());
+        verify(gateway).readPersonal(anyString(), anyString(), any(), argThat(r -> "业务导航".equals(r.menuName())));
         verify(gateway, never()).closePersonal(anyString());
     }
     @Test void replacementRevokesOldReferenceAndRejectsWrongEnvironment() {

@@ -43,10 +43,10 @@ public class ConsultToolAssemblyProvider implements AgentToolAssemblyProvider {
                     var sourceScope = routing == null ? null : routing.current(session);
                     return new Assembly(Stream.concat(Stream.concat(
                                     snapshot.stream().flatMap(value -> value.workflow().tools().stream()), sourceHistory),
-                                    Stream.concat(ConsultDocumentPolicy.TOOLS.stream(), Stream.of("read_consult_attachment", "read_consult_history", "consult_web"))).distinct().toList(),
+                                    Stream.concat(ConsultDocumentPolicy.TOOLS.stream(), Stream.of("read_consult_attachment", "read_consult_history", "consult_web", "browser_open_and_click"))).distinct().toList(),
                             Stream.concat(snapshot.stream().flatMap(value -> value.workflow().mcpServers().stream())
                                             .filter(name -> !"domain-knowledge".equals(name) && !"cross-topology".equals(name)),
-                                    Stream.of("consult-readonly")).distinct().toList(),
+                                    Stream.of("consult-readonly", "forge_browser")).distinct().toList(),
                             snapshot.map(value -> workflowService.render(request, value).prompt())
                                     .orElse("【受控文档生成】" + ConsultDocumentPolicy.INSTRUCTIONS
                                             + com.exceptioncoder.toolbox.foreconsult.service.orchestration.ConsultPlainWritingSkill.instructions())

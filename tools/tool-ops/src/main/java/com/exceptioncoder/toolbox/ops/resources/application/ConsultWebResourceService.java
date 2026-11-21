@@ -66,7 +66,7 @@ public class ConsultWebResourceService implements WebResourceGateway {
                 ? URI.create(account.baseUrl()).getRawPath() : request.loginPage();
         login = login == null || login.isBlank() ? "/" : login;
         login = targetPath(account.baseUrl(), login);
-        var page = browser.read(runtimeId + ":" + entry.bindingId(), account, path, login);
+        var page = browser.read(runtimeId + ":" + entry.bindingId(), account, path, login, request.menuName());
         return new Evidence(entry, account.username(), page);
     }
 
@@ -106,7 +106,7 @@ public class ConsultWebResourceService implements WebResourceGateway {
                 throw new IllegalArgumentException("该站点已登记为生产或未知环境，不能用个人账号绕过限制");
             }
         }
-        var page = browser.read(contextKey, account, path, login);
+        var page = browser.read(contextKey, account, path, login, request.menuName());
         return new Evidence(new ReadonlyResourceGateway.Entry(request.bindingId(), "personal", "本次咨询", "个人账号",
                 account.environment(), "本人声明环境，未独立核验", "AVAILABLE", null, safeEndpoint(account.baseUrl()), "APP"), account.username(), page);
     }

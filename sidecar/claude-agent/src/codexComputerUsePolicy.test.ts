@@ -71,6 +71,7 @@ test('consult browser notice distinguishes missing native tool from a failed inv
   assert.match(consultBrowserNotice(request, []) ?? '', /未提供用于点击的 cua_repl/)
   assert.match(consultBrowserNotice(request, undefined) ?? '', /目录.*未验证/)
   assert.equal(consultBrowserNotice(request, [{ name: 'cua_repl', tools: new Set(['js']) }]), undefined)
+  assert.equal(consultBrowserNotice(request, [{ name: 'forge_browser', tools: new Set(['browser_open_and_click']) }]), undefined)
   assert.equal(consultBrowserNotice([{ type: 'text', text: '查找相关源码' }], []), undefined)
 })
 

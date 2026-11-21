@@ -36,10 +36,14 @@ flowchart LR
 
 Vibe Coding 的公开网页链接验证由普通 Codex 开发会话发起。Sidecar 根据当轮用户给定的地址和点击目标装配临时 MCP 工具，执行端在 Forge 管理的独立 Chromium 中核对授权并操作页面。原会话的工具回执记录实际地址或失败。浏览器的临时状态与 Forge 登录、资源账号预览、桌面浏览器权限相互独立。[实施与验收状态](../openspec/changes/vibe-isolated-browser/tasks.md)
 
+业务咨询复用同一公开网页工具。咨询服务从用户实际发送的消息提供本轮操作依据，sidecar 核验会话和工具范围后装配浏览器。已登录业务系统的菜单通过该咨询的账号绑定读取。[业务咨询验收状态](../openspec/changes/consult-browser-navigation/tasks.md)
+
 ```mermaid
 flowchart LR
     U[当前用户的地址与链接文字] --> T[Vibe Coding 开发轮次]
     T --> M[按本轮范围装配 MCP 工具]
+    U --> C[业务咨询核对用户消息和会话身份]
+    C --> M
     M --> B[独立 Chromium 打开并点击]
     B --> R[原会话记录落地地址或失败]
 ```
@@ -1195,13 +1199,15 @@ flowchart LR
   D --> E[资源环境 来源与路径校验]
   E --> F[隔离浏览器静默登录 页面或GET接口读取]
   F --> G[实际环境与外部页面证据]
+  F --> H[按名称断网展开可识别的导航菜单]
+  H --> G
 ```
 
 Web账号绑定变化对旧咨询后续调用生效；缺少绑定应报告账号配置入口，不能声称平台没有浏览器。页面导航也支持同源同应用路径的只读GET接口JSON，复用隔离Cookie，不开放任意HTTP方法、Header或脚本。URL与明确环境指导账号选择，歧义时才询问地址；不能把DEV结果当成UAT或生产证据。登录态仅在隔离context内短期复用，不写普通录制目录；失败不反复尝试同一账号。当前仅支持同源标准表单，跨域SSO、验证码和任意业务操作不在此边界。实现、开发验证与真实业务页面验收分别记录于[多环境Web账号任务](../openspec/changes/consult-web-environment-accounts/tasks.md)，不因工具可用绕过本次重启确认。
 
 用户明确给出站点和账号并授权登录查看时，Codex咨询优先使用本轮实际可用的原生浏览器或仅用于该站点的只读HTTP内存请求，不要求先填写账号表单。咨询配置不再覆盖computer_use/browser_use/browser_use_external/code_mode为false，继承宿主可用能力与站点权限；SDK咨询路径允许联网，评审和禁用模式仍关闭。开发者指令保留文件、数据库及业务数据只读边界，登录授权不能从网页取得或扩大到其他操作；原生工具不可用或权限被拒绝须如实报告。不给模型新增密码LOGIN工具，不自动持久保存密码或Cookie，账号表单仅供可选复用；保留用户主动发送的聊天，不额外复述、打印凭据。实际Codex原生轮次尚待新版本加载核验。
 
-官方 Codex 咨询固定使用 App Server，不在启动失败后自动回退 SDK；第三方网关保持原 SDK 路径。线程创建或恢复前读取原生 config/read 合并配置，关闭插件默认开启及其他插件的显式开启项，仅允许 openai-bundled 的 browser、chrome、unified-computer-use，交由官方加载器提供工具、生命周期与权限检查。配置核验失败停止启动；SDK基础配置及评审仍关闭插件。Forge不复制桌面插件清单、连接管道或执行身份，不新造点击执行器。工具目录发现与真实连接调用分别验收：已验证真实咨询引擎可调用 cua_repl/js，但本机返回 The browser access host is unavailable，点击尚未完成，运行服务尚未加载。见[验收任务](../openspec/changes/consult-personal-web-login/tasks.md)。
+官方 Codex 咨询固定使用 App Server，第三方网关沿用 SDK 路径。线程创建或恢复前通过原生 config/read 核验合并配置，禁用默认插件和其他已开启插件，只允许 openai-bundled 的 browser、chrome、unified-computer-use。官方加载器管理原生工具、生命周期和访问权限，配置核验失败即停止启动。SDK 基础配置和评审禁用插件。宿主原生浏览器的连接取决于桌面访问权。业务咨询另行按轮装配 Forge 的独立浏览器核验公开链接，已授权业务账号通过 `consult_web` 读取。原生插件的历史连接结果见[个人账号验收任务](../openspec/changes/consult-personal-web-login/tasks.md)，独立浏览器的适用范围与运行结果见[咨询网页验收](../openspec/changes/consult-browser-navigation/tasks.md)。
 
 个人账号按Forge用户与系统持久绑定：咨询内“我的系统账号”经RequireAuth及会话所有者检查，fore-consult独立表通过common ResourceCredentialCipher复用ops加密存储密码，每用户每系统一个当前绑定。模型仅发现当前咨询所有者的personal-引用并走既有签名READ，不接受密码参数；管理员不豁免。状态查询只读元信息不等待浏览器，显式检查实际访问站点；上次READY超过60秒标待检查。每次读取仍核验本人账号归属、环境及地址，不要求先完成服务端源码定位或项目库关联；登录态context短期复用，15分钟释放不删除账号，首次读取重新登录。已成功登录后遇到登录页或HTTP401最多重登一次，失败后停止自动尝试，需本人检查或更新账号。解除绑定删除密文并释放context，对本人该系统后续咨询生效；旧临时授权不自动持久化。
 

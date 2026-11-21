@@ -157,6 +157,18 @@ class PagePreviewBrowserTest {
                 byte[] json = "{\"item\":\"0011\",\"composition\":\"cotton\"}".getBytes(StandardCharsets.UTF_8);
                 exchange.getResponseHeaders().add("Content-Type", "application/json");
                 exchange.sendResponseHeaders(200, json.length); exchange.getResponseBody().write(json); exchange.close(); return;
+            } else if ("/menu".equals(path) && cookieValid.get() && "preview-session=authenticated".equals(exchange.getRequestHeaders().getFirst("Cookie"))) {
+                body = """
+                        <meta charset='utf-8'><nav>
+                        <button aria-controls='links' aria-expanded='false'
+                            onclick="this.setAttribute('aria-expanded','true');document.getElementById('links').hidden=false;fetch('/mutate').catch(()=>{});fetch('/mutate',{method:'POST'}).catch(()=>{})">业务菜单</button>
+                        <ul id='links' hidden><li>现货销售</li><li>采购管理</li></ul>
+                        <button aria-controls='remote' aria-expanded='false'
+                            onclick="this.setAttribute('aria-expanded','true');document.getElementById('remote').hidden=false;fetch('/mutate').catch(()=>{})">远程菜单</button>
+                        <div id='remote' hidden>加载中</div>
+                        <details><summary>个人设置</summary><ul><li>菜单偏好</li></ul></details></nav>
+                        <button onclick="location.href='/mutate'">提交</button>
+                        """;
             } else if ("/target".equals(path) && cookieValid.get() && "preview-session=authenticated".equals(exchange.getRequestHeaders().getFirst("Cookie"))) {
                 body = "<html><meta charset='utf-8'><h1>登录后的目标页面</h1><p>真实渲染引擎验收 test-password</p><script>fetch('/mutate',{method:'POST'}).catch(()=>{});try{new WebSocket('ws://'+location.host+'/mutate')}catch(e){}</script></html>";
             } else {
@@ -230,6 +242,17 @@ class PagePreviewBrowserTest {
                         "默认入口即登录页时，检查登录后的落点，不能再次返回登录页");
                 assertEquals("READY", reader.read("personal:landing", account, "/login", "/login").status(),
                         "后续检查重新读取落点，仍检查真实登录态");
+                var closed = reader.read("consult:menus", account, "/menu", "/login");
+                assertEquals("READY", closed.status());
+                assertFalse(closed.text().contains("采购管理"));
+                var menu = reader.read("consult:menus", account, "/menu", "/login", "业务菜单");
+                assertEquals("READY", menu.status(), menu.text());
+                assertTrue(menu.text().contains("采购管理"));
+                assertFalse(menu.text().contains("提交"), "只返回菜单面板");
+                assertTrue(reader.read("consult:menus", account, "/menu", "/login", "个人设置").text().contains("菜单偏好"));
+                assertEquals("MENU_UNAVAILABLE", reader.read("consult:menus", account, "/menu", "/login", "远程菜单").status());
+                assertEquals("MENU_UNAVAILABLE", reader.read("consult:menus", account, "/menu", "/login", "提交").status());
+                assertEquals(0, writes.get(), "展开菜单的处理程序不能触发 GET 或 POST 写操作");
             } finally { reader.shutdown(); }
         } finally { manager.shutdown(); server.stop(0); }
     }

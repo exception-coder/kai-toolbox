@@ -16,7 +16,7 @@ class ConsultWebResourceServiceTest {
         for (String site : List.of("http://192.168.9.210:90", "http://10.0.0.8:8081", "http://172.16.1.2:9000")) {
             var account = new BrowserLoginTarget("personal", "本人", "TEST", site, "me", "secret", "username", "password");
             assertDoesNotThrow(() -> service.readPersonal("personal:test", "/unregistered", account, request));
-            verify(browser).read("personal:test", account, "/", "/");
+            verify(browser).read("personal:test", account, "/", "/", null);
         }
         clearInvocations(browser);
         for (String site : List.of("http://127.0.0.1:90", "http://169.254.169.254", "http://[::1]", "http://0.0.0.0", "http://192.168.9.210:65536")) {
@@ -60,8 +60,8 @@ class ConsultWebResourceServiceTest {
         assertThrows(IllegalArgumentException.class, () -> service.readPersonal("personal:private", "/projects/one",
                 new BrowserLoginTarget("personal", "个人", "TEST", "http://127.0.0.1", "me", "secret", "username", "password"),
                 new WebResourceGateway.Request("personal", "/", "TEST", null)));
-        service.readPersonal("personal:test", "/projects/one", personal, new WebResourceGateway.Request("personal", "/orders", "TEST", "/login"));
-        verify(browser).read("personal:test", personal, "/orders", "/login");
+        service.readPersonal("personal:test", "/projects/one", personal, new WebResourceGateway.Request("personal", "/orders", "TEST", "/login", "业务菜单"));
+        verify(browser).read("personal:test", personal, "/orders", "/login", "业务菜单");
         service.closePersonal("personal:test");
         verify(browser).closeContext("personal:test");
     }
@@ -77,7 +77,7 @@ class ConsultWebResourceServiceTest {
         var account = new BrowserLoginTarget("dev", "DEV登录", "DEV", "https://dev.example.test", "tester", "server-secret", "username", "password");
         when(accounts.targets()).thenReturn(List.of(account, new BrowserLoginTarget("uat", "UAT", "UAT", "https://uat.example.test", "tester", "uat-secret", "username", "password"))); when(accounts.require("dev")).thenReturn(account);
         var browser = mock(WebPageReader.class);
-        when(browser.read(anyString(), any(), anyString(), anyString())).thenReturn(new WebPageReader.Page("READY", "https://dev.example.test/orders", "订单", "待审订单"));
+        when(browser.read(anyString(), any(), anyString(), anyString(), nullable(String.class))).thenReturn(new WebPageReader.Page("READY", "https://dev.example.test/orders", "订单", "待审订单"));
         var service = new ConsultWebResourceService(new SystemResourceService(List.of(provider), directories, store), directories, List.of(accounts), browser);
         assertEquals(2, service.catalog().size());
         assertEquals(List.of("dev", "uat"), service.discoverBound("/projects/one").stream().map(ReadonlyResourceGateway.Entry::bindingId).toList());
@@ -93,7 +93,7 @@ class ConsultWebResourceServiceTest {
         verifyNoInteractions(browser);
         var result = (ConsultWebResourceService.Evidence) service.read("run", "/projects/one", List.of("dev", "uat"), new WebResourceGateway.Request("dev", "https://dev.example.test/orders", null, null));
         assertEquals("DEV", result.resource().environment()); assertEquals("tester", result.account());
-        verify(browser).read("run:dev", account, "/orders", "/");
+        verify(browser).read("run:dev", account, "/orders", "/", null);
         when(accounts.require("dev")).thenReturn(new BrowserLoginTarget("dev", "已变更", "UAT", "https://dev.example.test", "tester", "server-secret", "username", "password"));
         assertThrows(IllegalArgumentException.class, () -> service.read("changed", "/projects/one", List.of("dev"),
                 new WebResourceGateway.Request("dev", "/orders", "DEV", null)));
@@ -104,7 +104,7 @@ class ConsultWebResourceServiceTest {
         assertEquals("https://same.test/dev", service.discover("/projects/one", List.of("dev", "uat")).getFirst().endpoint());
         assertDoesNotThrow(() -> service.read("shared", "/projects/one", List.of("dev", "uat"),
                 new WebResourceGateway.Request("dev", "https://same.test/dev/orders", null, null)));
-        verify(browser).read("shared:dev", sharedDev, "/dev/orders", "/dev");
+        verify(browser).read("shared:dev", sharedDev, "/dev/orders", "/dev", null);
         when(store.list()).thenReturn(List.of(binding("dev", false)));
         assertThrows(IllegalArgumentException.class, () -> service.read("run", "/projects/one", List.of("dev"), new WebResourceGateway.Request("dev", "/orders", "DEV", null)));
         when(provider.resources()).thenReturn(List.of(resource("dev", "PROD", "https://dev.example.test")));

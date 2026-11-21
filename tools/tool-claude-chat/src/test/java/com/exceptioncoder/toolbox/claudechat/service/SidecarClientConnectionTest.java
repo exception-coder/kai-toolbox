@@ -2,6 +2,7 @@ package com.exceptioncoder.toolbox.claudechat.service;
 
 import com.exceptioncoder.toolbox.claudechat.config.ClaudeChatProperties;
 import com.exceptioncoder.toolbox.claudechat.config.ClaudeChatWsProperties;
+import com.exceptioncoder.toolbox.llm.spi.AgentToolAssemblyProvider;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -11,6 +12,9 @@ import org.springframework.web.socket.WebSocketSession;
 import org.springframework.web.socket.client.standard.StandardWebSocketClient;
 
 import java.io.IOException;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -69,6 +73,31 @@ class SidecarClientConnectionTest {
         var message = org.mockito.ArgumentCaptor.forClass(TextMessage.class);
         org.mockito.Mockito.verify(connection).sendMessage(message.capture());
         assertThat(mapper.readTree(message.getValue().getPayload()).has("claudeOptions")).isFalse();
+    }
+
+    @Test
+    void onlyTheBoundConsultationAssemblyReceivesTheSeparateBrowserInput() throws Exception {
+        var mapper = new ObjectMapper();
+        var client = new SidecarClient(new ClaudeChatProperties(), new ClaudeChatWsProperties(), mapper);
+        var connection = mock(WebSocketSession.class);
+        when(connection.isOpen()).thenReturn(true);
+        ReflectionTestUtils.setField(client, "session", connection);
+        AgentToolAssemblyProvider provider = id -> Optional.of(new AgentToolAssemblyProvider.Assembly(
+                List.of("browser_open_and_click"), List.of("forge_browser"), "平台装配"));
+        ReflectionTestUtils.setField(client, "toolAssemblyProviders", List.of(provider));
+        var browser = new ConsultRuntimeCoordinator.BrowserInput("点击刚才的链接", "打开 https://example.com，点击 Learn more");
+        client.userMessage("consult", "历史拼接后的模型输入", "客户端提供的提示", null, List.of(),
+                "turn", null, null, List.of(), null, null, Map.of("segmentId", "segment"), false, null, browser);
+        client.userMessage("other", "其他会话输入", null, null, List.of(), "turn", null, null,
+                List.of(), null, null, null, false, null, browser);
+        var messages = org.mockito.ArgumentCaptor.forClass(TextMessage.class);
+        verify(connection, org.mockito.Mockito.times(2)).sendMessage(messages.capture());
+        var assembly = mapper.readTree(messages.getAllValues().getFirst().getPayload()).path("consultToolAssembly");
+        assertThat(assembly.path("browserUserRequest").asText()).isEqualTo(browser.userRequest());
+        assertThat(assembly.path("previousBrowserUserRequest").asText()).isEqualTo(browser.previousUserRequest());
+        var other = mapper.readTree(messages.getAllValues().getLast().getPayload()).path("consultToolAssembly");
+        assertThat(other.has("browserUserRequest")).isFalse();
+        assertThat(other.has("previousBrowserUserRequest")).isFalse();
     }
 
     @Test

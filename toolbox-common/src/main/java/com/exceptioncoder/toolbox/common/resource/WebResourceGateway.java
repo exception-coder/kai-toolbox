@@ -21,5 +21,16 @@ public interface WebResourceGateway {
     record Request(@jakarta.validation.constraints.NotBlank @jakarta.validation.constraints.Size(max = 100) String bindingId,
                    @jakarta.validation.constraints.Size(max = 2048) String url,
                    @jakarta.validation.constraints.Pattern(regexp = "LOCAL|DEV|TEST|UAT") String environment,
-                   @jakarta.validation.constraints.Size(max = 512) String loginPage) { }
+                   @jakarta.validation.constraints.Size(max = 512) String loginPage,
+                   @jakarta.validation.constraints.Size(max = 120) String menuName) {
+        public Request(String bindingId, String url, String environment, String loginPage) {
+            this(bindingId, url, environment, loginPage, null);
+        }
+
+        public Request {
+            if (menuName != null && (menuName.isBlank() || menuName.length() > 120 || menuName.chars().anyMatch(Character::isISOControl))) {
+                throw new IllegalArgumentException("请提供页面上明确的菜单名称（最多120个字符）");
+            }
+        }
+    }
 }

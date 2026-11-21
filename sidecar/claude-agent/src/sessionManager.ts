@@ -1643,14 +1643,14 @@ export class SessionManager {
     }
     // fire-and-forget，但必须收敛异常：runTurn 的非 Claude 引擎分支没有内层 catch，
     // 一旦 reject 会变成 unhandledRejection 拖垮整个 sidecar。这里兜成该会话的 error+result，解除前端「思考中」。
-    if (s.toolPolicy === 'consult-readonly') {
-      s.consultToolAssembly = parseConsultToolAssembly(consultToolAssembly)
-      s.perms.consultToolAssembly = s.consultToolAssembly
-    }
     const restricted = s.toolPolicy === 'consult-readonly' || s.toolPolicy === 'review-only'
     const hiddenInstructions = restricted ? developerInstructions?.trim() || undefined : sessionContext?.trim() || undefined
     const safeAdditionalDirectories = restricted ? [] : additionalDirectories
-    const prepare = s.toolPolicy === 'review-only' ? () => this.ensureReviewDefaults(id, s) : undefined
+    // Only an accepted turn may replace the active worker's scope and permission policy.
+    const prepare = s.toolPolicy === 'consult-readonly' ? async () => {
+      s.consultToolAssembly = parseConsultToolAssembly(consultToolAssembly)
+      s.perms.consultToolAssembly = s.consultToolAssembly
+    } : s.toolPolicy === 'review-only' ? () => this.ensureReviewDefaults(id, s) : undefined
     s.runTurn(text, undefined, images, hiddenInstructions, turnId, safeAdditionalDirectories, voiceCallId, prepare).catch((e) => {
       console.error('[sidecar] runTurn 异常（已兜住）session=' + id + ':', e)
       this.emit(id, { type: 'error', code: 'TURN_FAILED', message: e instanceof Error ? e.message : String(e), turnId })

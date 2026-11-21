@@ -6,16 +6,19 @@ export const consultWebTool = {
     operation: { type: 'string', enum: ['DISCOVER', 'READ'] }, bindingId: { type: 'string', maxLength: 100 },
     url: { type: 'string', maxLength: 2048 }, environment: { type: 'string', enum: ['LOCAL', 'DEV', 'TEST', 'UAT'] },
     loginPage: { type: 'string', maxLength: 512, description: '同源网页登录路径，不是登录API；缺省从配置的应用地址进入' },
+    menuName: { type: 'string', minLength: 1, maxLength: 120, description: 'READ 可填页面上唯一的导航展开控件名称，在已登录页面断网展开并返回可见菜单。动态取数可用已核实的只读菜单接口。' },
   }, additionalProperties: false },
   annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: true },
 }
 
 export async function callConsultWeb(args: Record<string, unknown>, context: { apiBase: string; session?: string; token?: string }) {
   if (!context.session || !context.token) throw new Error('咨询资源会话上下文未配置')
-  if (Object.keys(args).some(key => !['operation', 'bindingId', 'url', 'environment', 'loginPage'].includes(key))) throw new Error('Web工具不接受凭据或额外参数')
+  if (Object.keys(args).some(key => !['operation', 'bindingId', 'url', 'environment', 'loginPage', 'menuName'].includes(key))) throw new Error('Web工具不接受凭据或额外参数')
   const operation = args.operation ?? 'DISCOVER'
   if (operation !== 'READ' && operation !== 'DISCOVER') throw new Error('未知Web操作')
   if (operation === 'READ' && (typeof args.bindingId !== 'string' || !args.bindingId || args.bindingId.length > 100)) throw new Error('请选择发现结果中的绑定')
+  if (args.menuName !== undefined && (operation !== 'READ' || typeof args.menuName !== 'string' ||
+      !args.menuName.trim() || args.menuName.length > 120 || /[\u0000-\u001f\u007f-\u009f]/u.test(args.menuName))) throw new Error('请输入有效的菜单名称')
   for (const [key, limit] of [['url', 2048], ['loginPage', 512]] as const) {
     const value = args[key]
     if (value !== undefined && (typeof value !== 'string' || value.length > limit)) throw new Error('页面路径格式不正确')
@@ -23,7 +26,7 @@ export async function callConsultWeb(args: Record<string, unknown>, context: { a
   if (args.environment !== undefined && !['LOCAL', 'DEV', 'TEST', 'UAT'].includes(String(args.environment))) throw new Error('环境不受支持')
   const response = await fetch(`${context.apiBase}/api/fore-consult/resources/sessions/${encodeURIComponent(context.session)}/web`, {
     method: operation === 'READ' ? 'POST' : 'GET', headers: { 'Content-Type': 'application/json', 'X-Consult-Resource-Token': context.token },
-    ...(operation === 'READ' ? { body: JSON.stringify({ bindingId: args.bindingId, url: args.url, environment: args.environment, loginPage: args.loginPage }) } : {}),
+    ...(operation === 'READ' ? { body: JSON.stringify({ bindingId: args.bindingId, url: args.url, environment: args.environment, loginPage: args.loginPage, menuName: args.menuName }) } : {}),
     signal: AbortSignal.timeout(90_000),
   })
   return { content: [{ type: 'text', text: (await response.text()).slice(0, 100_000) }], isError: !response.ok }
