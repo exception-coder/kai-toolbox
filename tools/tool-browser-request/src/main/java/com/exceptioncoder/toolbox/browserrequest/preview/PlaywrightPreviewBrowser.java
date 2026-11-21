@@ -1,24 +1,35 @@
 package com.exceptioncoder.toolbox.browserrequest.preview;
 
 import com.exceptioncoder.toolbox.browserrequest.config.BrowserSessionManager;
+import com.exceptioncoder.toolbox.common.resource.WebPageReader;
 import com.microsoft.playwright.Browser;
 import com.microsoft.playwright.BrowserContext;
 import com.microsoft.playwright.Locator;
 import com.microsoft.playwright.Page;
+import com.microsoft.playwright.PlaywrightException;
+import com.microsoft.playwright.Request;
+import com.microsoft.playwright.Route;
 import com.microsoft.playwright.options.AriaRole;
 import com.microsoft.playwright.options.ScreenshotType;
+import com.microsoft.playwright.options.ServiceWorkerPolicy;
 import com.microsoft.playwright.options.WaitUntilState;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 import java.net.URI;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.Consumer;
 import java.util.function.BooleanSupplier;
+import java.util.function.Predicate;
 
 /** 无头渲染及人工接管；与录制会话、登录态自动落盘严格隔离。 */
 @Component
 class PlaywrightPreviewBrowser implements PreviewBrowser {
+    private static final Logger log = LoggerFactory.getLogger(PlaywrightPreviewBrowser.class);
+    private static final Set<String> READ_METHODS = Set.of("GET", "HEAD", "OPTIONS");
     private final BrowserSessionManager manager;
     private final Map<String, BrowserContext> contexts = new HashMap<>();
     private final Map<String, Page> pages = new HashMap<>();
@@ -32,33 +43,20 @@ class PlaywrightPreviewBrowser implements PreviewBrowser {
             Browser.NewContextOptions options = new Browser.NewContextOptions()
                     .setViewportSize(plan.phone() ? 390 : 1440, plan.phone() ? 844 : 900)
                     .setIsMobile(plan.phone()).setHasTouch(plan.phone()).setLocale("zh-CN");
-            if (plan.readOnly()) { options.setServiceWorkers(com.microsoft.playwright.options.ServiceWorkerPolicy.BLOCK); }
+            if (plan.readOnly()) { options.setServiceWorkers(ServiceWorkerPolicy.BLOCK); }
             if (plan.storageState() != null) {
                 options.setStorageState(plan.storageState());
             }
             BrowserContext context = browser.newContext(options);
             contexts.put(id, context);
-            if (plan.readOnly()) {
-                context.routeWebSocket("**/*", socket -> socket.close());
-                context.addInitScript("window.WebSocket = class { constructor() { throw new Error('咨询不开放WebSocket'); } }; navigator.sendBeacon = () => false;");
-            }
-            context.setDefaultTimeout(15000);
-            context.setDefaultNavigationTimeout(20000);
             var authenticating = new java.util.concurrent.atomic.AtomicBoolean(plan.login() != null);
             var loginSubmission = new java.util.concurrent.atomic.AtomicReference<String>();
-            context.route("**/*", route -> {
-                String url = route.request().url();
-                boolean safeMethod = Set.of("GET", "HEAD", "OPTIONS").contains(route.request().method());
-                boolean loginRequest = authenticating.get() && sameOrigin(plan.origin(), url)
+            configureNetwork(context, plan.origin(), plan.readOnly(), request -> {
+                String url = request.url();
+                return authenticating.get() && sameOrigin(plan.origin(), url)
                         && (url.equals(loginSubmission.get()) || (plan.login() != null && plan.login().loginRequestPath() != null
                         && url.equals(plan.origin() + plan.login().loginRequestPath()))
-                        || credentialLoginRequest(plan.login(), route.request().method(), url, route.request().postData()));
-                if (plan.readOnly() && !safeMethod && !loginRequest) { route.abort(); return; }
-                if (route.request().isNavigationRequest() && !sameOrigin(plan.origin(), route.request().url())) {
-                    route.abort();
-                } else {
-                    route.resume();
-                }
+                        || credentialLoginRequest(plan.login(), request.method(), url, request.postData()));
             });
             Page page = context.newPage();
             pages.put(id, page);
@@ -66,6 +64,7 @@ class PlaywrightPreviewBrowser implements PreviewBrowser {
                 if (plan.login() != null) {
                     stage.accept("AUTHENTICATING");
                     if (!login(page, plan, loginSubmission)) {
+                        if (plan.readOnly()) { log.info("咨询网页登录未通过表单或响应校验"); }
                         stage.accept("WAITING_LOGIN");
                         return null;
                     }
@@ -73,7 +72,12 @@ class PlaywrightPreviewBrowser implements PreviewBrowser {
                 authenticating.set(false);
                 navigate(page, plan, stage);
             } catch (RuntimeException failure) {
-                stage.accept(plan.login() != null ? "WAITING_LOGIN" : "FAILED");
+                if (plan.readOnly()) {
+                    log.info("咨询网页读取中断，阶段={}，异常类型={}", authenticating.get() ? "登录" : "读取目标页",
+                            failure.getClass().getSimpleName());
+                }
+                boolean waitingForLogin = plan.readOnly() ? authenticating.get() : plan.login() != null;
+                stage.accept(waitingForLogin ? "WAITING_LOGIN" : "FAILED");
             } finally {
                 authenticating.set(false);
                 if (cancelled.getAsBoolean()) {
@@ -122,7 +126,28 @@ class PlaywrightPreviewBrowser implements PreviewBrowser {
         username.fill(plan.login().username());
         password.fill(plan.login().password());
         if (form.count() == 1) { submission.set((String) form.evaluate("form => form.action")); }
-        submit.click();
+        if (plan.readOnly()) {
+            // 咨询只读路由已限制非只读请求为登录提交。等待最终响应，避免失败页或加载提示隐藏密码框后误报成功。
+            String getFormPath = (String) submit.evaluate("""
+                    el => el.form && (el.hasAttribute('formmethod') ? el.formMethod : el.form.method) === 'get'
+                      ? new URL(el.hasAttribute('formaction') ? el.formAction : el.form.action).pathname : null
+                    """);
+            var loginResponse = page.waitForResponse(response -> {
+                if (response.status() >= 300 && response.status() < 400 || !sameOrigin(plan.origin(), response.url())) {
+                    return false;
+                }
+                var request = response.request();
+                while (request.redirectedFrom() != null) { request = request.redirectedFrom(); }
+                if (request.frame() != page.mainFrame() || !sameOrigin(plan.origin(), request.url())) { return false; }
+                return !READ_METHODS.contains(request.method())
+                        || "GET".equals(request.method()) && request.isNavigationRequest()
+                        && URI.create(request.url()).getRawPath().equals(getFormPath);
+            }, submit::click);
+            log.info("咨询网页登录提交收到最终响应，HTTP={}", loginResponse.status());
+            if (!loginResponse.ok()) { return false; }
+        } else {
+            submit.click();
+        }
         passwords.waitFor(new Locator.WaitForOptions().setState(com.microsoft.playwright.options.WaitForSelectorState.HIDDEN));
         return true;
     }
@@ -168,6 +193,7 @@ class PlaywrightPreviewBrowser implements PreviewBrowser {
         String selector = plan.readySelector() == null || plan.readySelector().isBlank() ? "h1,h2" : plan.readySelector();
         page.locator(selector).first().waitFor();
         if (page.locator("input[type=password]:visible").count() > 0) {
+            if (plan.readOnly()) { log.info("咨询目标页显示登录表单，未读取受保护内容"); }
             stage.accept("WAITING_LOGIN");
             return;
         }
@@ -211,8 +237,79 @@ class PlaywrightPreviewBrowser implements PreviewBrowser {
     }
 
     @Override
-    public com.exceptioncoder.toolbox.common.resource.WebPageReader.Page readMenu(String id, String baseUrl, String menuName) {
-        return manager.withRenderingBrowser(browser -> ConsultMenu.read(required(id), baseUrl, menuName));
+    public WebPageReader.Page readMenu(String id, String baseUrl, String menuName) {
+        return manager.withRenderingBrowser(browser -> {
+            Page accountPage = required(id);
+            String verifiedUrl = accountPage.url();
+            URI base = URI.create(baseUrl);
+            String origin = base.getScheme() + "://" + base.getRawAuthority();
+            if (!ConsultMenu.isWithinApplication(baseUrl, verifiedUrl)) {
+                return new WebPageReader.Page("MENU_UNAVAILABLE", origin, "未取得菜单内容", "菜单页超出已授权的站点或应用路径，未点击。");
+            }
+            String safeUrl = origin + URI.create(verifiedUrl).getRawPath();
+            BrowserContext original = accountPage.context();
+            BrowserContext next = null;
+            try {
+                next = browser.newContext(new Browser.NewContextOptions().setViewportSize(accountPage.viewportSize())
+                        .setLocale("zh-CN").setAcceptDownloads(false).setServiceWorkers(ServiceWorkerPolicy.BLOCK)
+                        .setStorageState(original.storageState(new BrowserContext.StorageStateOptions().setIndexedDB(true))));
+                configureNetwork(next, origin, true, request -> false);
+                Page nextPage = next.newPage();
+                copyTabStorage(accountPage, nextPage, verifiedUrl);
+                if (!verifiedUrl.equals(accountPage.url()) || accountPage.locator("input[type=password]:visible").count() > 0) {
+                    return new WebPageReader.Page("MENU_UNAVAILABLE", safeUrl, "未取得菜单内容", "菜单页已变更或登录已失效，未点击。");
+                }
+                contexts.put(id, next);
+                pages.put(id, nextPage);
+                next = null; // 交给原账号绑定及其既有关闭/到期逻辑。
+            } catch (PlaywrightException unavailable) {
+                return new WebPageReader.Page("MENU_UNAVAILABLE", safeUrl, "未取得菜单内容", "无法隔离菜单操作并保留登录态，未点击。");
+            } finally {
+                if (next != null) { next.close(); }
+            }
+            try {
+                return ConsultMenu.read(accountPage, baseUrl, menuName);
+            } finally {
+                // 点击始终发生在已核验的原 DOM 上；该上下文断网后不再恢复网络。
+                original.close();
+            }
+        });
+    }
+
+    private static void configureNetwork(BrowserContext context, String origin, boolean readOnly, Predicate<Request> allowLogin) {
+        context.setDefaultTimeout(15000);
+        context.setDefaultNavigationTimeout(20000);
+        if (readOnly) {
+            context.routeWebSocket("**/*", socket -> socket.close());
+            context.addInitScript("window.WebSocket = class { constructor() { throw new Error('咨询不开放WebSocket'); } }; navigator.sendBeacon = () => false;");
+        }
+        context.route("**/*", route -> {
+            Request request = route.request();
+            if ((readOnly && !READ_METHODS.contains(request.method()) && !allowLogin.test(request))
+                    || (request.isNavigationRequest() && !sameOrigin(origin, request.url()))) {
+                route.abort();
+            } else { route.resume(); }
+        });
+    }
+
+    private static void copyTabStorage(Page source, Page destination, String url) {
+        // storageState 包含 Cookie、本地存储和 IndexedDB。单标签的 sessionStorage 通过同源空文档单独恢复。
+        Object entries = source.evaluate("""
+                expected => {
+                  if (location.href !== expected) throw new Error('菜单页已变更');
+                  return Object.entries(sessionStorage);
+                }
+                """, url);
+        // 空文档占据原地址，让下次读取沿用正常导航（包括登录后的默认落点），不向站点重发 GET。
+        Consumer<Route> blank = route -> route.fulfill(new Route.FulfillOptions().setContentType("text/html")
+                .setHeaders(Map.of("Content-Security-Policy", "default-src 'none'")).setBody("<html></html>"));
+        destination.route("**/*", blank);
+        try {
+            destination.navigate(url);
+            if (entries instanceof List<?> values && !values.isEmpty()) {
+                destination.evaluate("items => items.forEach(([key, value]) => sessionStorage.setItem(key, value))", values);
+            }
+        } finally { destination.unroute("**/*", blank); }
     }
 
     @Override

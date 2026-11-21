@@ -70,6 +70,8 @@ class ConsultToolAssemblyProviderTest {
         assertThat(assembly.tools()).containsExactly("generate_consult_document", "design_consult_document", "preview_consult_document", "read_consult_attachment", "read_consult_history", "consult_web", "browser_open_and_click");
         assertThat(assembly.mcpServers()).containsExactly("consult-readonly", "forge_browser");
         assertThat(assembly.instructions()).contains("平台基础能力", "只读 GET 接口", "不等于平台没有浏览器");
+        assertThat(assembly.instructions()).contains("第一步调用 consult_web DISCOVER", "以该 bindingId 调用 READ",
+                "已有匹配绑定的操作不得转用 cua_repl", "WAITING_LOGIN 或账号检查失败时停止");
         assertThat(assembly.instructions()).contains("不得执行脚本", "downloadUrl",
                 "【平台表达Skill：consult-plain-writing】");
     }

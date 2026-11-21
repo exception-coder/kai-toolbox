@@ -3,6 +3,7 @@ package com.exceptioncoder.toolbox.browserrequest.preview;
 import com.exceptioncoder.toolbox.browserrequest.config.BrowserRequestProperties;
 import com.exceptioncoder.toolbox.browserrequest.config.BrowserSessionManager;
 import com.exceptioncoder.toolbox.common.resource.BrowserLoginTarget;
+import com.exceptioncoder.toolbox.common.resource.WebPageReader.MenuAction;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.Test;
@@ -80,6 +81,7 @@ class PagePreviewBrowserTest {
     @Test void logsIntoAnUnambiguousSpaWithoutInputNamesAndDoesNotReportLoginPagesAsReady() throws Exception {
         HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         var submissions = new java.util.concurrent.atomic.AtomicInteger();
+        var publicMenuVisits = new java.util.concurrent.atomic.AtomicInteger();
         server.createContext("/", exchange -> {
             String path = exchange.getRequestURI().getPath();
             String body;
@@ -94,11 +96,15 @@ class PagePreviewBrowserTest {
                 body = "<html><script>if(localStorage.getItem('fixture-auth')!=='yes'){location.href='/spa-login'}</script><h1>登录后的SPA</h1></html>";
             } else if ("/login-heading".equals(path)) {
                 body = "<html><h1>请登录</h1><input type=password></html>";
+            } else if ("/menu.jsp".equals(path)) {
+                publicMenuVisits.incrementAndGet();
+                body = "<html><h1>无需登录即可打开的菜单页</h1></html>";
             } else {
                 body = "<html><meta charset=utf-8><input autocomplete=username id=u>"
                         + ("/ambiguous".equals(path) ? "<input type=password><input type=password>" : "<input type=password id=p>")
                         + "<button id=submit>登录</button><script>document.getElementById('submit').onclick=async()=>{"
-                        + "await fetch('/api/login',{method:'POST',body:JSON.stringify({username:document.getElementById('u').value,password:document.getElementById('p').value})});"
+                        + "const response=await fetch('/api/login',{method:'POST',body:JSON.stringify({username:document.getElementById('u').value,password:document.getElementById('p').value})});"
+                        + "if(!response.ok){document.body.textContent='登录失败';return;}"
                         + "localStorage.setItem('fixture-auth','yes');location.href='/spa-target'}</script></html>";
             }
             byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
@@ -126,12 +132,21 @@ class PagePreviewBrowserTest {
             assertEquals(List.of("AUTHENTICATING", "WAITING_LOGIN"), stages);
             assertEquals(1, submissions.get(), "存在多个密码框时不应猜测账号或提交");
             browser.close("ambiguous");
+            stages.clear();
+            var rejected = new BrowserLoginTarget("rejected", "SPA", "TEST", origin,
+                    "incorrect-user", "test-password", "username", "password");
+            browser.open("rejected", new PreviewPlan(origin, "/menu.jsp", "/spa-login", "h1", "page", false,
+                    null, rejected, true), stages::add, () -> false);
+            assertEquals(List.of("AUTHENTICATING", "WAITING_LOGIN"), stages);
+            assertEquals(0, publicMenuVisits.get(), "登录提交被拒绝后不可把公开目标页当成已登录结果");
+            browser.close("rejected");
         } finally { manager.shutdown(); server.stop(0); }
     }
     @Test void rendersLoginRouteAndPhoneFrameInAnIsolatedHeadlessContext() throws Exception {
         HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         var logins = new java.util.concurrent.atomic.AtomicInteger();
         var writes = new java.util.concurrent.atomic.AtomicInteger();
+        var scopedMenuReads = new java.util.concurrent.atomic.AtomicInteger();
         var cookieValid = new java.util.concurrent.atomic.AtomicBoolean(true);
         var rejectLogin = new java.util.concurrent.atomic.AtomicBoolean(false);
         server.createContext("/", exchange -> {
@@ -161,16 +176,30 @@ class PagePreviewBrowserTest {
                 body = """
                         <meta charset='utf-8'><nav>
                         <button aria-controls='links' aria-expanded='false'
-                            onclick="this.setAttribute('aria-expanded','true');document.getElementById('links').hidden=false;fetch('/mutate').catch(()=>{});fetch('/mutate',{method:'POST'}).catch(()=>{})">业务菜单</button>
+                            onclick="this.setAttribute('aria-expanded','true');document.getElementById('links').hidden=false;localStorage.setItem('menu-click','yes');fetch('/mutate').catch(()=>{});fetch('/mutate',{method:'POST'}).catch(()=>{})">业务菜单</button>
                         <ul id='links' hidden><li>现货销售</li><li>采购管理</li></ul>
                         <button aria-controls='remote' aria-expanded='false'
                             onclick="this.setAttribute('aria-expanded','true');document.getElementById('remote').hidden=false;fetch('/mutate').catch(()=>{})">远程菜单</button>
                         <div id='remote' hidden>加载中</div>
                         <details><summary>个人设置</summary><ul><li>菜单偏好</li></ul></details></nav>
+                        <ul><li><a href="#" onclick="this.nextElementSibling.hidden=false">现货销售</a>
+                          <ul hidden><li><a href="/mutate">销售单查询</a></li><li>退货查询</li></ul></li>
+                          <li><a href="#" onclick="this.nextElementSibling.hidden=true">已显示菜单</a><ul><li>报表</li></ul></li>
+                          <li><a href="/mutate">提交单据</a><ul hidden><li>不应读取</li></ul></li>
+                          <li><a href="#" target="_blank">新窗口</a><ul hidden><li>不应读取</li></ul></li></ul>
                         <button onclick="location.href='/mutate'">提交</button>
+                        <script>if (sessionStorage.getItem('test-account') !== 'ready') document.querySelector('nav').hidden = true;</script>
                         """;
+            } else if ("/application/menu".equals(path) && "preview-session=authenticated".equals(exchange.getRequestHeaders().getFirst("Cookie"))) {
+                if (scopedMenuReads.incrementAndGet() > 1) {
+                    exchange.getResponseHeaders().add("Location", "/mutate");
+                    exchange.sendResponseHeaders(302, -1); exchange.close(); return;
+                }
+                body = "<nav><details><summary>菜单</summary><ul><li>库存</li></ul></details></nav>";
             } else if ("/target".equals(path) && cookieValid.get() && "preview-session=authenticated".equals(exchange.getRequestHeaders().getFirst("Cookie"))) {
-                body = "<html><meta charset='utf-8'><h1>登录后的目标页面</h1><p>真实渲染引擎验收 test-password</p><script>fetch('/mutate',{method:'POST'}).catch(()=>{});try{new WebSocket('ws://'+location.host+'/mutate')}catch(e){}</script></html>";
+                body = "<html><meta charset='utf-8'><h1>登录后的目标页面</h1><p>真实渲染引擎验收 test-password</p><script>"
+                        + "sessionStorage.setItem('test-account','ready');if(localStorage.getItem('menu-click'))document.body.append('菜单修改泄漏');"
+                        + "fetch('/mutate',{method:'POST'}).catch(()=>{});try{new WebSocket('ws://'+location.host+'/mutate')}catch(e){}</script></html>";
             } else {
                 exchange.sendResponseHeaders("/missing".equals(path) ? 404 : 401, -1); exchange.close(); return;
             }
@@ -245,13 +274,42 @@ class PagePreviewBrowserTest {
                 var closed = reader.read("consult:menus", account, "/menu", "/login");
                 assertEquals("READY", closed.status());
                 assertFalse(closed.text().contains("采购管理"));
+                int loginsBeforeMenu = logins.get();
+                rejectLogin.set(true);
                 var menu = reader.read("consult:menus", account, "/menu", "/login", "业务菜单");
                 assertEquals("READY", menu.status(), menu.text());
                 assertTrue(menu.text().contains("采购管理"));
                 assertFalse(menu.text().contains("提交"), "只返回菜单面板");
                 assertTrue(reader.read("consult:menus", account, "/menu", "/login", "个人设置").text().contains("菜单偏好"));
-                assertEquals("MENU_UNAVAILABLE", reader.read("consult:menus", account, "/menu", "/login", "远程菜单").status());
+                var linkMenu = reader.read("consult:menus", account, "/menu", "/login", "现货销售");
+                assertEquals("READY", linkMenu.status(), linkMenu.text());
+                assertEquals(MenuAction.EXPANDED, linkMenu.menuAction());
+                assertEquals(List.of("销售单查询", "退货查询"), linkMenu.text().lines().toList());
+                var shown = reader.read("consult:menus", account, "/menu", "/login", "已显示菜单");
+                assertEquals(MenuAction.ALREADY_VISIBLE, shown.menuAction());
+                assertEquals("MENU_UNAVAILABLE", reader.read("consult:menus", account, "/menu", "/login", "提交单据").status());
+                assertEquals("MENU_UNAVAILABLE", reader.read("consult:menus", account, "/menu", "/login", "新窗口").status());
+                var remoteMenu = reader.read("consult:menus", account, "/menu", "/login", "远程菜单");
+                assertEquals("MENU_UNAVAILABLE", remoteMenu.status());
+                assertTrue(remoteMenu.text().contains("点击后"), remoteMenu.text());
                 assertEquals("MENU_UNAVAILABLE", reader.read("consult:menus", account, "/menu", "/login", "提交").status());
+                var missingMenu = reader.read("consult:menus", account, "/target", "/login", "不存在的菜单");
+                assertEquals("MENU_UNAVAILABLE", missingMenu.status());
+                assertTrue(missingMenu.text().contains("页面正文"), missingMenu.text());
+                var accountPage = reader.read("consult:menus", account, "/target", "/login");
+                assertEquals("READY", accountPage.status());
+                assertFalse(accountPage.text().contains("菜单修改泄漏"), "菜单点击的本地状态只属于临时副本");
+                assertEquals(loginsBeforeMenu, logins.get(), "菜单副本和后续读取都不能再次提交登录");
+                rejectLogin.set(false);
+                browser.open("scoped", new PreviewPlan(origin, "/application/menu", "/login", "body", "page", false, null, account, true),
+                        stages::add, () -> false);
+                try {
+                    assertEquals("MENU_UNAVAILABLE", browser.readMenu("scoped", origin + "/other", "菜单").status());
+                    assertEquals(1, scopedMenuReads.get(), "克隆前核对应用范围");
+                    var scoped = browser.readMenu("scoped", origin + "/application", "菜单");
+                    assertEquals(MenuAction.EXPANDED, scoped.menuAction(), scoped.text());
+                    assertEquals(1, scopedMenuReads.get(), "点击必须使用已核验的原页面，重复请求可能跳到其他应用");
+                } finally { browser.close("scoped"); }
                 assertEquals(0, writes.get(), "展开菜单的处理程序不能触发 GET 或 POST 写操作");
             } finally { reader.shutdown(); }
         } finally { manager.shutdown(); server.stop(0); }

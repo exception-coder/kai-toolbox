@@ -1391,9 +1391,12 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions, runti
       threadConfig.developer_instructions ?? effectiveInstructions, skillInstruction,
     ].filter(Boolean).join('\n\n')
     const providerOverride = transport.modelProvider ? { modelProvider: transport.modelProvider } : {}
+    // Resume must use this turn's platform policy as its explicit instruction override.
+    const consultInstructions = options.consultReadonly && typeof threadConfig.developer_instructions === 'string'
+      ? { developerInstructions: threadConfig.developer_instructions } : {}
     const threadResult = await request(threadId ? 'thread/resume' : 'thread/start', threadId
-      ? { threadId, excludeTurns: true, cwd: options.cwd, model: options.model ?? null, approvalPolicy: options.approvalPolicy, sandbox: options.sandbox, config: threadConfig, ...providerOverride }
-      : { cwd: options.cwd, model: options.model ?? null, approvalPolicy: options.approvalPolicy, sandbox: options.sandbox, config: threadConfig, ...providerOverride })
+      ? { threadId, excludeTurns: true, cwd: options.cwd, model: options.model ?? null, approvalPolicy: options.approvalPolicy, sandbox: options.sandbox, config: threadConfig, ...providerOverride, ...consultInstructions }
+      : { cwd: options.cwd, model: options.model ?? null, approvalPolicy: options.approvalPolicy, sandbox: options.sandbox, config: threadConfig, ...providerOverride, ...consultInstructions })
     const thread = asRecord(threadResult.thread)
     threadId = asString(thread?.id) || threadId
     if (!threadId) throw new Error('Codex App Server 未返回 thread id')

@@ -113,6 +113,9 @@ test('consultation inherits native site capabilities without bypassing read-only
   }
   assert.equal(features.apps, false)
   assert.equal(features.plugins, false)
+  assert.match(CONSULT_READONLY_PROMPT, /第一步调用 consult_web DISCOVER/)
+  assert.match(CONSULT_READONLY_PROMPT, /已有绑定时不得转用 cua_repl、桌面浏览器或 HTTP 脚本/)
+  assert.match(CONSULT_READONLY_PROMPT, /WAITING_LOGIN 或账号校验失败时停止/)
   assert.match(CONSULT_READONLY_PROMPT, /不要求先填写“我的系统账号”/)
   assert.match(CONSULT_READONLY_PROMPT, /不自动持久保存密码或Cookie/)
   assert.match(CONSULT_READONLY_PROMPT, /修改业务数据仍禁止/)

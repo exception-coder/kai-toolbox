@@ -291,7 +291,7 @@ function buildCodexConfig(speed: CodexSpeed, toolPolicy: string, codexHome?: str
                           assembly?: ConsultToolAssembly): NonNullable<CodexOptions['config']> {
   const developerInstructions = assembly && toolPolicy === CONSULT_READONLY_POLICY
     ? [CONSULT_READONLY_PROMPT, CODEX_COMPUTER_USE_RECOVERY_STEER,
-        '仅使用实际可用工具；用户授权的原生站点登录不以账号表单为前提。禁止写入文件、Git、配置、数据库或业务数据；不得扩大系统和环境授权。',
+        '仅使用实际可用工具。禁止写入文件、Git、配置、数据库或业务数据；不得扩大系统和环境授权。',
         turnDeveloperInstructions ?? ''].join('\n\n')
     : buildCodexDeveloperInstructions(toolPolicy, sessionId, forgeSqlRegistration, turnDeveloperInstructions)
   const serviceTier = codexServiceTier(speed)

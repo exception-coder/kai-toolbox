@@ -8,6 +8,7 @@ import { CODEX_WS_CONTEXT_BUDGET_BYTES, type CodexTransportSelection } from './c
 import { callAppServer, createCodexPredictionProcess, runCodexAppServerTurn, steerCodexAppServerTurn, requestCodexAppServerCleanup, CodexAppServerTurnError } from './codexAppServer.js'
 import { CodexPredictionCoordinator, readCodexPrediction } from './codexPrediction.js'
 import { observeCodexProcess } from './codexProcessLifetime.js'
+import { CONSULT_READONLY_PROMPT } from './codexSecurity.js'
 
 // Real pipes and EOF, with a local JSON-RPC peer: no account, tools or model calls.
 function fixture(mode: 'browserDenied' | 'consultPlugins' | 'consultConfigMissing' | 'nativeStatus' | 'nativeFailure' | 'complete' | 'warnings' | 'hold' | 'holdError' | 'holdCancel' | 'cancel' | 'rpcError' | 'resumeError' | 'slowResume' | 'lostTerminal' | 'crash' | 'steer' | 'transport' = 'complete', rolloutPath?: string) {
@@ -54,7 +55,8 @@ function fixture(mode: 'browserDenied' | 'consultPlugins' | 'consultConfigMissin
       } else if (m.method === 'thread/start' || m.method === 'thread/resume') {
         if (mode === 'consultPlugins' && (m.params.config.features?.plugins !== true
           || m.params.config.plugins?.['writer@example']?.enabled !== false
-          || m.params.config.plugins?.['unified-computer-use@openai-bundled']?.enabled !== true)) {
+          || m.params.config.plugins?.['unified-computer-use@openai-bundled']?.enabled !== true
+          || !m.params.developerInstructions?.includes('第一步调用 consult_web DISCOVER'))) {
           send({id:m.id,error:{message:'Consultation plugin boundary not applied'}}); return;
         }
         if (m.method === 'thread/resume' && m.params.excludeTurns !== true) {
@@ -143,11 +145,14 @@ const turnOptions = (sessionId: string, events: Record<string, unknown>[] = [], 
   setThreadId: () => {},
 })
 
-test('consultation applies official plugin policy to the actual thread resume request', async () => {
-  const peer = fixture('consultPlugins')
-  try {
-    await runCodexAppServerTurn({ ...turnOptions('consult-plugins'), consultReadonly: true }, peer.runtime)
-  } finally { await peer.release() }
+test('new and resumed consultations send the current account routing instructions and plugin policy', async () => {
+  for (const threadId of [undefined, 'lifecycle-thread']) {
+    const peer = fixture('consultPlugins')
+    try {
+      await runCodexAppServerTurn({ ...turnOptions('consult-plugins'), threadId, consultReadonly: true,
+        config: { developer_instructions: CONSULT_READONLY_PROMPT } }, peer.runtime)
+    } finally { await peer.release() }
+  }
 })
 
 test('consultation refuses incomplete effective plugin configuration before starting a turn', async () => {

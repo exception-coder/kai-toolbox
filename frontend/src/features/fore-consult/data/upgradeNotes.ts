@@ -11,7 +11,7 @@ export interface ConsultUpgradeNote {
 export const CONSULT_UPGRADE_NOTES: readonly ConsultUpgradeNote[] = [
   {
     id: '2026-11-21-consult-browser-navigation', date: '2026-11-21', title: '在咨询里核对链接和菜单',
-    summary: '发来公开网页和链接文字，就能核对点击后的网址。查看已授权测试账号的折叠菜单时，请写出菜单名称。公开链接已实测，具体业务站点的菜单仍待核验。',
+    summary: '发来公开网页和链接文字，可核对跳转地址，也可继续点落地页上的菜单。查看测试账号的菜单时，请写出站点和菜单名。已在 ERP 原咨询实际展开“现货销售”并读到下一级条目。',
   },
   {
     id: '2026-11-18-consult-personal-direct', date: '2026-11-18', title: '授权后直接登录查看',

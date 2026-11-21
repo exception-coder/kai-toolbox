@@ -49,11 +49,10 @@ class ConsultWebPageReader implements WebPageReader {
             }
             current.authenticated = true;
             if (menuName != null) {
-                // 菜单事件只在断网的上下文中执行。销毁后不会携带待发送请求或页面本地修改继续访问业务系统。
-                try { result = browser.readMenu(current.id, account.baseUrl(), menuName); }
-                finally { close(key, current); }
+                result = browser.readMenu(current.id, account.baseUrl(), menuName);
             }
-            return new Page(result.status(), result.url(), redact(result.title(), account.password()), redact(result.text(), account.password()));
+            return new Page(result.status(), result.url(), redact(result.title(), account.password()),
+                    redact(result.text(), account.password()), result.menuAction());
         } catch (RuntimeException failed) {
             current.status.set("FAILED");
             return new Page("FAILED", URI.create(account.baseUrl()).getScheme() + "://" + URI.create(account.baseUrl()).getRawAuthority(),
