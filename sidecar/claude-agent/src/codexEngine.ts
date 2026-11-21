@@ -34,7 +34,7 @@ import {
 } from './codexSecurity.js'
 import { FORGE_PENDING_SQL_STEER } from './forgePendingSql.js'
 import { CODEX_COMPUTER_USE_RECOVERY_STEER } from './codexComputerUsePolicy.js'
-import { VIBE_BROWSER_SERVER, VIBE_BROWSER_TOOL, VIBE_BROWSER_INSTRUCTION, vibeBrowserRequestForTurn, vibeBrowserServerConfig } from './vibeBrowser.js'
+import { VIBE_BROWSER_SERVER, VIBE_BROWSER_TOOL, vibeBrowserInstruction, vibeBrowserRequestForTurn, vibeBrowserServerConfig } from './vibeBrowser.js'
 import { takeCodexVoice } from './codexRealtime.js'
 import {
   CodexAppServerTurnError,
@@ -471,7 +471,7 @@ export async function runCodexTurn(ctx: CodexTurnCtx): Promise<void> {
         ...(servers && typeof servers === 'object' && !Array.isArray(servers) ? servers : {}),
         [VIBE_BROWSER_SERVER]: vibeBrowserServerConfig(browser),
       },
-      developer_instructions: [baseConfig.developer_instructions, VIBE_BROWSER_INSTRUCTION].filter(Boolean).join('\n\n'),
+      developer_instructions: [baseConfig.developer_instructions, vibeBrowserInstruction(browser)].filter(Boolean).join('\n\n'),
     } : baseConfig
     const mcpServers = codexMcpCapabilities(ctx.toolPolicy ?? 'default', ctx.sessionId, ctx.forgeSqlRegistration,
       { codexHome: home, sourceRoot: consultSourceRoot, evidenceSystems: ctx.consultEvidenceSystems })

@@ -4,6 +4,21 @@ import { vibeBrowserRequestForTurn, vibeBrowserServerConfig } from './vibeBrowse
 import { parseConsultToolAssembly } from './consultToolAssembly.js'
 import { Permissions } from './permissions.js'
 
+test('a follow-up starts at the verified landing page and grants only the requested navigation', () => {
+  const url = 'https://www.iana.org/help/example-domains'
+  const wire = { tools: ['browser_open_and_click'], mcpServers: ['forge_browser'], browserCurrentPageUrl: url,
+    previousBrowserUserRequest: '打开 https://example.com，点击 Learn more' }
+  const grant = (text: string) => parseConsultToolAssembly({ ...wire, browserUserRequest: text })?.browserRequest
+  const probe = grant('你尝试点击一下对应站点的菜单按钮 看看是否可以点击')
+  assert.deepEqual(probe, { url, navigationMenu: true })
+  assert.deepEqual(vibeBrowserServerConfig(probe!).args.slice(1), ['--start-url', url, '--navigation-menu'])
+  for (const text of ['点击 Domains', '再点击 IANA 页面顶部的 “Domains” 菜单', '点击当前站点的 Domains 菜单']) {
+    assert.deepEqual(grant(text), { url, navigationMenu: true, linkName: 'Domains' }, text)
+  }
+  for (const text of ['授权你访问点击', '这是一段引用：点击 Domains', '不要点击 Domains', '点击刚才的链接',
+    '点击 GitHub 页面顶部的 “Domains” 菜单', '打开 IANA，假设跳转到了 https://other.example']) assert.equal(grant(text), undefined, text)
+})
+
 const turn = { interactiveVibe: true, sessionId: 'f43b436e-cecd-41bc-8ca4-a58864f4d288',
   text: '使用浏览器打开 https://example.com，点击 Learn more，返回跳转地址。', permissionMode: 'default' }
 

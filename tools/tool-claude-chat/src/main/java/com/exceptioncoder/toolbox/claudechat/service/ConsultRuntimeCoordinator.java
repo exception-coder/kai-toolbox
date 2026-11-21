@@ -74,24 +74,32 @@ public class ConsultRuntimeCoordinator {
                 || previous != null && previous.nativeId() == null;
         String segment = switched || previous == null ? UUID.randomUUID().toString() : previous.id();
         String context = switched ? context(selection, session.getId()) : "";
-        return new Plan(selection, segment, switched, context, browserInput(session.getId(), message));
+        return new Plan(selection, segment, switched, context, browserInput(session.getId(), segment, message));
     }
 
-    private BrowserInput browserInput(String sessionId, ClientMessage.Send message) {
+    private BrowserInput browserInput(String sessionId, String segment, ClientMessage.Send message) {
         if (message.voice() != null || message.text() == null || message.text().length() > 4096) {
             return null;
         }
         String text = message.text().strip();
         if (text.toLowerCase(Locale.ROOT).contains("https://")) {
-            return new BrowserInput(text, null);
+            return new BrowserInput(text, null, null);
         }
-        if ((message.attachments() == null || message.attachments().isEmpty()) && REPEAT_LINK_CLICK.matcher(text).matches()) {
-            return repository.precedingUserInput(sessionId)
-                    .filter(value -> value.toLowerCase(Locale.ROOT).contains("https://"))
-                    .map(previous -> new BrowserInput(text, previous))
-                    .orElse(null);
+        if ((message.attachments() != null && !message.attachments().isEmpty()) || !ConsultBrowserPage.isNavigationQuestion(text)) {
+            return null;
         }
-        return null;
+        var events = repository.browserEvents(sessionId, segment);
+        boolean retry = REPEAT_LINK_CLICK.matcher(text).matches();
+        var previous = retry ? ConsultBrowserPage.previousRequest(events) : null;
+        if (previous != null && (text.contains("再") || text.contains("重新")
+                || text.toLowerCase(Locale.ROOT).contains(" again")) && !text.contains("菜单")) {
+            return new BrowserInput(text, previous, null);
+        }
+        var page = ConsultBrowserPage.resolve(events, mapper);
+        if (page != null) {
+            return new BrowserInput(text, null, page);
+        }
+        return previous == null ? null : new BrowserInput(text, previous, null);
     }
 
     private void bootstrap(ClaudeChatSession session, String savedHistory) {
@@ -176,7 +184,7 @@ public class ConsultRuntimeCoordinator {
     public void settled(String session, String turn, String state) { repository.settled(session, turn, state); }
 
     /** Kept separate from enriched prompts. The worker scope is parsed and validated in the sidecar. */
-    record BrowserInput(String userRequest, String previousUserRequest) { }
+    record BrowserInput(String userRequest, String previousUserRequest, String currentPageUrl) { }
 
     public record Plan(ConsultationRuntimePolicy.Selection selection, String segment, boolean switched, String context,
                        BrowserInput browserInput) {

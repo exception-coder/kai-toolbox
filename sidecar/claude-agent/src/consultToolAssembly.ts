@@ -1,4 +1,4 @@
-import { parseVibeBrowserRequest, VIBE_BROWSER_SERVER, VIBE_BROWSER_TOOL, type VibeBrowserRequest } from './vibeBrowser.js'
+import { parseBrowserFollowUp, parseVibeBrowserRequest, VIBE_BROWSER_SERVER, VIBE_BROWSER_TOOL, type VibeBrowserRequest } from './vibeBrowser.js'
 
 /** 服务端下发的装配清单及与当前用户回合绑定的可选网页操作。 */
 export interface ConsultToolAssembly {
@@ -24,10 +24,14 @@ export function parseConsultToolAssembly(value: unknown): ConsultToolAssembly | 
   if (record.runtimeToken != null && (typeof record.runtimeToken !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(record.runtimeToken))) throw new Error('咨询资源签名无效')
   const current = typeof record.browserUserRequest === 'string' ? record.browserUserRequest.trim() : ''
   let browserRequest = parseVibeBrowserRequest(current)
-  // Java supplies this user-authored predecessor only for a confirmed same-target retry.
-  if (!browserRequest && current && !/https?:\/\//i.test(current) && typeof record.previousBrowserUserRequest === 'string') {
-    const previous = parseVibeBrowserRequest(record.previousBrowserUserRequest)
-    if (previous?.linkName) browserRequest = previous
+  if (!browserRequest && current && !/https?:\/\//i.test(current)) {
+    if (typeof record.browserCurrentPageUrl === 'string') {
+      browserRequest = parseBrowserFollowUp(current, record.browserCurrentPageUrl)
+    } else if (typeof record.previousBrowserUserRequest === 'string') {
+      // Java supplies this predecessor only for an explicit retry of a prior click without a result.
+      const previous = parseVibeBrowserRequest(record.previousBrowserUserRequest)
+      if (previous?.linkName) browserRequest = previous
+    }
   }
   return { tools: names(record.tools), mcpServers: names(record.mcpServers),
     ...(browserRequest ? { browserRequest } : {}),

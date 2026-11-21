@@ -85,7 +85,7 @@ class SidecarClientConnectionTest {
         AgentToolAssemblyProvider provider = id -> Optional.of(new AgentToolAssemblyProvider.Assembly(
                 List.of("browser_open_and_click"), List.of("forge_browser"), "平台装配"));
         ReflectionTestUtils.setField(client, "toolAssemblyProviders", List.of(provider));
-        var browser = new ConsultRuntimeCoordinator.BrowserInput("点击刚才的链接", "打开 https://example.com，点击 Learn more");
+        var browser = new ConsultRuntimeCoordinator.BrowserInput("点击 Domains", null, "https://www.iana.org/help/example-domains");
         client.userMessage("consult", "历史拼接后的模型输入", "客户端提供的提示", null, List.of(),
                 "turn", null, null, List.of(), null, null, Map.of("segmentId", "segment"), false, null, browser);
         client.userMessage("other", "其他会话输入", null, null, List.of(), "turn", null, null,
@@ -94,10 +94,12 @@ class SidecarClientConnectionTest {
         verify(connection, org.mockito.Mockito.times(2)).sendMessage(messages.capture());
         var assembly = mapper.readTree(messages.getAllValues().getFirst().getPayload()).path("consultToolAssembly");
         assertThat(assembly.path("browserUserRequest").asText()).isEqualTo(browser.userRequest());
-        assertThat(assembly.path("previousBrowserUserRequest").asText()).isEqualTo(browser.previousUserRequest());
+        assertThat(assembly.path("browserCurrentPageUrl").asText()).isEqualTo(browser.currentPageUrl());
+        assertThat(assembly.has("previousBrowserUserRequest")).isFalse();
         var other = mapper.readTree(messages.getAllValues().getLast().getPayload()).path("consultToolAssembly");
         assertThat(other.has("browserUserRequest")).isFalse();
         assertThat(other.has("previousBrowserUserRequest")).isFalse();
+        assertThat(other.has("browserCurrentPageUrl")).isFalse();
     }
 
     @Test

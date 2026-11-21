@@ -110,3 +110,34 @@ test('a rendered anchor is clicked and the actual final HTTP document is verifie
     }
   } finally { await browser.close() }
 })
+
+test('a generic or named menu click uses the verified site header and reports its actual link', async () => {
+  const browser = await chromium.launch({ chromiumSandbox: true })
+  try {
+    for (const requested of [undefined, 'Domains', 'Unknown']) {
+      const context = await browser.newContext()
+      try {
+        const requests = []
+        await context.route('**/*', route => {
+          requests.push(route.request().url())
+          return route.fulfill({ status: 200, contentType: 'text/html', body: route.request().url() === start
+            ? '<a href="/body">Domains</a><header><ul><li><a href="https://outside.example/path">External</a></li>' +
+              '<li><a download href="/export">Export</a></li><li><a href="/domains">Domains</a></li></ul></header>'
+            : '<title>Domain Name Services</title>' })
+        })
+        const scope = hostScope()
+        scope.allow(start)
+        const result = visitPage(context, scope, start, requested, true)
+        if (requested === 'Unknown') {
+          await assert.rejects(result, /没有唯一匹配/)
+          assert.deepEqual(requests, [start])
+        } else {
+          const receipt = await result
+          assert.equal(receipt.linkName, 'Domains')
+          assert.equal(receipt.afterUrl, new URL('/domains', start).href)
+          assert.deepEqual(requests, [start, receipt.afterUrl])
+        }
+      } finally { await context.close() }
+    }
+  } finally { await browser.close() }
+})

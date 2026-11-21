@@ -408,6 +408,9 @@ public class SidecarClient implements ReviewThreadForkGateway {
                         if (browserInput.previousUserRequest() != null) {
                             trustedAssembly.put("previousBrowserUserRequest", browserInput.previousUserRequest());
                         }
+                        if (browserInput.currentPageUrl() != null) {
+                            trustedAssembly.put("browserCurrentPageUrl", browserInput.currentPageUrl());
+                        }
                     }
                     message.put("consultToolAssembly", trustedAssembly);
                     message.put("developerInstructions", assembly.instructions());

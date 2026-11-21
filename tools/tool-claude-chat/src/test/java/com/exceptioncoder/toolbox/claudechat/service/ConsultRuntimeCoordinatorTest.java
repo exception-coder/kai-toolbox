@@ -62,20 +62,60 @@ class ConsultRuntimeCoordinatorTest {
 
     @Test
     void repeatClickUsesOnlyThePreviousDispatchedQuestionOfThisConsultation() {
+        selected("A", 1);
         String target = "使用浏览器打开 https://example.com，点击 Learn more，返回跳转地址。";
         String retry = "你尝试点击一下对应站点的菜单按钮 看看是否可以点击";
         var direct = new ClientMessage.Send(target, List.of(), null, null, "one");
         var followUp = new ClientMessage.Send(retry, List.of(), null, null, "two");
         var plan = coordinator.prepare(session, direct);
-        assertThat(plan.browserInput()).isEqualTo(new ConsultRuntimeCoordinator.BrowserInput(target, null));
+        assertThat(plan.browserInput()).isEqualTo(new ConsultRuntimeCoordinator.BrowserInput(target, null, null));
         coordinator.dispatched("s", "one", "turn-one", direct, plan);
+        coordinator.initialized(plan, "native-A");
         repository.append("other", "another:user", "user", "打开 https://other.example.org", true);
         coordinator.delta("s", "turn-one", "打开 https://assistant.example.org", false);
         assertThat(coordinator.prepare(session, followUp).browserInput())
-                .isEqualTo(new ConsultRuntimeCoordinator.BrowserInput(retry, target));
+                .isEqualTo(new ConsultRuntimeCoordinator.BrowserInput(retry, target, null));
         assertThat(coordinator.prepare(session, message).browserInput()).isNull();
         repository.append("s", "unrelated:user", "user", "查库存", true);
         assertThat(coordinator.prepare(session, followUp).browserInput()).isNull();
+    }
+
+    @Test
+    void followsTheSuccessfulManagedPageAcrossFailedAttemptsOnlyInItsOriginalSegment() throws Exception {
+        selected("A", 1);
+        String current = "https://www.iana.org/help/example-domains";
+        var open = new ClientMessage.Send("打开 https://example.com，点击 Learn more", List.of(), null, null, "open");
+        var click = new ClientMessage.Send("再点击 IANA 页顶部的“Domains”菜单", List.of(), null, null, "follow");
+        var first = coordinator.prepare(session, open);
+        coordinator.dispatched("s", "open", "t1", open, first);
+        coordinator.initialized(first, "native-A");
+        var mapper = new ObjectMapper();
+        var page = java.util.Map.of("url", current, "beforeUrl", "https://example.com/", "afterUrl", current, "status", 200);
+        String output = mapper.writeValueAsString(java.util.Map.of("content", List.of(
+                java.util.Map.of("type", "text", "text", mapper.writeValueAsString(page)))));
+        repository.importMessage("other", ChatMessageView.tool("t1:tool:1", "forge_browser/browser_open_and_click", null, output, false, 1L));
+        assertThat(coordinator.prepare(session, click).browserInput()).isNull();
+        coordinator.tool("s", ChatMessageView.tool("t1:tool:1", "forge_browser/browser_open_and_click", null, output, false, 1L));
+        assertThat(coordinator.prepare(session, click).browserInput().currentPageUrl()).isEqualTo(current);
+        var repeat = new ClientMessage.Send("再点一次刚才的链接", List.of(), null, null, "repeat");
+        assertThat(coordinator.prepare(session, repeat).browserInput().previousUserRequest()).isEqualTo(open.text());
+        var changedSite = new ClientMessage.Send("打开 https://another.example，点击 导航", List.of(), null, null, "new");
+        assertThat(coordinator.prepare(session, changedSite).browserInput().currentPageUrl()).isNull();
+
+        var retry = new ClientMessage.Send("你尝试点击一下对应站点的菜单按钮 看看是否可以点击", List.of(), null, null, "retry");
+        var retryPlan = coordinator.prepare(session, retry);
+        coordinator.dispatched("s", "retry", "t2", retry, retryPlan);
+        coordinator.tool("s", ChatMessageView.tool("t2:tool:native", "cua_repl/js", null, "host unavailable", true, 2L));
+        assertThat(coordinator.prepare(session, click).browserInput().currentPageUrl()).isEqualTo(current);
+        var approval = new ClientMessage.Send("授权你执行", List.of(), null, null, "approval");
+        assertThat(coordinator.prepare(session, approval).browserInput()).isNull();
+        selected("B", 2);
+        assertThat(coordinator.prepare(session, click).browserInput()).isNull();
+        selected("A", 1);
+        coordinator.tool("s", ChatMessageView.tool("t2:tool:fake", "shell", null, output, false, 2L));
+        assertThat(coordinator.prepare(session, click).browserInput()).isNull();
+        repository.importMessage("s", ChatMessageView.tool("imported", "forge_browser/browser_open_and_click", null, output, false, 3L));
+        assertThat(coordinator.prepare(session, click).browserInput()).isNull();
     }
 
     @Test

@@ -8,10 +8,12 @@ import { oncePerGrant } from './forge-browser-navigation.mjs'
 const { values } = parseArgs({ options: {
   'start-url': { type: 'string', multiple: true },
   'link-name': { type: 'string' },
+  'navigation-menu': { type: 'boolean', default: false },
 } })
 const grant = {
   urls: (values['start-url'] ?? []).map(url => publicHttps(url).href),
   linkName: values['link-name'],
+  navigationMenu: values['navigation-menu'],
 }
 if (!grant.urls.length) throw new Error('缺少本轮浏览器起始网址')
 

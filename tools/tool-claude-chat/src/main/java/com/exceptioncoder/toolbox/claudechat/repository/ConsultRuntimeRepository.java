@@ -62,13 +62,32 @@ public class ConsultRuntimeRepository implements ConsultationHistoryReader {
                 """, session, key, kind, text == null ? "" : text, System.currentTimeMillis(), replace);
     }
 
-    /** Only dispatched user inputs are eligible. Imported transcripts and prior assistant/tool output grant no scope. */
-    public Optional<String> precedingUserInput(String session) {
+    /** Recent journal evidence only. Ordinary tool output and assistant text never leave this query. */
+    public List<BrowserEvent> browserEvents(String session, String segment) {
         return jdbc.query("""
-                SELECT CASE WHEN payload IS NULL AND length(text) <= 4096 THEN text ELSE '' END
-                FROM claude_consult_history WHERE session_id=? AND kind='user' ORDER BY seq DESC LIMIT 1
-                """, (rs, i) -> rs.getString(1), session).stream().filter(value -> !value.isBlank()).findFirst();
+                WITH recent AS (
+                  SELECT seq, entry_key, kind,
+                         CASE WHEN kind='user' AND payload IS NULL AND length(text)<=4096 THEN text END AS user_text,
+                         CASE WHEN kind='tool' AND length(payload)<=131072 AND json_valid(payload) THEN payload END AS tool
+                  FROM claude_consult_history WHERE session_id=? ORDER BY seq DESC LIMIT 48
+                )
+                SELECT kind, CASE WHEN user_text IS NOT NULL AND EXISTS (SELECT 1 FROM claude_consult_request r
+                                 WHERE r.session_id=? AND r.segment_id=? AND recent.entry_key=r.turn_id||':user')
+                                 THEN user_text END AS user_text, json_extract(tool,'$.toolName') AS tool_name,
+                       json_type(tool,'$.isError') AS error_type,
+                       CASE WHEN json_extract(tool,'$.toolName')='forge_browser/browser_open_and_click'
+                              AND json_type(tool,'$.isError')='false'
+                              AND EXISTS (SELECT 1 FROM claude_consult_request r
+                                WHERE r.session_id=? AND r.segment_id=?
+                                  AND substr(recent.entry_key,1,length('legacy:'||r.turn_id||':tool:'))='legacy:'||r.turn_id||':tool:')
+                            THEN json_extract(tool,'$.output') END AS receipt
+                FROM recent WHERE kind IN ('user','tool','reference') ORDER BY seq DESC
+                """, (rs, i) -> new BrowserEvent(rs.getString("kind"), rs.getString("user_text"),
+                        rs.getString("tool_name"), "true".equals(rs.getString("error_type")), rs.getString("receipt")),
+                session, session, segment, session, segment);
     }
+
+    public record BrowserEvent(String kind, String userText, String toolName, boolean failed, String receipt) { }
 
     public MessagePage messages(String session, Integer before, int limit) {
         var rows = jdbc.query("""

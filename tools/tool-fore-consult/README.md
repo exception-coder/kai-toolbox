@@ -295,7 +295,7 @@ mvn -pl tools/tool-fore-consult -am test
 
 ### 咨询的多环境 Web 登录账号
 
-核对公开网页时，在原咨询中发送“打开 https://example.com，点击 Learn more，返回跳转地址”。支持独立浏览器的咨询轮次会返回实际落地地址，公开网页使用临时浏览器。
+核对公开网页时，在原咨询中发送“打开 https://example.com，点击 Learn more，返回跳转地址”。拿到落地地址后，可继续说“点击这个页面的 Domains”，或请助手试点一个菜单。助手按上次成功回执重新打开页面，返回实际点到的链接及地址。
 
 查看测试账号的折叠菜单时，告诉助手站点和页面上的菜单名称。助手沿用已授权的账号，通过 `consult_web READ` 的 `menuName` 参数展开能识别的导航菜单，返回实际看到的条目。菜单需联网加载或名称不唯一时，读取结果会说明原因。用户允许通过接口核对时，仍可使用已核实的同源只读接口。[咨询网页验收状态](../../openspec/changes/consult-browser-navigation/tasks.md)
 

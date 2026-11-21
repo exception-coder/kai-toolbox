@@ -36,13 +36,14 @@ flowchart LR
 
 Vibe Coding 的公开网页链接验证由普通 Codex 开发会话发起。Sidecar 根据当轮用户给定的地址和点击目标装配临时 MCP 工具，执行端在 Forge 管理的独立 Chromium 中核对授权并操作页面。原会话的工具回执记录实际地址或失败。浏览器的临时状态与 Forge 登录、资源账号预览、桌面浏览器权限相互独立。[实施与验收状态](../openspec/changes/vibe-isolated-browser/tasks.md)
 
-业务咨询复用同一公开网页工具。咨询服务从用户实际发送的消息提供本轮操作依据，sidecar 核验会话和工具范围后装配浏览器。已登录业务系统的菜单通过该咨询的账号绑定读取。[业务咨询验收状态](../openspec/changes/consult-browser-navigation/tasks.md)
+业务咨询复用同一公开网页工具。咨询服务从用户实际发送的消息提供本轮操作依据。用户要求在落地页继续点击时，服务从同一咨询中成功的独立浏览器回执恢复页面地址，sidecar 按本轮请求重新装配临时浏览器。网页内容、普通工具输出和助手的回答均不能指定起始页。已登录业务系统的菜单通过该咨询的账号绑定读取。[业务咨询验收状态](../openspec/changes/consult-browser-navigation/tasks.md)
 
 ```mermaid
 flowchart LR
     U[当前用户的地址与链接文字] --> T[Vibe Coding 开发轮次]
     T --> M[按本轮范围装配 MCP 工具]
     U --> C[业务咨询核对用户消息和会话身份]
+    R -->|同一咨询有新的点击请求| C
     C --> M
     M --> B[独立 Chromium 打开并点击]
     B --> R[原会话记录落地地址或失败]
