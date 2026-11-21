@@ -10,7 +10,7 @@ import { CodexPredictionCoordinator, readCodexPrediction } from './codexPredicti
 import { observeCodexProcess } from './codexProcessLifetime.js'
 
 // Real pipes and EOF, with a local JSON-RPC peer: no account, tools or model calls.
-function fixture(mode: 'consultPlugins' | 'consultConfigMissing' | 'nativeStatus' | 'nativeFailure' | 'complete' | 'warnings' | 'hold' | 'holdError' | 'holdCancel' | 'cancel' | 'rpcError' | 'resumeError' | 'slowResume' | 'lostTerminal' | 'crash' | 'steer' | 'transport' = 'complete', rolloutPath?: string) {
+function fixture(mode: 'browserDenied' | 'consultPlugins' | 'consultConfigMissing' | 'nativeStatus' | 'nativeFailure' | 'complete' | 'warnings' | 'hold' | 'holdError' | 'holdCancel' | 'cancel' | 'rpcError' | 'resumeError' | 'slowResume' | 'lostTerminal' | 'crash' | 'steer' | 'transport' = 'complete', rolloutPath?: string) {
   const child = spawn(process.execPath, ['-e', `
     const mode = ${JSON.stringify(mode)};
     const rolloutPath = ${JSON.stringify(rolloutPath)};
@@ -75,6 +75,11 @@ function fixture(mode: 'consultPlugins' | 'consultConfigMissing' | 'nativeStatus
       } else if (m.method === 'turn/start') {
         send({id:m.id,result:{turn:{id:'lifecycle-turn'}}});
         process.send?.('turn-started');
+        if (mode === 'browserDenied') {
+          send({method:'item/completed',params:{threadId:'lifecycle-thread',turnId:'lifecycle-turn',
+            item:{type:'mcpToolCall',id:'denied-browser',server:'cua_repl',tool:'js',status:'completed',
+              result:{content:[{type:'text',text:'browsers: []; Browsers: Error: Local browser use is disabled in Work settings'}]}}}});
+        }
         if (mode === 'nativeFailure') {
           send({method:'turn/completed',params:{threadId:'lifecycle-thread',turn:{id:'lifecycle-turn',status:'failed',
             error:{message:'Fixture limit',codexErrorInfo:'usageLimitExceeded'}}}});
@@ -449,4 +454,16 @@ test('ending a turn settles a pending steer and removes its active routing entry
     assert.match(outcome, /轮次已结束/)
     assert.equal(await steerCodexAppServerTurn(options.sessionId, []), false)
   } finally { await process.release() }
+})
+
+
+test('completed browser RPC with Work denial emits a failed tool result and activity', async () => {
+  const peer = fixture('browserDenied')
+  const events: Record<string, unknown>[] = []
+  try {
+    await runCodexAppServerTurn({ ...turnOptions('browser-denied', events), consultReadonly: true }, peer.runtime)
+    const result = events.find(e => e.type === 'toolResult' && e.toolCallId === 'denied-browser')
+    assert.equal(result?.isError, true)
+    assert.match(JSON.stringify(events), /宿主明确拒绝本地浏览器访问/)
+  } finally { await peer.release() }
 })

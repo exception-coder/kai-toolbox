@@ -10,6 +10,17 @@ import {
 } from './codexComputerUsePolicy.js'
 import { buildCodexDeveloperInstructions } from './codexEngine.js'
 
+test('completed RPC can contain an explicit Work browser denial', () => {
+  const error = 'Local browser use is disabled in Work settings'
+  const diagnostic = browserToolDiagnostic({ type: 'mcpToolCall', server: 'cua_repl', tool: 'js',
+    status: 'completed', result: { content: [{ type: 'text', text: `browsers: []\nerrors:\nBrowsers: Error: ${error}` }] } })
+  assert.equal(diagnostic?.status, 'completed')
+  assert.equal(diagnostic?.nativeError, error)
+  assert.equal(diagnostic?.browserActionVerified, false)
+  assert.match(computerUseFailureTitle('cua_repl/js', error) ?? '', /宿主明确拒绝.*Work/)
+  assert.equal(computerUseFailureTitle('other/js', error), undefined)
+})
+
 test('browser diagnostics retain native evidence without logging secrets or declaring click success', () => {
   const presence = browserHostEnvironmentPresence({ BROWSER_USE_ACCESS_PIPE_PATH: 'private-pipe',
     BROWSER_USE_ACCESS_VERIFYING_IDENTITY: 'private-key', PASSWORD: 'secret' })

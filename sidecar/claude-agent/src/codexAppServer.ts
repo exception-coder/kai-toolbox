@@ -1596,7 +1596,8 @@ function handleAppServerItem(
     }
     case 'mcpToolCall': {
       const label = `${asString(item.server)}/${asString(item.tool)}`
-      const failed = status === 'failed'
+      const browserError = browserToolDiagnostic(item)?.nativeError
+      const failed = status === 'failed' || asRecord(item.result)?.isError === true || Boolean(browserError)
       if (phase === 'inProgress') {
         if (!mcpActivities.has(itemId)) mcpActivities.set(itemId, { toolName: label, startedAt: Date.now() })
         emit({ type: 'toolUse', toolCallId: itemId, toolName: label, toolKind: 'mcp', input: item.arguments })
@@ -1608,7 +1609,7 @@ function handleAppServerItem(
         emit({ type: 'toolResult', toolCallId: itemId, toolName: label, toolKind: 'mcp', output, isError: failed })
         emitToolActivity(emit, {
           toolCallId: itemId, toolName: label, status: failed ? 'failed' : 'completed',
-          title: failed ? computerUseFailureTitle(label, output) : undefined,
+          title: failed ? computerUseFailureTitle(label, browserError ?? output) : undefined,
           elapsedMs: elapsedSince(mcpActivities.get(itemId)?.startedAt), outputTail: activityOutputTail(output),
           outcome: failed ? 'failure' : 'success',
         })

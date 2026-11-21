@@ -28,6 +28,7 @@ export function browserToolDiagnostic(item: Record<string, unknown>): Record<str
   const firstText = result?.content?.find(block => block.type === 'text')?.text
   const output = typeof firstText === 'string' ? firstText : JSON.stringify(item.error ?? '')
   const nativeError = [
+    'Local browser use is disabled in Work settings',
     'The browser access host is unavailable',
     'Local browser access is unavailable for this chat',
     'Cannot authenticate the browser access response',
@@ -76,6 +77,9 @@ export function consultBrowserNotice(input: readonly Record<string, unknown>[],
 export function computerUseFailureTitle(toolName: string, output: unknown): string | undefined {
   if (!/^cua_repl(?:\/|$)/i.test(toolName)) return undefined
   const text = typeof output === 'string' ? output : JSON.stringify(output ?? '')
+  if (/Local browser use is disabled in Work settings/i.test(text)) {
+    return `${toolName} · 宿主明确拒绝本地浏览器访问（Work 设置）`
+  }
   if (/The browser access host is unavailable/i.test(text)) {
     return `${toolName} · 官方浏览器宿主未连接`
   }

@@ -2,6 +2,14 @@
 
 ## 原生浏览器运行诊断
 
+### 2026-11-21 同事 Work 拒绝证据与失败显示修复
+
+- [x] 用户提供同事实例会话 `eccdf84b-c5f7-4030-a078-9c97f66781ff`、线程 `01a1e8b0-c64a-7ba2-8f1d-17fbad9bd03d` 的日志：CLI 0.169.0、官方工具可见、三个浏览器宿主环境键存在；工具原文为 `Local browser use is disabled in Work settings`。此为用户提供的证据，尚未直接读取远端原始记录。不能沿用本机宿主不可用结论；两个保守false字段也不证明连接失败。
+- [x] 修复白名单漏记该拒绝原因，以及原生RPC completed被误显示为工具成功的问题。已识别的浏览器拒绝或MCP isError现在输出失败工具结果和失败活动；保留原始RPC状态、拒绝原文，不改权限或复制宿主身份。无架构契约变更。
+- [x] TypeScript编译及28项策略/真实管道夹具测试通过，覆盖completed携带Work拒绝时的实际事件转换。首次测试输出目录误放仓库根导致依赖无法解析，改回Sidecar目录编译执行后通过，未安装或更改依赖。Forge all PASSED/exit0，仅执行既有API-RUNTIME-001，无静态checker；OpenSpec strict与diff检查通过。
+- [ ] 解除宿主拒绝仍未验证：需在实际承载浏览器的机器、相同账号中，用官方桌面直接打开公开网页并点击作对照。官方桌面也拒绝时核对该宿主用户权限及组织策略；官方桌面成功而Forge拒绝时定位Forge会话与宿主授权关联。现有日志不能判定哪一分支，也不能保证开启某个开关即可恢复。参考[官方浏览器文档](https://learn.chatgpt.com/docs/browser)，CLI/IDE不独立提供浏览器，桌面浏览器有独立Agent permissions；Work Cloud本地访问另有组织授权，不将其设置混作所有Codex会话的通用开关。
+- [ ] 仍需同一Forge咨询完成页面打开、登录及一级菜单展开/跳转验收。ERP right_getMenuPaths.action空指针作为独立问题，未修改。本次未推送、未重启，不将错误分类修复报告为Computer Use恢复。
+
 ### 2026-11-21 补齐跨实例诊断日志
 
 - [x] 咨询 App Server 增加 `codex_consult_browser_runtime`：线程、CLI版本、目录查询结果、官方工具名、继承环境中四个宿主键是否非空；只记录布尔值，不记录身份、管道值或密钥。继承状态不等于插件最终环境或宿主已连接。
