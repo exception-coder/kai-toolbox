@@ -18,6 +18,8 @@ export function copilotSessionConfig(ctx: EmbeddedEngineContext, onLimit: () => 
   return {
     model: ctx.model || undefined, workingDirectory: ctx.cwd, streaming: true,
     enableConfigDiscovery: false,
+    // SDK 要求续接时重新提供；新建与续接共用这份配置。
+    ...(ctx.additionalDirectories?.length ? { additionalDirectories: [...new Set(ctx.additionalDirectories)] } : {}),
     ...(ctx.apiBaseUrl ? { provider: { type: 'openai', wireApi: 'completions', baseUrl: ctx.apiBaseUrl, apiKey: ctx.authToken } } : {}),
     systemMessage: ctx.developerInstructions ? { mode: 'append', content: ctx.developerInstructions } : undefined,
     hooks: { onPreToolUse: async input => {

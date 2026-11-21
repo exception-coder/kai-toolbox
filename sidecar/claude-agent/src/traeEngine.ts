@@ -22,6 +22,8 @@ export interface TraeTurnContext {
   permissionMode: string
   toolPolicy?: string
   developerInstructions?: string
+  /** 会话关联的附加项目目录；仅可写开发会话原生映射为 --add-dir。 */
+  additionalDirectories?: readonly string[]
   signal: AbortSignal
   emit: (event: Record<string, unknown>) => void
   setSdkSessionId: (id: string) => void
@@ -66,16 +68,20 @@ export function traeCommand(): string {
 }
 
 /** Never implicitly resume "the latest" thread: only the native ID bound to this Forge session may be reused. */
-export function traeExecArgs(ctx: Pick<TraeTurnContext, 'model' | 'sdkSessionId' | 'permissionMode' | 'toolPolicy'>): string[] {
+export function traeExecArgs(ctx: Pick<TraeTurnContext,
+  'model' | 'sdkSessionId' | 'permissionMode' | 'toolPolicy' | 'additionalDirectories'>): string[] {
   const readonly = ctx.toolPolicy === 'disabled' || ctx.toolPolicy === 'review-only'
     || ctx.toolPolicy === 'consult-readonly' || ctx.permissionMode === 'plan'
   const bypass = !readonly && ctx.permissionMode === 'bypassPermissions'
   const sandbox = readonly ? 'read-only' : bypass ? 'danger-full-access' : 'workspace-write'
+  const addDirs = readonly || (ctx.toolPolicy ?? 'default') !== 'default' ? [] : [...new Set(
+    (ctx.additionalDirectories ?? []).map(directory => directory.trim()).filter(Boolean))]
+    .flatMap(directory => ['--add-dir', directory])
   const args = ctx.sdkSessionId
-    ? ['--sandbox', sandbox, '--ask-for-approval', 'never', 'exec', 'resume', '--json', '--skip-git-repo-check',
+    ? ['--sandbox', sandbox, '--ask-for-approval', 'never', ...addDirs, 'exec', 'resume', '--json', '--skip-git-repo-check',
       '--permission-mode', readonly ? 'plan' : bypass ? 'bypass_permissions' : 'default']
     : ['exec', '--json', '--color', 'never', '--skip-git-repo-check', '--sandbox', sandbox,
-      '--ask-for-approval', 'never']
+      '--ask-for-approval', 'never', ...addDirs]
   if (ctx.model) args.push('--model', ctx.model)
   if (ctx.sdkSessionId) args.push(ctx.sdkSessionId)
   args.push('-') // Read prompt from stdin; avoids command-line length and shell escaping issues.

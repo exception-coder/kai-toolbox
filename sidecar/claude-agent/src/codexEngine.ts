@@ -143,6 +143,8 @@ export interface CodexTurnCtx {
   consultToolAssembly?: ConsultToolAssembly
   /** 是否为当前持久会话注入 Forge SQL 证据能力；保留旧配置名兼容。 */
   forgeSqlRegistration?: boolean
+  /** 会话关联的附加项目目录；受限会话由 Session 清空。原生映射为可写根目录。 */
+  additionalDirectories?: readonly string[]
   /** 已有 thread id（resume 续跑）；无则新建线程。 */
   sdkSessionId?: string
   /** 第三方 OpenAI 兼容网关 baseURL；置则本轮走该网关（Codex 原生 OpenAI 协议，接网关更顺）。空=本机 ~/.codex 登录。 */
@@ -262,6 +264,19 @@ export function buildCodexDeveloperInstructions(toolPolicy: string, sessionId?: 
     turnDeveloperInstructions?.trim(),
   ].filter(Boolean).join('\n\n'))
   return developerInstructions || undefined
+}
+
+/** 仅普通开发会话使用附加目录；咨询、评审和禁用工具的会话保持单目录边界。 */
+export function codexAdditionalDirectories(ctx: Pick<CodexTurnCtx, 'additionalDirectories' | 'toolPolicy'>): readonly string[] {
+  if ((ctx.toolPolicy ?? 'default') !== 'default') return []
+  return [...new Set((ctx.additionalDirectories ?? []).map(directory => directory.trim()).filter(Boolean))]
+}
+
+/** App Server 的原生多目录写权限：workspace-write 沙箱下附加目录可写，完全访问时不改变行为。 */
+export function withCodexWritableRoots(config: NonNullable<CodexOptions['config']>,
+                                       ctx: Pick<CodexTurnCtx, 'additionalDirectories' | 'toolPolicy'>): NonNullable<CodexOptions['config']> {
+  const roots = codexAdditionalDirectories(ctx)
+  return roots.length ? { ...config, sandbox_workspace_write: { writable_roots: [...roots] } } : config
 }
 
 function buildCodexConfig(speed: CodexSpeed, toolPolicy: string, codexHome?: string,
@@ -449,7 +464,7 @@ export async function runCodexTurn(ctx: CodexTurnCtx): Promise<void> {
       reasoningEffort: ctx.reasoningEffort,
       sandbox: sandboxMode,
       approvalPolicy,
-      config: buildCodexConfig(
+      config: withCodexWritableRoots(buildCodexConfig(
         ctx.speed ?? 'default',
         ctx.toolPolicy ?? 'default',
         home,
@@ -459,7 +474,7 @@ export async function runCodexTurn(ctx: CodexTurnCtx): Promise<void> {
         consultSourceRoot,
         ctx.consultEvidenceSystems,
         ctx.consultToolAssembly,
-      ),
+      ), ctx),
       input: toAppServerInput(prepared.input),
       consultReadonly: ctx.toolPolicy === CONSULT_READONLY_POLICY,
       codexHome: home,
@@ -635,6 +650,7 @@ async function executeCodexSdkTurn(ctx: CodexTurnCtx, transport: CodexTransport,
     sandboxMode,
     model: ctx.model || undefined,
     modelReasoningEffort: ctx.reasoningEffort as ModelReasoningEffort | undefined,
+    ...(codexAdditionalDirectories(ctx).length ? { additionalDirectories: [...codexAdditionalDirectories(ctx)] } : {}),
     ...(toolsDisabled || consultReadonly
       ? { networkAccessEnabled: consultReadonly && !toolsDisabled, webSearchMode: 'disabled' as WebSearchMode }
       : {}),

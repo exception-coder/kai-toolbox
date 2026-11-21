@@ -288,11 +288,12 @@ export class Session {
         request.developerInstructions,
         request.images as OneShotImage[] | undefined,
         request.voiceCallId,
+        [...request.additionalDirectories],
       ),
-      qwen: request => this.runQwenTurn(request.text, request.developerInstructions),
+      qwen: request => this.runQwenTurn(request.text, request.developerInstructions, [...request.additionalDirectories]),
       pi: request => this.runEmbeddedTurn(runPiTurn, request.text, request.developerInstructions),
-      copilot: request => this.runEmbeddedTurn(runCopilotTurn, request.text, request.developerInstructions),
-      trae: request => this.runTraeTurn(request.text, request.developerInstructions),
+      copilot: request => this.runEmbeddedTurn(runCopilotTurn, request.text, request.developerInstructions, [...request.additionalDirectories]),
+      trae: request => this.runTraeTurn(request.text, request.developerInstructions, [...request.additionalDirectories]),
       zcode: request => this.runZCodeTurn(request.text, request.developerInstructions),
       hermes: request => this.runHermesTurn(request.text, request.developerInstructions, request.images),
       antigravity: request => this.runAntigravityTurn(
@@ -886,7 +887,8 @@ export class Session {
   }
 
   /** 跑一轮 Codex：委托 codexEngine 翻译事件流，AbortController 支持中断。 */
-  private async runCodexTurn(text: string, developerInstructions?: string, images?: OneShotImage[], voiceCallId?: string): Promise<void> {
+  private async runCodexTurn(text: string, developerInstructions?: string, images?: OneShotImage[], voiceCallId?: string,
+                             additionalDirectories: string[] = []): Promise<void> {
     const ac = new AbortController()
     this.abort = ac
     this.interruptRetry = async () => {
@@ -905,6 +907,7 @@ export class Session {
         toolPolicy: this.toolPolicy,
         forgeSqlRegistration: this.forgeSqlRegistration,
         developerInstructions,
+        additionalDirectories,
         images,
         consultEvidenceSystems: this.consultEvidenceSystems,
         consultToolAssembly: this.consultToolAssembly,
@@ -926,13 +929,14 @@ export class Session {
   }
 
   /** 跑一轮 Qwen Code：供应商协议由 qwenEngine 隔离，Session 只提供稳定上下文。 */
-  private async runQwenTurn(text: string, developerInstructions?: string): Promise<void> {
+  private async runQwenTurn(text: string, developerInstructions?: string, additionalDirectories: string[] = []): Promise<void> {
     const ac = new AbortController()
     this.abort = ac
     try {
       await runQwenTurn({
         text,
         developerInstructions,
+        additionalDirectories,
         cwd: this.cwd,
         model: this.model,
         sdkSessionId: this.sdkSessionId,
@@ -948,12 +952,13 @@ export class Session {
     }
   }
 
-  private async runEmbeddedTurn(execute: typeof runPiTurn, text: string, developerInstructions?: string): Promise<void> {
+  private async runEmbeddedTurn(execute: typeof runPiTurn, text: string, developerInstructions?: string,
+                                additionalDirectories: string[] = []): Promise<void> {
     const controller = new AbortController()
     this.abort = controller
     const timeout = setTimeout(() => controller.abort(new Error('引擎执行超时')), 15 * 60_000)
     try {
-      await execute({ text, developerInstructions, cwd: this.cwd, model: this.model,
+      await execute({ text, developerInstructions, additionalDirectories, cwd: this.cwd, model: this.model,
         apiBaseUrl: this.apiBaseUrl, authToken: this.authToken, sdkSessionId: this.sdkSessionId,
         signal: controller.signal, emit: event => this.emitTurn(event),
         setSdkSessionId: id => { this.sdkSessionId = id },
@@ -968,11 +973,11 @@ export class Session {
   }
 
   /** TraeCode CLI 2.0 JSONL remains isolated from the Forge event contract. */
-  private async runTraeTurn(text: string, developerInstructions?: string): Promise<void> {
+  private async runTraeTurn(text: string, developerInstructions?: string, additionalDirectories: string[] = []): Promise<void> {
     const ac = new AbortController()
     this.abort = ac
     try {
-      await runTraeTurn({ text, developerInstructions, cwd: this.cwd, model: this.model,
+      await runTraeTurn({ text, developerInstructions, additionalDirectories, cwd: this.cwd, model: this.model,
         sdkSessionId: this.sdkSessionId, permissionMode: this.permissionMode, toolPolicy: this.toolPolicy,
         signal: ac.signal, emit: event => this.emitTurn(event),
         setSdkSessionId: id => { this.sdkSessionId = id } })

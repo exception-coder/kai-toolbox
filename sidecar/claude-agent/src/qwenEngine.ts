@@ -25,6 +25,8 @@ export interface QwenTurnContext {
   permissionMode: string
   toolPolicy?: string
   developerInstructions?: string
+  /** 会话关联的附加项目目录，原生映射为 Qwen Code 的 --include-directories。 */
+  additionalDirectories?: readonly string[]
   signal: AbortSignal
   emit: (event: Record<string, unknown>) => void
   setSdkSessionId: (id?: string) => void
@@ -62,6 +64,12 @@ export function createQwenPermissionHandler(ctx: QwenTurnContext): CanUseTool | 
   }
 }
 
+/** 受限会话（咨询、评审、禁用工具）保持单目录边界。 */
+export function qwenIncludeDirectories(ctx: Pick<QwenTurnContext, 'additionalDirectories' | 'toolPolicy'>): string[] {
+  if ((ctx.toolPolicy ?? 'default') !== 'default') return []
+  return [...new Set((ctx.additionalDirectories ?? []).map(directory => directory.trim()).filter(Boolean))]
+}
+
 export async function runQwenTurn(ctx: QwenTurnContext, queryFactory: QwenQueryFactory = query): Promise<void> {
   const controller = new AbortController()
   const onAbort = () => controller.abort(ctx.signal.reason)
@@ -81,6 +89,7 @@ export async function runQwenTurn(ctx: QwenTurnContext, queryFactory: QwenQueryF
         abortController: controller,
         permissionMode: mapQwenPermissionMode(ctx.permissionMode, ctx.toolPolicy),
         canUseTool: createQwenPermissionHandler(ctx),
+        ...(qwenIncludeDirectories(ctx).length ? { includeDirectories: qwenIncludeDirectories(ctx) } : {}),
         ...(ctx.toolPolicy === 'disabled' ? { safeMode: true, excludeTools: QWEN_REVIEW_BLOCKED_TOOLS,
           mcpServers: {}, maxSessionTurns: 1 } : {}),
         systemPrompt: ctx.developerInstructions

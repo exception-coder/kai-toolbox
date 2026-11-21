@@ -55,3 +55,14 @@ test('Trae adapter emits one final answer and never resumes an unrelated latest 
   assert.equal(events.find(event => event.type === 'assistantSnapshot')?.text, '已完成')
   assert.equal(events.at(-1)?.stopReason, 'end_turn')
 })
+
+test('Trae maps linked project directories to --add-dir only for writable default sessions', () => {
+  const fresh = traeExecArgs({ permissionMode: 'default', additionalDirectories: ['D:/dep', ' D:/dep ', 'D:/other'] })
+  assert.deepEqual(fresh.filter((_, i, all) => all[i - 1] === '--add-dir'), ['D:/dep', 'D:/other'])
+  assert.ok(fresh.indexOf('--add-dir') > fresh.indexOf('exec'))
+  // `exec resume` has no --add-dir, so the global flag must precede the subcommand.
+  const resumed = traeExecArgs({ permissionMode: 'default', sdkSessionId: 'sid', additionalDirectories: ['D:/dep'] })
+  assert.ok(resumed.indexOf('--add-dir') < resumed.indexOf('exec'))
+  assert.equal(traeExecArgs({ permissionMode: 'plan', additionalDirectories: ['D:/dep'] }).includes('--add-dir'), false)
+  assert.equal(traeExecArgs({ permissionMode: 'default', toolPolicy: 'consult-readonly', additionalDirectories: ['D:/dep'] }).includes('--add-dir'), false)
+})

@@ -20,6 +20,12 @@ test('Copilot BYOK is explicit and does not load implicit config', () => {
   assert.throws(() => copilotSessionConfig({ ...context(), apiBaseUrl: 'http://localhost' }), /API Key/)
 })
 
+test('Copilot maps linked project directories to native additionalDirectories', () => {
+  const config = copilotSessionConfig({ ...context(), additionalDirectories: ['D:/dep', 'D:/dep', 'D:/other'] })
+  assert.deepEqual(config.additionalDirectories, ['D:/dep', 'D:/other'])
+  assert.equal('additionalDirectories' in copilotSessionConfig(context()), false)
+})
+
 test('native tool names map to Forge execution permission controls', () => {
   assert.equal(piPermissionInput('powershell', { command: 'git status' }).name, 'Bash')
   assert.equal(piPermissionInput('write', { path: 'a' }).input.file_path, 'a')

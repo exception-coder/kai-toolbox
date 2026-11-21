@@ -6,6 +6,8 @@ export interface EmbeddedEngineContext {
   authToken?: string
   sdkSessionId?: string
   developerInstructions?: string
+  /** 会话关联的附加项目目录；仅支持原生附加目录的引擎使用，受限会话由 Session 清空。 */
+  additionalDirectories?: readonly string[]
   signal: AbortSignal
   emit: (event: Record<string, unknown>) => void
   setSdkSessionId: (id: string) => void
