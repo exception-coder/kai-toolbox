@@ -1479,6 +1479,22 @@ export class Session {
   }
 }
 
+export interface HandoffSource {
+  cwd: string
+  codexHome?: string
+  apiBaseUrl?: string
+  authToken?: string
+}
+
+export interface HandoffActivation {
+  cwd: string
+  codexHome?: string
+  mode?: string
+  autoApprove?: boolean
+  reasoningEffort?: string
+  speed?: string
+}
+
 /** 多会话路由：一个 sidecar 进程内按 sessionId 管理多个 Session。 */
 export class SessionManager {
   private readonly handoffs = new Map<string, { requestId: string; result: Promise<void> }>()
@@ -1830,13 +1846,18 @@ export class SessionManager {
   }
 
   /**
-   * 会话内切引擎：置新 engine，并把 sdkSessionId 设为 Java 提供的目标句柄
-   * （切回曾用引擎＝其原生句柄→resume 续接；首次切到＝空→下一轮起新 SDK 会话）。
-   * 各引擎句柄的持久化与查找由 Java 负责（DB engine_sessions），sidecar 只按指令应用。
+   * 应用 Java 保存的目标引擎和原生句柄。原运行对象缺失时，仅已确认的交接可恢复目标运行对象。
    */
-  switchEngine(id: string, engine: string, sdkSessionId?: string, apiBaseUrl?: string, authToken?: string, handoffConfirmed = false): void {
+  switchEngine(id: string, engine: string, sdkSessionId?: string, apiBaseUrl?: string, authToken?: string,
+               handoffConfirmed = false, activation?: HandoffActivation): void {
     const s = this.sessions.get(id)
-    if (!s) return
+    if (!s) {
+      if (handoffConfirmed && HANDOFF_ENGINES.has(engine) && sdkSessionId && activation?.cwd) {
+        this.resume(id, sdkSessionId, activation.cwd, engine, apiBaseUrl, authToken, activation.codexHome,
+          activation.mode, activation.autoApprove, undefined, activation.reasoningEffort, activation.speed)
+      }
+      return
+    }
     if (!isEngineId(engine) || !(handoffConfirmed && HANDOFF_ENGINES.has(engine)) && !this.acceptEngine(id, engine)) return
     s.engine = engine
     s.sdkSessionId = sdkSessionId && sdkSessionId.length > 0 ? sdkSessionId : undefined
@@ -1852,7 +1873,7 @@ export class SessionManager {
   }
 
   /** Prepare in an isolated, tool-disabled native turn; the source session remains authoritative. */
-  prepareEngineHandoff(id: string, requestId: string, engine: string, nativeId: string | undefined, prompt: string): Promise<void> {
+  prepareEngineHandoff(id: string, requestId: string, engine: string, nativeId: string | undefined, prompt: string, persisted?: HandoffSource): Promise<void> {
     const previous = this.handoffs.get(id)
     if (previous?.requestId === requestId) return previous.result
     if (previous) {
@@ -1861,10 +1882,15 @@ export class SessionManager {
     }
     const run = async () => {
       try {
-        const source = this.sessions.get(id)
-        if (!source || source.turnState().active || source.backgroundTasks.length) throw new Error('原会话仍有活动任务或尚未恢复，不能切换。')
+        const live = this.sessions.get(id)
+        const state = this.runtimeState(id)
+        if (state.active || state.pendingDecision || state.backgroundTaskCount > 0) {
+          throw new Error('原会话仍有活动任务或待确认操作，不能切换。')
+        }
+        const source = live ?? persisted
+        if (!source?.cwd) throw new Error('无法读取原会话的工作目录，请重新打开会话后再切换。')
         if (!isEngineId(engine) || !HANDOFF_ENGINES.has(engine)) throw new Error('目标引擎尚不支持无业务工具的接管确认，原会话保持不变。')
-        if (source.toolPolicy !== 'default' || source.demo) throw new Error('当前受限会话不能使用开发引擎交接。')
+        if (live && (live.toolPolicy !== 'default' || live.demo)) throw new Error('当前受限会话不能使用开发引擎交接。')
         const sdkSessionId = await acknowledgeHandoff(requestId, nativeId, prompt, emit => {
           const candidate = new Session(id, source.cwd, emit)
           candidate.engine = engine

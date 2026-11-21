@@ -444,7 +444,7 @@ public class ClaudeChatService {
                 publishEngineHandoff(restored);
                 if (!engineSelectable) {
                     events.writeTo(ws, new ServerMessage.Error(0, "ENGINE_UNAVAILABLE",
-                            "该会话使用的引擎当前未通过 Runtime 检测；历史仍可查看，恢复运行前请重新检测引擎"));
+                            "当前引擎暂不可用。可查看历史，或在会话空闲时从「引擎与连接」切换到可用引擎。", false));
                 }
                 pushGatewayModels(restored); // 重连恢复网关会话：重发网关模型目录
                 return;
@@ -518,7 +518,7 @@ public class ClaudeChatService {
         events.sendToBrowser(ctx, seq -> ready(ctx, seq));
         if (!engineSelectable) {
             events.sendToBrowser(ctx, seq -> new ServerMessage.Error(seq, "ENGINE_UNAVAILABLE",
-                    "该会话使用的引擎当前未通过 Runtime 检测；历史仍可查看，恢复运行前请重新检测引擎"));
+                    "当前引擎暂不可用。可查看历史，或在会话空闲时从「引擎与连接」切换到可用引擎。", false));
         }
         // 该会话若有未决权限/提问请求，随切换补发一次：不然只有 attach（断线重连）路径会重投，
         // 从跨会话横幅点「去确认」走的是这条 switchSession，之前收不到，弹窗切过去后"看不到题面"。
@@ -1347,7 +1347,7 @@ public class ClaudeChatService {
             return;
         }
         if (!engineCatalog.selectable(engine)) {
-            events.sendError(ws, 0, "ENGINE_UNAVAILABLE", "当前引擎尚未通过 Runtime 检测，请刷新引擎目录后重试");
+            events.sendError(ws, 0, "ENGINE_UNAVAILABLE", "目标引擎暂不可用，请选择其他可用引擎，或刷新引擎目录后重试。", false);
             return;
         }
         if (isConsultReadonly(ctx) && !"claude".equals(engine) && !"codex".equals(engine)) {
@@ -1371,17 +1371,20 @@ public class ClaudeChatService {
                 }
                 return;
             }
-            if (ctx.status == SessionStatus.RUNNING || ctx.pendingRequest != null || !ctx.backgroundTasks.isEmpty()
-                    || !queuedMessages.list(ctx.sessionId).isEmpty() || queueDelivery.delivery(ctx.sessionId).isPresent()
-                    || admissionGate.isDraining() || !planStateService.writable(ctx.sessionId)) {
-                events.sendError(ws, 0, "ENGINE_HANDOFF_BUSY", "请等待当前任务结束并处理待发送消息后再切换引擎。");
+            if (handoffHasPendingWork(ctx) || admissionGate.isDraining() || !planStateService.writable(ctx.sessionId)) {
+                events.sendError(ws, 0, "ENGINE_HANDOFF_BUSY", "请等待当前任务结束并处理待发送消息后再切换引擎。", false);
                 return;
             }
-            if (!ensureSessionResumable(ctx)) { return; }
+            if (!ensureSessionResumable(ctx)) {
+                events.sendError(ws, 0, "ENGINE_HANDOFF_FAILED", "引擎连接尚未就绪，请连接恢复后重试切换。", false);
+                return;
+            }
             try {
+                sessionAccessPolicy.requireProjectAllowed(ctx.cwd);
                 var state = engineHandoffs.prepare(repo.findById(ctx.sessionId).orElseThrow(), engine, ctx.engineSessions.get(engine));
                 publishEngineHandoff(ctx);
-                if (!sidecar.prepareEngineHandoff(ctx.sessionId, state.requestId, engine, state.nativeId, state.prompt)) {
+                if (!sidecar.prepareEngineHandoff(ctx.sessionId, state.requestId, engine, state.nativeId, state.prompt,
+                        ctx.cwd, ctx.codexHome, ctx.apiBaseUrl, ctx.authToken)) {
                     engineHandoffs.fail(ctx.sessionId, state.requestId, "Sidecar 不可用，原会话保持不变；请重连后重试。");
                     publishEngineHandoff(ctx);
                 }
@@ -1394,7 +1397,7 @@ public class ClaudeChatService {
                     }
                 }, 150, java.util.concurrent.TimeUnit.SECONDS);
             } catch (RuntimeException error) {
-                events.sendError(ws, 0, "ENGINE_HANDOFF_FAILED", "交接准备失败，原会话保持不变：" + error.getMessage());
+                events.sendError(ws, 0, "ENGINE_HANDOFF_FAILED", "交接准备失败，原会话保持不变：" + error.getMessage(), false);
             }
         }
     }
@@ -1468,6 +1471,13 @@ public class ClaudeChatService {
         events.sendToBrowser(ctx, seq -> new ServerMessage.EngineHandoff(seq, state.requestId, state.target, state.status, state.message));
     }
 
+    private boolean handoffHasPendingWork(SessionCtx ctx) {
+        return ctx.status == SessionStatus.RUNNING || ctx.pendingRequest != null || !ctx.backgroundTasks.isEmpty()
+                || turnLifecycle.currentTurnId(ctx.sessionId).isPresent()
+                || queueDelivery.runtime(ctx.sessionId).filter(runtime -> !runtime.ready() && runtime.stopReason() == null).isPresent()
+                || !queuedMessages.list(ctx.sessionId).isEmpty() || queueDelivery.delivery(ctx.sessionId).isPresent();
+    }
+
     private void finishEngineHandoff(SessionCtx ctx, JsonNode node) {
         if (engineHandoffs == null) { return; }
         synchronized (ctx) {
@@ -1477,8 +1487,8 @@ public class ClaudeChatService {
             } else {
                 try {
                     sessionAccessPolicy.requireProjectAllowed(ctx.cwd);
-                    if (ctx.status == SessionStatus.RUNNING || !ctx.backgroundTasks.isEmpty()) {
-                        throw new IllegalStateException("原会话出现活动任务，未提交切换。");
+                    if (handoffHasPendingWork(ctx)) {
+                        throw new IllegalStateException("原会话出现活动任务或待发消息，未提交切换。");
                     }
                     if (engineHandoffs.commit(ctx.sessionId, requestId, node.path("sdkSessionId").asText(null))) {
                         var saved = repo.findById(ctx.sessionId).orElseThrow();
@@ -1487,7 +1497,8 @@ public class ClaudeChatService {
                         loadEngineSessions(ctx, saved.getEngineSessions());
                         ctx.currentModel = null;
                         ctx.models = List.of();
-                        if (!sidecar.activateEngineHandoff(ctx.sessionId, ctx.engine, ctx.sdkSessionId, ctx.apiBaseUrl, ctx.authToken)) {
+                        if (!sidecar.activateEngineHandoff(ctx.sessionId, ctx.engine, ctx.sdkSessionId, ctx.apiBaseUrl, ctx.authToken,
+                                ctx.cwd, ctx.codexHome, ctx.mode, ctx.autoApprove, ctx.codexReasoningEffort, ctx.codexSpeed)) {
                             ctx.sidecarSessionPresent = false;
                             reconnector.schedule();
                         }

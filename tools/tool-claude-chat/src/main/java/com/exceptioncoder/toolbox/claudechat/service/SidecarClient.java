@@ -712,15 +712,22 @@ public class SidecarClient implements ReviewThreadForkGateway {
                 "apiBaseUrl", nz(apiBaseUrl), "authToken", nz(authToken)));
     }
 
-    public boolean prepareEngineHandoff(String sessionId, String requestId, String engine, String nativeId, String prompt) {
+    public boolean prepareEngineHandoff(String sessionId, String requestId, String engine, String nativeId, String prompt,
+                                        String cwd, String codexHome, String apiBaseUrl, String authToken) {
         return send(Map.of("type", "prepareEngineHandoff", "sessionId", sessionId,
-                "requestId", requestId, "engine", engine, "sdkSessionId", nz(nativeId), "prompt", prompt));
+                "requestId", requestId, "engine", engine, "sdkSessionId", nz(nativeId), "prompt", prompt,
+                "source", Map.of("cwd", cwd, "codexHome", nz(codexHome),
+                        "apiBaseUrl", nz(apiBaseUrl), "authToken", nz(authToken))));
     }
 
-    public boolean activateEngineHandoff(String sessionId, String engine, String nativeId, String apiBaseUrl, String authToken) {
+    public boolean activateEngineHandoff(String sessionId, String engine, String nativeId, String apiBaseUrl, String authToken,
+                                         String cwd, String codexHome, String mode, boolean autoApprove,
+                                         String reasoningEffort, String speed) {
         return send(Map.of("type", "switchEngine", "sessionId", sessionId,
                 "engine", engine, "sdkSessionId", nativeId, "apiBaseUrl", nz(apiBaseUrl),
-                "authToken", nz(authToken), "handoffConfirmed", true));
+                "authToken", nz(authToken), "handoffConfirmed", true,
+                "activation", Map.of("cwd", cwd, "codexHome", nz(codexHome), "mode", nz(mode),
+                        "autoApprove", autoApprove, "reasoningEffort", nz(reasoningEffort), "speed", nz(speed))));
     }
 
     /** 会话内切服务商：仅透传 apiBaseUrl/authToken，sidecar 就地更新、下一轮生效（空 baseUrl＝官方）。 */

@@ -82,3 +82,58 @@ test('Codex handoff reaches native confirmation in a project directory with text
   await runCodexTurn({ ...ctx, handoffConfirmation: true }, runNative)
   assert.equal(reachedNative, true)
 })
+
+test('saved conversation can hand off without loading the unavailable source engine', async () => {
+  const events: Record<string, unknown>[] = []
+  const manager = new SessionManager((_id, event) => events.push(event),
+    { selectableNow: () => false } as unknown as EngineCatalog)
+  const run = mock.method(Session.prototype, 'runTurn', async function(this: Session, prompt: string) {
+    assert.equal(this.engine, 'codex')
+    assert.equal(this.cwd, process.cwd())
+    assert.equal(this.codexHome, 'saved-codex-home')
+    assert.equal(this.codexHandoffConfirmation, true)
+    this.sdkSessionId = 'target-native'
+    const emit = (this as unknown as { emitRaw: (event: Record<string, unknown>) => void }).emitRaw
+    emit({ type: 'assistantDelta', text: `FORGE_HANDOFF_ACK:${prompt}` })
+    emit({ type: 'result', stopReason: 'end_turn' })
+  })
+  const models = mock.method(SessionModelSync.prototype, 'emitCachedModels', () => {})
+  try {
+    manager.resume('saved', 'old-native', process.cwd(), 'antigravity')
+    assert.equal(manager.runtimeState('saved').sessionPresent, false)
+    const activation = { cwd: process.cwd(), codexHome: 'saved-codex-home', mode: 'plan' }
+    await manager.prepareEngineHandoff('saved', 'handoff', 'codex', undefined, 'handoff', activation)
+    assert.equal(events.at(-1)?.type, 'engineHandoffPrepared')
+    assert.equal(manager.runtimeState('saved').sessionPresent, false)
+
+    manager.switchEngine('saved', 'codex', 'target-native', undefined, undefined, false, activation)
+    assert.equal(manager.runtimeState('saved').sessionPresent, false)
+    manager.switchEngine('saved', 'codex', 'target-native', undefined, undefined, true, activation)
+    assert.equal(manager.runtimeState('saved').sessionPresent, true)
+    assert.deepEqual(events.at(-1)?.type, 'init')
+    assert.equal(events.at(-1)?.sdkSessionId, 'target-native')
+  } finally {
+    run.mock.restore()
+    models.mock.restore()
+  }
+})
+
+test('saved source context cannot bypass an active or pending native turn', async () => {
+  const events: Record<string, unknown>[] = []
+  const manager = new SessionManager((_id, event) => events.push(event))
+  const sourceState = manager.runtimeState('busy')
+  const snapshot = mock.method(manager, 'runtimeState', () => ({ ...sourceState, active: true }))
+  const runner = mock.method(Session.prototype, 'runTurn')
+  try {
+    await manager.prepareEngineHandoff('busy', 'handoff', 'codex', undefined, 'handoff', { cwd: process.cwd() })
+    assert.equal(events.at(-1)?.type, 'engineHandoffFailed')
+    assert.equal(runner.mock.callCount(), 0)
+    snapshot.mock.mockImplementation(() => ({ ...sourceState, pendingDecision: true }))
+    await manager.prepareEngineHandoff('busy', 'pending', 'codex', undefined, 'pending', { cwd: process.cwd() })
+    assert.equal(events.at(-1)?.type, 'engineHandoffFailed')
+    assert.equal(runner.mock.callCount(), 0)
+  } finally {
+    runner.mock.restore()
+    snapshot.mock.restore()
+  }
+})
