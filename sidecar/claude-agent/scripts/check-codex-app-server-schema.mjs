@@ -9,7 +9,6 @@ const expectedServerRequests = [
   'account/chatgptAuthTokens/refresh',
   'applyPatchApproval',
   'attestation/generate',
-  'currentTime/read',
   'execCommandApproval',
   'item/commandExecution/requestApproval',
   'item/fileChange/requestApproval',
