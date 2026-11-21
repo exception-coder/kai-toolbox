@@ -44,6 +44,18 @@ test('computer-use guidance forbids reusing stale accessibility nodes', () => {
   assert.match(CODEX_COMPUTER_USE_RECOVERY_STEER, /只重试该动作一次/)
 })
 
+test('browser access failures retain native meaning without inventing disabled settings', () => {
+  assert.equal(computerUseFailureTitle('cua_repl/js', {
+    content: [{ type: 'text', text: 'Local browser access is unavailable for this chat' }],
+  }), 'cua_repl/js · 当前会话未获得本地浏览器访问权限')
+  assert.equal(computerUseFailureTitle('cua_repl/js', 'Cannot authenticate the browser access response'),
+    'cua_repl/js · 浏览器宿主响应身份校验失败')
+  assert.equal(computerUseFailureTitle('cua_repl/js', 'unknown browser failure'), undefined)
+  assert.match(CODEX_COMPUTER_USE_RECOVERY_STEER, /历史对话.*不代表本轮状态/)
+  assert.match(CODEX_COMPUTER_USE_RECOVERY_STEER, /不能推断成用户关闭了 Work 设置/)
+  assert.match(CODEX_COMPUTER_USE_RECOVERY_STEER, /访问被拒绝时停止/)
+})
+
 test('injects computer-use recovery into development and authorized consultation sessions', () => {
   assert.match(buildCodexDeveloperInstructions('default') ?? '', /浏览器动态节点恢复/)
   assert.match(buildCodexDeveloperInstructions('consult-readonly') ?? '', /浏览器动态节点恢复/)

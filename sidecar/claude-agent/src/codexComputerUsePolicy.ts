@@ -3,6 +3,9 @@ export const CODEX_COMPUTER_USE_RECOVERY_STEER = [
   '每次点击、输入、滚动或页面导航后，必须重新读取 getAXState，再从新快照定位下一目标；不得复用动作前的节点编号。',
   '若工具返回 Node is detached from document、节点不存在或执行上下文已销毁，立即重新读取页面状态并按目标语义重新定位，只重试该动作一次；禁止原样重复旧节点调用。',
   '只有 cua_repl 运行时本身不可用时才使用 js_reset；动态节点失效不需要重置运行时。',
+  '【浏览器失败归因】历史对话中的“已禁用”“未装配”不代表本轮状态。以本轮实际工具调用结果为准；工具可见不等于浏览器已连接。',
+  'The browser access host is unavailable 只证明浏览器宿主不可用；Local browser access is unavailable for this chat 只证明当前会话未获得本地浏览器访问权限。二者均不能推断成用户关闭了 Work 设置、管理员禁用、插件未安装或账号密码错误。',
+  '仅当本轮工具明确指出某项设置或策略拒绝时才据此说明；原因不明确就报告实际失败，不编造开关位置、不要求用户反复更新重启。访问被拒绝时停止，不通过其他执行方式绕过拒绝。',
 ].join('\n')
 
 const DETACHED_NODE_PATTERN = /node is detached from document|node (?:does not exist|not found)|execution context (?:was )?destroyed/i
@@ -40,12 +43,18 @@ export function consultBrowserNotice(input: readonly Record<string, unknown>[],
   return '本轮 Codex 未提供用于点击的 cua_repl 工具。可继续尝试已授权的只读接口，页面点击需要宿主提供原生浏览器连接。'
 }
 
-/** 给已明确返回的动态节点失败生成可恢复标题；未知失败仍保留通用标题。 */
+/** 保留官方运行时的不同失败语义；未知原因不推断成配置禁用。 */
 export function computerUseFailureTitle(toolName: string, output: unknown): string | undefined {
   if (!/^cua_repl(?:\/|$)/i.test(toolName)) return undefined
   const text = typeof output === 'string' ? output : JSON.stringify(output ?? '')
   if (/The browser access host is unavailable/i.test(text)) {
     return `${toolName} · 官方浏览器宿主未连接`
+  }
+  if (/Local browser access is unavailable for this chat/i.test(text)) {
+    return `${toolName} · 当前会话未获得本地浏览器访问权限`
+  }
+  if (/Cannot authenticate the browser access response/i.test(text)) {
+    return `${toolName} · 浏览器宿主响应身份校验失败`
   }
   if (!DETACHED_NODE_PATTERN.test(text)) return undefined
   return `${toolName} · 页面节点已刷新，需重新定位后重试`
