@@ -25,7 +25,8 @@ import type {
 const SDK_PACKAGE = '@deepseek-ai/dsh-sdk-client'
 export const DEEPSEEK_HARNESS_SDK_VERSION = '0.2.2-alpha.2'
 export const DEEPSEEK_HARNESS_WIRE_VERSION = '0.0.1'
-const DEFAULT_HANDSHAKE_TIMEOUT_MS = 15_000
+/** dsh 单独冷启动握手实测约 11s，与其他引擎并发探测时会超过 15s。 */
+const DEFAULT_HANDSHAKE_TIMEOUT_MS = 45_000
 const DEFAULT_TURN_TIMEOUT_MS = 30 * 60_000
 
 export interface DeepSeekHarnessAdapterConfig {

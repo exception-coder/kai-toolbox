@@ -36,14 +36,17 @@ export function zcodeCommand(): { command: string; prefix: string[] } {
   return { command: 'zcode', prefix: [] }
 }
 
+/** CLI 是约 30MB 的单文件包，每次冷启动实测约 3s，3s 超时会在负载下误判。 */
+const ZCODE_PROBE_TIMEOUT_MS = 20_000
+
 export async function probeZCodeRuntime(): Promise<EngineProbeResult> {
   const native = zcodeCommand()
   try {
-    const { stdout } = await execFileAsync(native.command, [...native.prefix, '--version'], { timeout: 3000, windowsHide: true })
+    const { stdout } = await execFileAsync(native.command, [...native.prefix, '--version'], { timeout: ZCODE_PROBE_TIMEOUT_MS, windowsHide: true })
     const version = stdout.match(/\b(\d+\.\d+\.\d+)\b/)?.[1]
     // Parse-only invocation: upstream help currently omits output-format, so check that the real parser accepts it.
     const help = await execFileAsync(native.command, [...native.prefix, '--output-format', 'stream-json',
-      '--mode', 'build', '--workflow-mode', 'disabled', '--help'], { timeout: 3000, windowsHide: true })
+      '--mode', 'build', '--workflow-mode', 'disabled', '--help'], { timeout: ZCODE_PROBE_TIMEOUT_MS, windowsHide: true })
     const supported = version && ['--prompt', '--resume', '--mode', '--workflow-mode'].every(flag => help.stdout.includes(flag))
     return { engine: 'zcode', status: supported ? 'ready' : 'incompatible', runtimeName: 'ZCode CLI', runtimeVersion: version,
       detail: supported ? 'CLI 参数兼容；使用 ZCode 原生登录和默认模型，模型鉴权仍需实际会话验证'

@@ -38,6 +38,9 @@ test('catalog hides experimental engine selection when its runtime is disabled',
   const catalog = new EngineCatalog({
     antigravityProbe: async () => ({ status: 'incompatible', engine: 'antigravity' }),
     traeProbe: async () => ({ status: 'dependencyMissing', engine: 'trae' }),
+    // Stub every external runtime so the result never depends on what is installed on the test machine.
+    zcodeProbe: async () => ({ status: 'dependencyMissing', engine: 'zcode' }),
+    hermesProbe: async () => ({ status: 'dependencyMissing', engine: 'hermes' }),
     deepSeekConfig: {
       enabled: false,
       runtimeArgs: [],
@@ -86,6 +89,9 @@ test('catalog exposes Antigravity only after its structured-output probe is read
   const catalog = new EngineCatalog({
     antigravityProbe: async () => ({ status: 'ready', engine: 'antigravity', runtimeVersion: '1.1.8' }),
     traeProbe: async () => ({ status: 'dependencyMissing', engine: 'trae' }),
+    // Stub every external runtime so the result never depends on what is installed on the test machine.
+    zcodeProbe: async () => ({ status: 'dependencyMissing', engine: 'zcode' }),
+    hermesProbe: async () => ({ status: 'dependencyMissing', engine: 'hermes' }),
     deepSeekConfig: {
       enabled: false, runtimeArgs: [], cwd: process.cwd(), provider: 'deepseek-official', model: 'deepseek-v4-flash',
       handshakeTimeoutMs: 100, turnTimeoutMs: 100,

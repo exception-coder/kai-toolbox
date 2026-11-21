@@ -104,7 +104,10 @@ export class HermesAcpClient {
   }
 }
 
-export async function initializeHermes(client: Pick<HermesAcpClient, 'request'>, timeoutMs = 15_000): Promise<Json> {
+/** Python 冷启动需加载全部插件，本机实测约 17s；并发探测时更慢。 */
+const HERMES_INITIALIZE_TIMEOUT_MS = 60_000
+
+export async function initializeHermes(client: Pick<HermesAcpClient, 'request'>, timeoutMs = HERMES_INITIALIZE_TIMEOUT_MS): Promise<Json> {
   const result = await client.request('initialize', { protocolVersion: 1,
     clientCapabilities: {}, clientInfo: { name: 'forge', version: '1.0.0' } }, timeoutMs)
   if (result.protocolVersion !== 1 || record(result.agentInfo).name !== 'hermes-agent'
@@ -121,7 +124,7 @@ export async function probeHermesRuntime(createClient: () => Pick<HermesAcpClien
       detail: 'ACP 握手兼容；原生账号、模型及后台执行器仍需实际会话验证' }
   } catch (error) {
     return { engine: 'hermes', status: (error as NodeJS.ErrnoException).code === 'ENOENT' ? 'dependencyMissing' : 'incompatible',
-      runtimeName: 'Hermes ACP', detail: 'Hermes ACP 未就绪；检查官方运行时及 ACP 依赖，配置 HERMES_CLI_PATH 或 HERMES_PYTHON_PATH。未自动安装或登录。' }
+      runtimeName: 'Hermes ACP', detail: `Hermes ACP 未就绪（${(error instanceof Error ? error.message : String(error)).slice(0, 160)}）；检查官方运行时及 ACP 依赖，配置 HERMES_CLI_PATH 或 HERMES_PYTHON_PATH。未自动安装或登录。` }
   } finally { client?.close() }
 }
 
@@ -221,7 +224,7 @@ export async function runHermesTurn(ctx: HermesTurnContext,
       const once = options.find(option => option.kind === 'allow_once' && typeof option.optionId === 'string')
       return once ? { outcome: { outcome: 'selected', optionId: once.optionId } } : denied
     })
-    await initializeHermes(client, ctx.toolPolicy === 'disabled' ? 60_000 : 15_000)
+    await initializeHermes(client)
     const session = await client.request(nativeId ? 'session/load' : 'session/new', { cwd: ctx.cwd, mcpServers: [], ...(nativeId ? { sessionId: nativeId } : {}) })
     if (!nativeId) {
       if (typeof session.sessionId !== 'string' || !session.sessionId.trim()) throw new Error('Hermes 未返回原生会话身份')

@@ -53,6 +53,9 @@ interface Handler {
   toolPolicy: string
 }
 
+/** SDK 默认 5s；opencode serve 冷启动需打开本地数据库，负载高时会超过 5s 被误判为启动失败。 */
+export const OPENCODE_SERVER_START_TIMEOUT_MS = 30_000
+
 let clientPromise: Promise<OpencodeClient> | null = null
 const handlers = new Map<string, Handler>() // opencode sessionID -> Handler
 
@@ -60,7 +63,7 @@ const handlers = new Map<string, Handler>() // opencode sessionID -> Handler
 async function ensureClient(): Promise<OpencodeClient> {
   if (!clientPromise) {
     clientPromise = (async () => {
-      const { client } = await createOpencode({ hostname: '127.0.0.1' })
+      const { client } = await createOpencode({ hostname: '127.0.0.1', timeout: OPENCODE_SERVER_START_TIMEOUT_MS })
       startEventLoop(client)
       console.log('[sidecar] opencode server 已启动')
       return client
@@ -233,10 +236,10 @@ export async function runOpencodeTurn(ctx: OpencodeTurnCtx, createRuntime: typeo
     ctx.signal.throwIfAborted()
     if (ctx.apiBaseUrl || ctx.toolPolicy === 'disabled') {
       const options = ctx.apiBaseUrl ? opencodeGatewayOptions(ctx) : { hostname: '127.0.0.1', port: 0, signal: ctx.signal }
-      owned = await createRuntime(ctx.toolPolicy === 'disabled'
+      owned = await createRuntime({ ...(ctx.toolPolicy === 'disabled'
         ? { ...options, config: { ...('config' in options ? options.config : {}), tools: { '*': false },
           permission: { edit: 'deny', bash: 'deny', webfetch: 'deny', external_directory: 'deny' } } }
-        : options)
+        : options), timeout: OPENCODE_SERVER_START_TIMEOUT_MS })
       startEventLoop(owned.client, events.signal, ctx.cwd)
     }
     await executeOpencodeTurn(safeContext, owned?.client ?? await ensureClient())

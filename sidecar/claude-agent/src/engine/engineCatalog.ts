@@ -59,7 +59,7 @@ export class EngineCatalog {
   }
 
   /**
-   * 探活涉及外部 CLI 握手（单项最长约 15s），非强制读取一律返回已有快照；过期时在后台重探，
+   * 探活涉及外部 CLI 握手（单项最长约 60s），非强制读取一律返回已有快照；过期时在后台重探，
    * 只有首次无快照或用户强制刷新才等待探活完成。
    */
   async list(forceRefresh = false): Promise<readonly EngineCatalogEntry[]> {

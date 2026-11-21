@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process'
 import type { EngineProbeResult } from './engine/engineContract.js'
 
-const PROBE_TIMEOUT_MS = 15_000
+const PROBE_TIMEOUT_MS = 30_000
 const MODEL_TIMEOUT_MS = 60_000
 const PROBE_MAX_BUFFER = 256 * 1024
 const MODEL_CACHE_TTL_MS = 5 * 60 * 1_000
