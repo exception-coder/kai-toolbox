@@ -1061,7 +1061,7 @@ public class ClaudeChatService {
                 sidecar.userMessage(ctx.sessionId, text, developerInstructions, sessionContext,
                         projectContext == null ? List.of() : projectContext.paths(), turnId, span.traceContext(),
                         metadata, images, turnPolicy, msg.voice() == null ? null : msg.voice().callId(), accountPlan.configuration(),
-                        false, requestedClaudeOptions, accountPlan.browserInput());
+                        false, requestedClaudeOptions, accountPlan.browserInput(), msg.text());
             } else if (msg.voice() != null) {
                 sidecar.userMessage(ctx.sessionId, msg.text(), developerInstructions,
                         sessionContext,

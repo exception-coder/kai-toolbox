@@ -56,6 +56,13 @@ export function withConsultComputerUse(config: Record<string, unknown>, effectiv
   for (const name of Object.keys({ ...record(effective.plugins), ...record(config.plugins) })) {
     if (name !== '_default') plugins[name] = { enabled: false }
   }
+  if (record(config.features).computer_use === false) {
+    // A manually registered MCP can share the bundled plugin's name. Only override an
+    // existing transport: Codex rejects a new MCP entry containing only enabled=false.
+    const servers = { ...record(config.mcp_servers) }
+    if (Object.hasOwn(record(effective.mcp_servers), 'cua_repl')) servers.cua_repl = { enabled: false }
+    return { ...config, plugins, mcp_servers: servers }
+  }
   for (const name of OFFICIAL_BROWSER_PLUGINS) plugins[name] = { enabled: true }
   plugins['unified-computer-use@openai-bundled'] = {
     enabled: true,

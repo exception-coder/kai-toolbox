@@ -232,7 +232,8 @@ function createForgePendingSqlServer(sessionId?: string): Record<string, unknown
 export function consultReadonlyCodexConfig(codexHome?: string, sessionId?: string,
                                            sourceRoot?: string,
                                            evidenceSystems: readonly string[] = [],
-                                           forgeSqlRegistration = false): Record<string, unknown> {
+                                           forgeSqlRegistration = false,
+                                           managedBrowser = false): Record<string, unknown> {
   const mcpServers: Record<string, unknown> = {}
   for (const name of configuredMcpServerNames(codexHome)) {
     mcpServers[name] = { enabled: false }
@@ -247,7 +248,8 @@ export function consultReadonlyCodexConfig(codexHome?: string, sessionId?: strin
     features: {
       apps: false,
       plugins: false,
-      // 原生浏览器与code-mode继承当前宿主可用能力和站点授权，不由咨询模式强制关闭。
+      // Forge 网页资源与独立浏览器使用各自的 MCP，无需启动桌面浏览器。
+      ...(managedBrowser ? { computer_use: false, browser_use: false, browser_use_external: false } : {}),
       // 延迟 MCP 通过 code-mode host 调用；Host 可见范围已由 mcpServers.enabled_tools 裁剪。
       code_mode_host: true,
       image_generation: false,

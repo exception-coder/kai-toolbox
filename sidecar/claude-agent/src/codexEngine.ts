@@ -282,24 +282,26 @@ export function withCodexWritableRoots(config: NonNullable<CodexOptions['config'
   return roots.length ? { ...config, sandbox_workspace_write: { writable_roots: [...roots] } } : config
 }
 
-function buildCodexConfig(speed: CodexSpeed, toolPolicy: string, codexHome?: string,
+export function buildCodexConfig(speed: CodexSpeed, toolPolicy: string, codexHome?: string,
                           sessionId?: string,
                           forgeSqlRegistration = false,
                           turnDeveloperInstructions?: string,
                           sourceRoot?: string,
                           consultEvidenceSystems: readonly string[] = [],
-                          assembly?: ConsultToolAssembly): NonNullable<CodexOptions['config']> {
+                          assembly?: ConsultToolAssembly,
+                          independentBrowser = false): NonNullable<CodexOptions['config']> {
+  const managedBrowser = assembly?.managedWebAccount === true || independentBrowser
   const developerInstructions = assembly && toolPolicy === CONSULT_READONLY_POLICY
-    ? [CONSULT_READONLY_PROMPT, CODEX_COMPUTER_USE_RECOVERY_STEER,
+    ? [CONSULT_READONLY_PROMPT, managedBrowser ? undefined : CODEX_COMPUTER_USE_RECOVERY_STEER,
         '仅使用实际可用工具。禁止写入文件、Git、配置、数据库或业务数据；不得扩大系统和环境授权。',
-        turnDeveloperInstructions ?? ''].join('\n\n')
+        turnDeveloperInstructions].filter(Boolean).join('\n\n')
     : buildCodexDeveloperInstructions(toolPolicy, sessionId, forgeSqlRegistration, turnDeveloperInstructions)
   const serviceTier = codexServiceTier(speed)
   return {
     ...(serviceTier ? { service_tier: serviceTier } : {}),
     ...(developerInstructions ? { developer_instructions: developerInstructions } : {}),
     ...(toolPolicy === CONSULT_READONLY_POLICY
-      ? filterCodexAssembly(consultReadonlyCodexConfig(codexHome, sessionId, sourceRoot, consultEvidenceSystems, forgeSqlRegistration), assembly)
+      ? filterCodexAssembly(consultReadonlyCodexConfig(codexHome, sessionId, sourceRoot, consultEvidenceSystems, forgeSqlRegistration, managedBrowser), assembly)
       : toolPolicy === REVIEW_ONLY_POLICY
         ? reviewOnlyCodexConfig(codexHome, sessionId?.startsWith('plan-review:') === true)
       : toolPolicy === 'disabled'
@@ -462,7 +464,7 @@ export async function runCodexTurn(ctx: CodexTurnCtx): Promise<void> {
     const baseConfig = withCodexWritableRoots(buildCodexConfig(
       ctx.speed ?? 'default', ctx.toolPolicy ?? 'default', home, ctx.sessionId,
       ctx.forgeSqlRegistration, ctx.developerInstructions, consultSourceRoot,
-      ctx.consultEvidenceSystems, ctx.consultToolAssembly,
+      ctx.consultEvidenceSystems, ctx.consultToolAssembly, Boolean(browser),
     ), ctx)
     const servers = baseConfig.mcp_servers
     const config = browser ? {

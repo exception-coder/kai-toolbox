@@ -8,7 +8,7 @@ import {
   browserHostEnvironmentPresence,
   browserToolDiagnostic,
 } from './codexComputerUsePolicy.js'
-import { buildCodexDeveloperInstructions } from './codexEngine.js'
+import { buildCodexConfig, buildCodexDeveloperInstructions } from './codexEngine.js'
 
 test('completed RPC can contain an explicit Work browser denial', () => {
   const error = 'Local browser use is disabled in Work settings'
@@ -73,6 +73,28 @@ test('consult browser notice distinguishes missing native tool from a failed inv
   assert.equal(consultBrowserNotice(request, [{ name: 'cua_repl', tools: new Set(['js']) }]), undefined)
   assert.equal(consultBrowserNotice(request, [{ name: 'forge_browser', tools: new Set(['browser_open_and_click']) }]), undefined)
   assert.equal(consultBrowserNotice([{ type: 'text', text: '查找相关源码' }], []), undefined)
+})
+
+test('account and independent browser turns disable the native desktop at the SDK and App Server boundaries', () => {
+  const assembly = { mcpServers: ['consult-readonly'], tools: ['consult_web'], runtimeSessionId: 'consult' }
+  const effective = { plugins: { 'unified-computer-use@openai-bundled': { enabled: true } },
+    mcp_servers: { cua_repl: { command: 'fixture' } } }
+  for (const [managedWebAccount, independentBrowser] of [[true, false], [false, true], [false, false]] as const) {
+    const config = buildCodexConfig('default', 'consult-readonly', '/nonexistent/forge-test', 'consult',
+      false, undefined, process.cwd(), [], { ...assembly, managedWebAccount }, independentBrowser)
+    const managed = managedWebAccount || independentBrowser
+    assert.equal(String(config.developer_instructions).includes(CODEX_COMPUTER_USE_RECOVERY_STEER), !managed)
+    const result = withConsultComputerUse(config, effective)
+    assert.equal((result.features as Record<string, unknown>).plugins, !managed)
+    if (managed) {
+      const features = config.features as Record<string, unknown>
+      for (const flag of ['plugins', 'computer_use', 'browser_use', 'browser_use_external']) assert.equal(features[flag], false)
+      assert.equal(features.code_mode_host, true)
+      assert.deepEqual((result.plugins as Record<string, unknown>)['unified-computer-use@openai-bundled'], { enabled: false })
+      assert.deepEqual((result.mcp_servers as Record<string, unknown>).cua_repl, { enabled: false })
+      assert.equal(Object.hasOwn(withConsultComputerUse(config, {}).mcp_servers as object, 'cua_repl'), false)
+    }
+  }
 })
 
 test('computer-use guidance forbids reusing stale accessibility nodes', () => {

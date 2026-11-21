@@ -13,7 +13,7 @@ import { classifyConsultQuestion, dispatchConsultQuestion, registerBug, submitFe
 import { buildConsultTurnAudits, type AuditEvidence, type AuditState, type ConsultTurnAudit } from '../consultAudit'
 import type { ConsultDraftAttachment } from '../consultAttachmentDispatch'
 import { useConsultConversationRuntimeState } from '../consultConversationState'
-import { stripConsultRecognition } from '../consultRecognition'
+import { visibleConsultAnswer } from '../consultAnswer'
 import { ConsultMessageActions } from './ConsultMessageActions'
 import { ConsultAnswerContent, ConsultPanel } from './ConsultPanel'
 import { ConsultDocuments } from './ConsultDocuments'
@@ -39,7 +39,18 @@ function extractBug(text: string): ParsedBug | null {
   }
 }
 function stripBug(text: string): string {
-  return text.replace(BUG_RE, '').trim()
+  return text.replace(BUG_RE, '')
+}
+
+function hasUnansweredBrowserFailure(items: ChatItem[], index: number, running: boolean): boolean {
+  const failure = items[index]
+  if (failure.kind !== 'tool' || !failure.isError || !['cua_repl/js', 'mcp__cua_repl__js'].includes(failure.toolName)) return false
+  for (let i = index + 1; i < items.length; i++) {
+    const next = items[i]
+    if (next.kind === 'user') return true
+    if (next.kind === 'tool' || next.kind === 'error' || (next.kind === 'assistant' && visibleConsultAnswer(stripBug(next.text)))) return false
+  }
+  return !running
 }
 import { ImageLightbox } from './ImageLightbox'
 import { ConsultConversationRuntimeStatus } from './ConsultConversationRuntimeStatus'
@@ -327,7 +338,7 @@ export function ConsultConversation({
         suspectArea: bug.suspectArea,
         confidence: typeof bug.confidence === 'number' ? bug.confidence : undefined,
         question,
-        answer: stripConsultRecognition(stripBug(it.text)),
+        answer: visibleConsultAnswer(stripBug(it.text)),
       })
         .then(() => {
           setBugTurns((p) => new Set(p).add(it.id))
@@ -549,12 +560,15 @@ export function ConsultConversation({
               if (it.kind === 'user') userCount += 1
               const turnIdx = userCount
               const next = items[idx + 1]
-              const showRating =
-                it.kind === 'assistant' && it.text.trim().length > 0 && (!next || next.kind === 'user') && !running
-              const quotable = it.kind === 'assistant' ? stripConsultRecognition(stripBug(it.text)) : it.kind === 'user' ? it.displayText ?? it.text : ''
+              const quotable = it.kind === 'assistant' ? visibleConsultAnswer(stripBug(it.text), running && !next) : it.kind === 'user' ? it.displayText ?? it.text : ''
+              if (it.kind === 'assistant' && !quotable && !bugTurns.has(it.id)) return null
+              if (it.kind === 'tool' && hasUnansweredBrowserFailure(items, idx, running)) {
+                return <p key={it.id} role="status" className="pl-1 text-xs text-slate-600">浏览器调用失败，本轮没有返回页面结果。可以在本咨询中重试。</p>
+              }
+              const showRating = it.kind === 'assistant' && !!quotable && (!next || next.kind === 'user') && !running
               return (
                 <div key={it.id} className="group space-y-1.5">
-                  <MessageRow item={it} onImageClick={setLightbox} />
+                  <MessageRow item={it} shown={quotable} onImageClick={setLightbox} />
                   {quotable.trim() && (
                     <ConsultMessageActions
                       align={it.kind === 'user' ? 'end' : 'start'}
@@ -911,10 +925,9 @@ function BadFeedbackDialog({ onSubmit, onCancel }: { onSubmit: (category: string
   )
 }
 
-const MessageRow = memo(function MessageRow({ item, onImageClick }: { item: ChatItem; onImageClick: (src: string) => void }) {
+const MessageRow = memo(function MessageRow({ item, shown, onImageClick }: { item: ChatItem; shown: string; onImageClick: (src: string) => void }) {
   const messageTime = formatMessageTime(item.ts)
   if (item.kind === 'user') {
-    const shown = item.displayText ?? item.text
     return (
       <div className="flex flex-col items-end gap-1">
         {item.attachments && item.attachments.length > 0 && (
@@ -938,11 +951,11 @@ const MessageRow = memo(function MessageRow({ item, onImageClick }: { item: Chat
     )
   }
   if (item.kind === 'assistant') {
-    if (!item.text.trim()) return null
+    if (!shown) return null
     return (
       <div className="flex w-full min-w-0 max-w-full flex-col items-start gap-1">
         <div className="min-w-0 max-w-full rounded-2xl rounded-tl-sm border border-slate-200/90 bg-white/72 px-3.5 py-2.5 shadow-[0_12px_30px_-26px_rgba(15,23,42,0.32)]">
-          <ConsultAnswerContent text={item.text}><Markdown text={stripConsultRecognition(stripBug(item.text))} className="fc-md" /></ConsultAnswerContent>
+          <ConsultAnswerContent text={shown}><Markdown text={shown} className="fc-md" /></ConsultAnswerContent>
         </div>
         {messageTime && <MessageTime timestamp={item.ts!} label={messageTime} align="left" />}
       </div>

@@ -82,24 +82,68 @@ class SidecarClientConnectionTest {
         var connection = mock(WebSocketSession.class);
         when(connection.isOpen()).thenReturn(true);
         ReflectionTestUtils.setField(client, "session", connection);
-        AgentToolAssemblyProvider provider = id -> Optional.of(new AgentToolAssemblyProvider.Assembly(
-                List.of("browser_open_and_click"), List.of("forge_browser"), "平台装配"));
-        ReflectionTestUtils.setField(client, "toolAssemblyProviders", List.of(provider));
         var browser = new ConsultRuntimeCoordinator.BrowserInput("点击 Domains", null, "https://www.iana.org/help/example-domains");
+        var sameSite = new ConsultRuntimeCoordinator.BrowserInput("打开 https://erp.example.test/app/menu", null, null);
+        var followUp = new ConsultRuntimeCoordinator.BrowserInput("点击菜单", null, "https://erp.example.test/app/");
+        var provider = mock(AgentToolAssemblyProvider.class);
+        var publicAssembly = new AgentToolAssemblyProvider.Assembly(
+                List.of("browser_open_and_click"), List.of("forge_browser"), "平台装配", null, true, true);
+        var boundAssembly = new AgentToolAssemblyProvider.Assembly(
+                List.of("browser_open_and_click"), List.of("forge_browser"), "平台装配", null, true);
+        when(provider.resolve("consult", browser.userRequest(), browser.currentPageUrl())).thenReturn(Optional.of(publicAssembly));
+        when(provider.resolve("consult", sameSite.userRequest(), null)).thenReturn(Optional.of(boundAssembly));
+        when(provider.resolve("consult", followUp.userRequest(), followUp.currentPageUrl())).thenReturn(Optional.of(boundAssembly));
+        when(provider.resolve("other", null, browser.currentPageUrl())).thenReturn(Optional.of(publicAssembly));
+        ReflectionTestUtils.setField(client, "toolAssemblyProviders", List.of(provider));
         client.userMessage("consult", "历史拼接后的模型输入", "客户端提供的提示", null, List.of(),
-                "turn", null, null, List.of(), null, null, Map.of("segmentId", "segment"), false, null, browser);
+                "turn", null, null, List.of(), null, null, Map.of("segmentId", "segment"), false, null, browser, browser.userRequest());
+        for (var input : List.of(sameSite, followUp)) {
+            client.userMessage("consult", input.userRequest(), null, null, List.of(), "turn", null, null,
+                    List.of(), null, null, Map.of("segmentId", "segment"), false, null, input, input.userRequest());
+        }
         client.userMessage("other", "其他会话输入", null, null, List.of(), "turn", null, null,
-                List.of(), null, null, null, false, null, browser);
+                List.of(), null, null, null, false, null, browser, null);
         var messages = org.mockito.ArgumentCaptor.forClass(TextMessage.class);
-        verify(connection, org.mockito.Mockito.times(2)).sendMessage(messages.capture());
+        verify(connection, org.mockito.Mockito.times(4)).sendMessage(messages.capture());
         var assembly = mapper.readTree(messages.getAllValues().getFirst().getPayload()).path("consultToolAssembly");
+        assertThat(assembly.path("managedWebAccount").asBoolean()).isTrue();
         assertThat(assembly.path("browserUserRequest").asText()).isEqualTo(browser.userRequest());
         assertThat(assembly.path("browserCurrentPageUrl").asText()).isEqualTo(browser.currentPageUrl());
         assertThat(assembly.has("previousBrowserUserRequest")).isFalse();
-        var other = mapper.readTree(messages.getAllValues().getLast().getPayload()).path("consultToolAssembly");
-        assertThat(other.has("browserUserRequest")).isFalse();
-        assertThat(other.has("previousBrowserUserRequest")).isFalse();
-        assertThat(other.has("browserCurrentPageUrl")).isFalse();
+        for (var message : messages.getAllValues().subList(1, 4)) {
+            var restricted = mapper.readTree(message.getPayload()).path("consultToolAssembly");
+            assertThat(restricted.path("managedWebAccount").asBoolean()).isTrue();
+            assertThat(restricted.has("browserUserRequest")).isFalse();
+            assertThat(restricted.has("previousBrowserUserRequest")).isFalse();
+            assertThat(restricted.has("browserCurrentPageUrl")).isFalse();
+        }
+    }
+
+    @Test
+    void accountSelectionReceivesTheOriginalQuestionEvenWithoutBrowserIntent() throws Exception {
+        var mapper = new ObjectMapper();
+        var client = new SidecarClient(new ClaudeChatProperties(), new ClaudeChatWsProperties(), mapper);
+        var connection = mock(WebSocketSession.class);
+        when(connection.isOpen()).thenReturn(true);
+        ReflectionTestUtils.setField(client, "session", connection);
+        var provider = mock(AgentToolAssemblyProvider.class);
+        String question = "菜单搜成本分析，核对上期单价";
+        when(provider.resolve("consult", question, null)).thenReturn(Optional.of(new AgentToolAssemblyProvider.Assembly(
+                List.of("consult_web"), List.of("consult-readonly"), "平台装配", null, true)));
+        ReflectionTestUtils.setField(client, "toolAssemblyProviders", List.of(provider));
+        String modelInput = "历史页面 https://other.example.test/\n" + question;
+        client.userMessage("consult", modelInput, null, null, List.of(), "turn", null, null,
+                List.of(), null, null, Map.of("segmentId", "segment"), false, null, null, question);
+
+        verify(provider).resolve("consult", question, null);
+        var message = org.mockito.ArgumentCaptor.forClass(TextMessage.class);
+        verify(connection).sendMessage(message.capture());
+        var payload = mapper.readTree(message.getValue().getPayload());
+        assertThat(payload.path("text").asText()).isEqualTo(modelInput);
+        var assembly = payload.path("consultToolAssembly");
+        assertThat(assembly.path("managedWebAccount").asBoolean()).isTrue();
+        assertThat(assembly.has("browserUserRequest")).isFalse();
+        assertThat(assembly.has("browserCurrentPageUrl")).isFalse();
     }
 
     @Test

@@ -5,8 +5,7 @@ import { withAuthToken } from '@/lib/auth'
 import DOMPurify from 'dompurify'
 import { Copy, Loader2, X } from 'lucide-react'
 import { getConsult, type ConsultAttRef, type ConsultSessionView, type ConsultTurnView, type FeedbackView } from '../api'
-import { stripConsultRecognition } from '../consultRecognition'
-import { parseConsultAnswer } from '../consultAnswer'
+import { parseConsultAnswer, visibleConsultAnswer } from '../consultAnswer'
 import { ImageLightbox } from './ImageLightbox'
 import { ConsultAnswerContent, ConsultPanel } from './ConsultPanel'
 import { ConsultDocuments } from './ConsultDocuments'
@@ -57,7 +56,7 @@ function pairOfTurn(turn: ConsultTurnView): QaPair {
   return {
     turnIndex: turn.turnIndex,
     question: turn.question,
-    answer: stripConsultRecognition(turn.answer),
+    answer: visibleConsultAnswer(turn.answer),
     attachments: turn.attachments,
     recognizedSystemName: turn.recognizedSystemName,
     recognizedModuleNames: turn.recognizedModuleNames,

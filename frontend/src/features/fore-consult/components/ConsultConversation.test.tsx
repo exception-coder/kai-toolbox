@@ -59,6 +59,41 @@ it('reads the original archived messages without exposing follow-up, archive or 
   expect(onViewArchive).toHaveBeenCalledOnce()
 })
 
+it('hides a browser protocol bubble while retaining the follow-up and tool failure explanation', () => {
+  const { chat, props } = setup()
+  const marker = '::browser-complete{title="Could not access browser"}'
+  chat.items = [{ kind: 'user', id: 'q', text: '帮我核对页面' },
+    { kind: 'assistant', id: 'progress', text: '我会检查页面。' },
+    { kind: 'assistant', id: 'directive', text: marker.slice(0, -3), ts: 1 }]
+  const { rerender } = render(<ConsultConversation {...props} />)
+  expect(screen.queryByText(/::browser-complete/)).not.toBeInTheDocument()
+  chat.items = [...chat.items.slice(0, -1),
+    { kind: 'assistant', id: 'directive', text: marker, ts: 1 },
+    { kind: 'assistant', id: 'reply', text: marker + '登录已失效，请在原咨询检查登录。' }]
+  rerender(<ConsultConversation {...props} />)
+  expect(screen.queryByText(/::browser-complete/)).not.toBeInTheDocument()
+  expect(screen.getByText('登录已失效，请在原咨询检查登录。')).toBeVisible()
+  expect(screen.getAllByRole('button', { name: '复制' })).toHaveLength(3)
+})
+
+it('shows a terminal browser failure when only its protocol marker followed the failed call', () => {
+  const { chat, props } = setup()
+  chat.items = [{ kind: 'user', id: 'q', text: '查看页面' },
+    { kind: 'tool', id: 't', toolName: 'cua_repl/js', input: {}, isError: true, output: 'private tool details' },
+    { kind: 'assistant', id: 'marker', text: '::browser-complete{title="Could not access browser"}' }]
+  const { rerender } = render(<ConsultConversation {...props} />)
+  expect(screen.queryByText(/本轮没有返回页面结果/)).not.toBeInTheDocument()
+  chat.running = false
+  mocks.phase = 'idle'
+  rerender(<ConsultConversation {...props} />)
+  expect(screen.getByText(/本轮没有返回页面结果/)).toBeVisible()
+  expect(screen.queryByText('private tool details')).not.toBeInTheDocument()
+  chat.items = [...chat.items, { kind: 'assistant', id: 'result', text: '登录过期，可在原咨询检查登录。' }]
+  rerender(<ConsultConversation {...props} />)
+  expect(screen.getByText('登录过期，可在原咨询检查登录。')).toBeVisible()
+  expect(screen.queryByText(/本轮没有返回页面结果/)).not.toBeInTheDocument()
+})
+
 it('keeps follow-up drafts separate when switching to a new consultation and back', () => {
   const { props } = setup()
   const draftCache = new Map<string, ConsultConversationDraft>()

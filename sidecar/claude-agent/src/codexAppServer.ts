@@ -1456,15 +1456,16 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions, runti
     })
     options.emit({ type: 'init', sdkSessionId: threadId, ...capabilitySnapshot })
     if (options.consultReadonly) {
+      const desktopEnabled = asRecord(threadConfig.features)?.computer_use !== false
       console.info(JSON.stringify({ event: 'codex_consult_browser_runtime', sessionId: options.sessionId,
-        threadId, transport: 'app-server',
+        threadId, transport: 'app-server', desktopEnabled,
         cliVersion: require('@openai/codex/package.json').version,
         inventoryVerified: Boolean(mcpRuntimeResult),
         nativeTools: ['js', 'js_reset', 'turn_ended'].filter(tool => runtimeStatuses
           .some(server => server.name === 'cua_repl' && server.tools.has(tool))),
         inheritedHostEnvironment: browserHostEnvironmentPresence(appServerEnv(options.codexHome)),
         hostConnectionVerified: false }))
-      const message = consultBrowserNotice(options.input, mcpRuntimeResult ? runtimeStatuses : undefined)
+      const message = desktopEnabled ? consultBrowserNotice(options.input, mcpRuntimeResult ? runtimeStatuses : undefined) : undefined
       if (message) options.emit({ type: 'warning', code: 'CODEX_CONSULT_BROWSER_UNAVAILABLE', message })
     }
     // 请求一旦发出，服务端就可能已经开始调用工具；从这里起禁止 SDK 自动重放，避免双执行。

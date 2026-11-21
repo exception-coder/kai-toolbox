@@ -184,7 +184,11 @@ public class ConsultRuntimeCoordinator {
     public void settled(String session, String turn, String state) { repository.settled(session, turn, state); }
 
     /** Kept separate from enriched prompts. The worker scope is parsed and validated in the sidecar. */
-    record BrowserInput(String userRequest, String previousUserRequest, String currentPageUrl) { }
+    record BrowserInput(String userRequest, String previousUserRequest, String currentPageUrl) {
+        String followUpTarget() {
+            return currentPageUrl != null ? currentPageUrl : previousUserRequest;
+        }
+    }
 
     public record Plan(ConsultationRuntimePolicy.Selection selection, String segment, boolean switched, String context,
                        BrowserInput browserInput) {

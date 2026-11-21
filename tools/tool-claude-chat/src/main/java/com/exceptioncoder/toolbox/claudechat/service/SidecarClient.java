@@ -366,7 +366,7 @@ public class SidecarClient implements ReviewThreadForkGateway {
                             String turnToolPolicy, String voiceCallId, Map<String, Object> consultAccount,
                             boolean queueCheck, ClaudeSessionOptions configuredClaudeOptions) {
         userMessage(sessionId, text, developerInstructions, sessionContext, additionalDirectories, turnId, traceContext,
-                telemetry, images, turnToolPolicy, voiceCallId, consultAccount, queueCheck, configuredClaudeOptions, null);
+                telemetry, images, turnToolPolicy, voiceCallId, consultAccount, queueCheck, configuredClaudeOptions, null, null);
     }
 
     void userMessage(String sessionId, String text, String developerInstructions,
@@ -374,7 +374,8 @@ public class SidecarClient implements ReviewThreadForkGateway {
                      TraceContext traceContext, AgentRunMetadata telemetry,
                      List<com.exceptioncoder.toolbox.llm.spi.AgentOneShotRunner.ImageInput> images,
                      String turnToolPolicy, String voiceCallId, Map<String, Object> consultAccount,
-                     boolean queueCheck, ClaudeSessionOptions configuredClaudeOptions, ConsultRuntimeCoordinator.BrowserInput browserInput) {
+                     boolean queueCheck, ClaudeSessionOptions configuredClaudeOptions, ConsultRuntimeCoordinator.BrowserInput browserInput,
+                     String originalUserText) {
         Map<String, Object> message = new LinkedHashMap<>();
         message.put("type", "user");
         message.put("sessionId", sessionId);
@@ -395,14 +396,18 @@ public class SidecarClient implements ReviewThreadForkGateway {
         if (turnToolPolicy != null && !turnToolPolicy.isBlank()) {
             message.put("turnToolPolicy", turnToolPolicy);
         }
-        toolAssemblyProviders.stream().map(provider -> provider.resolve(sessionId)).flatMap(Optional::stream)
+        String followUpTarget = browserInput == null ? null : browserInput.followUpTarget();
+        toolAssemblyProviders.stream().map(provider -> provider.resolve(sessionId, originalUserText, followUpTarget))
+                .flatMap(Optional::stream)
                 .findFirst().ifPresent(assembly -> {
                     var trustedAssembly = new java.util.LinkedHashMap<String, Object>();
                     trustedAssembly.put("tools", assembly.tools());
                     trustedAssembly.put("mcpServers", assembly.mcpServers());
                     trustedAssembly.put("runtimeSessionId", sessionId);
                     trustedAssembly.put("runtimeToken", assembly.runtimeToken());
+                    trustedAssembly.put("managedWebAccount", assembly.managedWebAccount());
                     if (browserInput != null && consultAccount != null
+                            && (!assembly.managedWebAccount() || assembly.publicBrowserFollowUp())
                             && assembly.tools().contains("browser_open_and_click") && assembly.mcpServers().contains("forge_browser")) {
                         trustedAssembly.put("browserUserRequest", browserInput.userRequest());
                         if (browserInput.previousUserRequest() != null) {

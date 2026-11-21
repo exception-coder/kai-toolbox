@@ -5,6 +5,13 @@ import { parseConsultAnswer } from './consultAnswer'
 const recognition = '\n<<<CONSULT_RECOGNITION>>>\n{"recognitionStatus":"PARTIAL","moduleNames":["销售"],"evidence":["RUNTIME_DATA"]}\n<<<END_CONSULT_RECOGNITION>>>'
 
 describe('咨询轮次归档', () => {
+  it('移除浏览器回执标记，保留失败说明和 Markdown 中引用的原文', () => {
+    const marker = '::browser-complete{title="Could not access browser"}'
+    const quoted = ['示例：', '```text', marker, '```'].join('\n')
+    const parts = ['正在核对。', marker, marker + '请在原咨询检查登录。', quoted]
+    expect(parseConsultAnswer(parts).answer).toBe(['正在核对。', '请在原咨询检查登录。', quoted].join('\n\n'))
+  })
+
   it('税费案例只归档完整答复，保留原始提问时间和识别证据', () => {
     const turns = extractTurns([
       { kind: 'user', id: 'u', text: '什么情况', ts: 1794477428094 },

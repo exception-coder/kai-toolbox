@@ -43,6 +43,24 @@ test('development scope is never inherited by restricted, background, demo or ga
   }
 })
 
+test('a managed account takes direct links while an explicit continuation can reuse its verified public page', () => {
+  const wire = { managedWebAccount: true, runtimeSessionId: turn.sessionId,
+    tools: ['browser_open_and_click'], mcpServers: ['forge_browser'] }
+  const grant = (text: string, navigation: Record<string, string> = {}) => vibeBrowserRequestForTurn({
+    ...turn, toolPolicy: 'consult-readonly', consultToolAssembly: parseConsultToolAssembly({
+      ...wire, ...navigation, browserUserRequest: text,
+    }),
+  })
+  const page = { browserCurrentPageUrl: 'https://www.iana.org/help/example-domains' }
+  const retry = { previousBrowserUserRequest: turn.text }
+  assert.equal(grant('打开 https://erp.example.test/app/menu，点击菜单', page), undefined)
+  assert.deepEqual(grant('点击 Domains', page), { url: page.browserCurrentPageUrl, navigationMenu: true, linkName: 'Domains' })
+  assert.deepEqual(grant('再点一次刚才的链接', retry), { url: 'https://example.com/', linkName: 'Learn more' })
+  for (const context of [page, retry]) {
+    assert.equal(grant('菜单搜成本分析，核对上期价格', context), undefined)
+  }
+})
+
 test('consultation uses only the current server-bound user grant, including in the read-only plan session', async () => {
   const wire = { mcpServers: ['forge_browser'], tools: ['browser_open_and_click'],
     runtimeSessionId: turn.sessionId, browserUserRequest: turn.text }

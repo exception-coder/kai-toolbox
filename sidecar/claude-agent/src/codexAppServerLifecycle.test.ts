@@ -9,9 +9,10 @@ import { callAppServer, createCodexPredictionProcess, runCodexAppServerTurn, ste
 import { CodexPredictionCoordinator, readCodexPrediction } from './codexPrediction.js'
 import { observeCodexProcess } from './codexProcessLifetime.js'
 import { CONSULT_READONLY_PROMPT } from './codexSecurity.js'
+import { buildCodexConfig } from './codexEngine.js'
 
 // Real pipes and EOF, with a local JSON-RPC peer: no account, tools or model calls.
-function fixture(mode: 'browserDenied' | 'consultPlugins' | 'consultConfigMissing' | 'nativeStatus' | 'nativeFailure' | 'complete' | 'warnings' | 'hold' | 'holdError' | 'holdCancel' | 'cancel' | 'rpcError' | 'resumeError' | 'slowResume' | 'lostTerminal' | 'crash' | 'steer' | 'transport' = 'complete', rolloutPath?: string) {
+function fixture(mode: 'browserDenied' | 'consultPlugins' | 'managedConsult' | 'consultConfigMissing' | 'nativeStatus' | 'nativeFailure' | 'complete' | 'warnings' | 'hold' | 'holdError' | 'holdCancel' | 'cancel' | 'rpcError' | 'resumeError' | 'slowResume' | 'lostTerminal' | 'crash' | 'steer' | 'transport' = 'complete', rolloutPath?: string) {
   const child = spawn(process.execPath, ['-e', `
     const mode = ${JSON.stringify(mode)};
     const rolloutPath = ${JSON.stringify(rolloutPath)};
@@ -49,7 +50,7 @@ function fixture(mode: 'browserDenied' | 'consultPlugins' | 'consultConfigMissin
         send({method:'warning',params:{message:'Independent warning'}});
         send({id:m.id,result:{}});
       } else if (m.method === 'config/read') {
-        send({id:m.id,result:mode === 'consultConfigMissing' ? {} : {config:{model_provider:'openai',plugins:{'writer@example':{enabled:true}}}}});
+        send({id:m.id,result:mode === 'consultConfigMissing' ? {} : {config:{model_provider:'openai',plugins:{'writer@example':{enabled:true},'unified-computer-use@openai-bundled':{enabled:true}}}}});
       } else if (m.method === 'thread/read' && rolloutPath) {
         send({id:m.id,result:{thread:{path:rolloutPath,modelProvider:'openai'}}});
       } else if (m.method === 'thread/start' || m.method === 'thread/resume') {
@@ -58,6 +59,15 @@ function fixture(mode: 'browserDenied' | 'consultPlugins' | 'consultConfigMissin
           || m.params.config.plugins?.['unified-computer-use@openai-bundled']?.enabled !== true
           || !m.params.developerInstructions?.includes('第一步调用 consult_web DISCOVER'))) {
           send({id:m.id,error:{message:'Consultation plugin boundary not applied'}}); return;
+        }
+        if (mode === 'managedConsult' && (['plugins','computer_use','browser_use','browser_use_external']
+          .some(flag => m.params.config.features?.[flag] !== false)
+          || m.params.config.plugins?.['unified-computer-use@openai-bundled']?.enabled !== false
+          || m.params.config.plugins?.['writer@example']?.enabled !== false
+          || !m.params.config.mcp_servers?.['consult-readonly']?.enabled_tools.includes('consult_web')
+          || !m.params.developerInstructions?.includes('第一步调用 consult_web DISCOVER')
+          || m.params.developerInstructions.includes('浏览器动态节点恢复'))) {
+          send({id:m.id,error:{message:'Managed account turn received the wrong browser policy'}}); return;
         }
         if (m.method === 'thread/resume' && m.params.excludeTurns !== true) {
           send({id:m.id,error:{message:'Full history hydration is not allowed'}}); return;
@@ -160,6 +170,23 @@ test('consultation refuses incomplete effective plugin configuration before star
   try {
     await assert.rejects(runCodexAppServerTurn({ ...turnOptions('consult-config-missing'), consultReadonly: true }, peer.runtime), /无法核对咨询插件配置/)
   } finally { await peer.release() }
+})
+
+test('new and resumed managed consultations expose the signed web tool without directing the user to the desktop host', async () => {
+  const sessionId = 'consult-managed'
+  const config = buildCodexConfig('default', 'consult-readonly', '/nonexistent/managed-consult', sessionId,
+    false, undefined, process.cwd(), [], { mcpServers: ['consult-readonly'], tools: ['consult_web'],
+      runtimeSessionId: sessionId, runtimeToken: 't'.repeat(43), managedWebAccount: true })
+  for (const threadId of [undefined, 'lifecycle-thread']) {
+    const peer = fixture('managedConsult')
+    const events: Record<string, unknown>[] = []
+    try {
+      await runCodexAppServerTurn({ ...turnOptions(sessionId, events), threadId, consultReadonly: true,
+        config, input: [{ type: 'text', text: '点击业务菜单' }] }, peer.runtime)
+      assert.equal(events.some(event => event.code === 'CODEX_CONSULT_BROWSER_UNAVAILABLE'), false)
+      assert.ok(events.some(event => event.type === 'result' && event.stopReason === 'end_turn'))
+    } finally { await peer.release() }
+  }
 })
 
 test('native status and retry notifications never produce a terminal result or accept child-thread state', async () => {

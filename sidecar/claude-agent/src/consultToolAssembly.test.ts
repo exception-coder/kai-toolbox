@@ -32,6 +32,10 @@ test('Claude filters database providers and passes exact tool restriction into s
 
 test('malformed assembly fails closed, absent assembly preserves legacy behavior', () => {
   assert.throws(() => parseConsultToolAssembly({ tools: ['x;command'], mcpServers: [] }))
+  assert.throws(() => parseConsultToolAssembly({ ...assembly, managedWebAccount: 'false' }), /账号选路/)
+  for (const flag of [true, false, undefined]) {
+    assert.equal(parseConsultToolAssembly({ ...assembly, managedWebAccount: flag })?.managedWebAccount, flag)
+  }
   assert.equal(parseConsultToolAssembly(undefined), undefined)
   assert.equal(assemblyAllowsTool(undefined, 'Read'), true)
 })
