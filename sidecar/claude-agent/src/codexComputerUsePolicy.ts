@@ -13,6 +13,35 @@ const DETACHED_NODE_PATTERN = /node is detached from document|node (?:does not e
 const OFFICIAL_BROWSER_PLUGINS = ['browser@openai-bundled', 'chrome@openai-bundled',
   'unified-computer-use@openai-bundled'] as const
 
+/** Presence is diagnostic only: it neither proves host reachability nor grants access. */
+export function browserHostEnvironmentPresence(env: NodeJS.ProcessEnv): Record<string, boolean> {
+  return Object.fromEntries(['BROWSER_USE_ACCESS_EXECUTOR_ID', 'BROWSER_USE_ACCESS_PIPE_PATH',
+    'BROWSER_USE_ACCESS_VERIFYING_IDENTITY', 'CODEX_WINDOWS_REGISTERED_CORE']
+    .map(key => [key, Boolean(env[key]?.trim())]))
+}
+
+/** Never log arbitrary tool output: it may contain credentials, page content or runtime instructions. */
+export function browserToolDiagnostic(item: Record<string, unknown>): Record<string, unknown> | undefined {
+  if (item.type !== 'mcpToolCall' || item.server !== 'cua_repl') return undefined
+  const result = item.result as { content?: { type?: string; text?: string }[] } | undefined
+  // Later blocks can contain generic runtime instructions mentioning unrelated errors.
+  const firstText = result?.content?.find(block => block.type === 'text')?.text
+  const output = typeof firstText === 'string' ? firstText : JSON.stringify(item.error ?? '')
+  const nativeError = [
+    'The browser access host is unavailable',
+    'Local browser access is unavailable for this chat',
+    'Cannot authenticate the browser access response',
+    'Cannot verify browser access without the current turn',
+  ].find(message => output.includes(message))
+  return {
+    tool: ['js', 'js_reset', 'turn_ended'].includes(String(item.tool)) ? item.tool : 'other',
+    status: ['completed', 'failed', 'inProgress'].includes(String(item.status)) ? item.status : 'unknown',
+    nativeError: nativeError ?? null,
+    // Successful cleanup calls and RPC completion do not prove a browser action succeeded.
+    browserActionVerified: false,
+  }
+}
+
 /** Use the native loader, including its host permissions and lifecycle hooks.
  * Never copy a desktop manifest, pipe or identity into a Forge-owned MCP server.
  */

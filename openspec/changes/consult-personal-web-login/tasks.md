@@ -2,6 +2,14 @@
 
 ## 原生浏览器运行诊断
 
+### 2026-11-21 补齐跨实例诊断日志
+
+- [x] 咨询 App Server 增加 `codex_consult_browser_runtime`：线程、CLI版本、目录查询结果、官方工具名、继承环境中四个宿主键是否非空；只记录布尔值，不记录身份、管道值或密钥。继承状态不等于插件最终环境或宿主已连接。
+- [x] `codex_consult_browser_call` 关联 session/thread/turn/item，记录实际工具状态与白名单内原始错误；未知正文留在原工具记录，不复制到诊断日志。忽略后续通用指引块，避免把指引中的错误示例误作实际失败；不将清理回执或 RPC 完成认定为点击成功。无架构契约或权限变更。
+- [x] TypeScript编译、26项策略与App Server生命周期测试通过；最后收窄错误提取后重跑7项策略测试通过。真实咨询线程 `01a1fca0-9656-7133-b5ee-3922d553ac91` 产出两类日志：CLI 0.169.0，js/js_reset/turn_ended可见，继承宿主键均不存在，实际调用失败为宿主不可用。最终提取逻辑重读同一真实线程，得到相同错误与独立收尾回执。
+- [x] Forge all为PASSED/exit0，仅执行既有API-RUNTIME-001，无静态checker；不是点击验收。OpenSpec严格校验与diff检查通过。
+- [ ] 同事加载本次版本后，在咨询中只重试一次公开网页打开/点击，收集同一线程的两类日志及目标提交版本；现有 `node forge.mjs logs backend` 可读取Java转发的Sidecar日志。若未知错误，再按item定位原工具返回，脱敏后核对，不要求导出整份聊天或密码。未推送、未重启、未修复宿主接入。
+
 ### 2026-11-21 宿主授权链路复核（仍未恢复点击）
 
 - [x] 再次使用修改后的真实 `runCodexTurn`、`consult-readonly` 和 `.codex` 执行公开 example.com 点击验收。线程 `01a1fc9a-28a1-7721-a1c5-c00d2aa89928` 的 `cua_repl/js` 返回 `The browser access host is unavailable`，未完成打开页面或点击；随后 `Completion summary received.` 只是收尾回执，不是点击成功。

@@ -12,7 +12,7 @@ import { codexCleanupSnapshot } from './codexProcessCleanup.js'
 import { dirname, join, resolve } from 'node:path'
 import { homedir } from 'node:os'
 import { activityOutputTail, elapsedSince, emitToolActivity, summarizeToolInput } from './toolActivity.js'
-import { computerUseFailureTitle, consultBrowserNotice, withConsultComputerUse } from './codexComputerUsePolicy.js'
+import { browserHostEnvironmentPresence, browserToolDiagnostic, computerUseFailureTitle, consultBrowserNotice, withConsultComputerUse } from './codexComputerUsePolicy.js'
 import { codexProjectSkillArgs, hasProjectTaskSkill, type SkillMetadataRequest } from './projectSkillPriority.js'
 import type { CodexRealtimeCall } from './codexRealtime.js'
 import { classifyCommandResult } from './commandExecution.js'
@@ -1201,6 +1201,12 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions, runti
           finishReconnectActivity('completed')
           const item = asRecord(params.item)
           const phase = method === 'item/completed' ? 'completed' : 'inProgress'
+          if (options.consultReadonly && phase === 'completed' && item) {
+            const diagnostic = browserToolDiagnostic(item)
+            if (diagnostic) console.info(JSON.stringify({ event: 'codex_consult_browser_call',
+              sessionId: options.sessionId, threadId, turnId: asString(params.turnId) || turnId,
+              itemId: asString(item.id), ...diagnostic }))
+          }
           completionGate.observeItem(phase, item)
           if (shouldReconcileCodexTurnAfterItem(phase, item)) {
             scheduleTurnCompletionReconcile(TURN_COMPLETION_RECONCILE_INITIAL_MS)
@@ -1447,6 +1453,14 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions, runti
     })
     options.emit({ type: 'init', sdkSessionId: threadId, ...capabilitySnapshot })
     if (options.consultReadonly) {
+      console.info(JSON.stringify({ event: 'codex_consult_browser_runtime', sessionId: options.sessionId,
+        threadId, transport: 'app-server',
+        cliVersion: require('@openai/codex/package.json').version,
+        inventoryVerified: Boolean(mcpRuntimeResult),
+        nativeTools: ['js', 'js_reset', 'turn_ended'].filter(tool => runtimeStatuses
+          .some(server => server.name === 'cua_repl' && server.tools.has(tool))),
+        inheritedHostEnvironment: browserHostEnvironmentPresence(appServerEnv(options.codexHome)),
+        hostConnectionVerified: false }))
       const message = consultBrowserNotice(options.input, mcpRuntimeResult ? runtimeStatuses : undefined)
       if (message) options.emit({ type: 'warning', code: 'CODEX_CONSULT_BROWSER_UNAVAILABLE', message })
     }

@@ -5,8 +5,33 @@ import {
   computerUseFailureTitle,
   consultBrowserNotice,
   withConsultComputerUse,
+  browserHostEnvironmentPresence,
+  browserToolDiagnostic,
 } from './codexComputerUsePolicy.js'
 import { buildCodexDeveloperInstructions } from './codexEngine.js'
+
+test('browser diagnostics retain native evidence without logging secrets or declaring click success', () => {
+  const presence = browserHostEnvironmentPresence({ BROWSER_USE_ACCESS_PIPE_PATH: 'private-pipe',
+    BROWSER_USE_ACCESS_VERIFYING_IDENTITY: 'private-key', PASSWORD: 'secret' })
+  assert.equal(presence.BROWSER_USE_ACCESS_PIPE_PATH, true)
+  assert.equal(presence.BROWSER_USE_ACCESS_EXECUTOR_ID, false)
+  assert.doesNotMatch(JSON.stringify(presence), /private-pipe|private-key|secret|PASSWORD/)
+  const result = browserToolDiagnostic({ type: 'mcpToolCall', server: 'cua_repl', tool: 'js',
+    status: 'completed', arguments: { password: 'secret' }, result: { content: [{ type: 'text',
+      text: 'The browser access host is unavailable; secret page and token' }] } })
+  assert.equal(result?.nativeError, 'The browser access host is unavailable')
+  assert.equal(result?.browserActionVerified, false)
+  assert.doesNotMatch(JSON.stringify(result), /secret|password|token/)
+  assert.equal(browserToolDiagnostic({ type: 'mcpToolCall', server: 'other' }), undefined)
+  const cleanup = browserToolDiagnostic({ type: 'mcpToolCall', server: 'cua_repl', tool: 'js',
+    status: 'completed', result: 'Completion summary received.' })
+  assert.equal(cleanup?.nativeError, null)
+  assert.equal(cleanup?.browserActionVerified, false)
+  assert.equal(browserToolDiagnostic({ type: 'mcpToolCall', server: 'cua_repl', result: { content: [
+    { type: 'text', text: 'Unknown actual error' },
+    { type: 'text', text: 'Guide: The browser access host is unavailable' },
+  ] } })?.nativeError, null)
+})
 
 test('consultation permits only official browser plugins over merged account/project policy', () => {
   const config = { features: { plugins: false, apps: false }, mcp_servers: { custom: { enabled: false } } }
