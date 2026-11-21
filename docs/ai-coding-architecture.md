@@ -34,6 +34,16 @@ flowchart LR
 
 ### Vibe Coding 运行分层与附加能力
 
+Vibe Coding 的公开网页链接验证由普通 Codex 开发会话发起。Sidecar 根据当轮用户给定的地址和点击目标装配临时 MCP 工具，执行端在 Forge 管理的独立 Chromium 中核对授权并操作页面。原会话的工具回执记录实际地址或失败。浏览器的临时状态与 Forge 登录、资源账号预览、桌面浏览器权限相互独立。[实施与验收状态](../openspec/changes/vibe-isolated-browser/tasks.md)
+
+```mermaid
+flowchart LR
+    U[当前用户的地址与链接文字] --> T[Vibe Coding 开发轮次]
+    T --> M[按本轮范围装配 MCP 工具]
+    M --> B[独立 Chromium 打开并点击]
+    B --> R[原会话记录落地地址或失败]
+```
+
 内部多引擎方案评审以原会话及用户确认的文字快照为边界：Java 保存批次/尝试身份并执行权限、并发及恢复编排，Sidecar 创建独立的受限原生会话，前端并列显示各自意见并只将选中建议引用回草稿。它不切换源引擎、不自动继承完整历史、不产生公开分享；第一版无互评或摘要模型。取消/重启后未确认结果不会自动重放，各引擎意见不等于项目验证事实。界面展示全部 11 个引擎；九个具有受限文字适配，Trae/Antigravity 保留未核验禁用工具说明。Harness 使用独立最小配置，ZCode 使用空工具白名单，Hermes 使用隔离原生 profile，Qwen/OpenCode 使用原生工具禁用；均不回退普通开发权限。适配不等于真实账号调用或部署成功，支持范围和待部署验收见[多引擎评审任务](../openspec/changes/multi-engine-plan-review/tasks.md)。
 
 ![多引擎方案评审](diagrams/ForgeVibeCoding运行架构-方案评审.png)

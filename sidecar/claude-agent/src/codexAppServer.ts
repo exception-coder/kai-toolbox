@@ -439,7 +439,7 @@ function validateRequiredMcpTools(statuses: McpRuntimeStatus[], required: Requir
   })
   if (missing.length === 0) return
   const names = missing.map(item => `${item.server}.${item.tool}`).join('、')
-  throw new CodexAppServerTurnError(`业务咨询只读工具初始化失败，缺少运行时 Tool：${names}`, false)
+  throw new CodexAppServerTurnError(`当前会话所需工具未就绪：${names}`, false)
 }
 
 function normalizeCodexHome(value?: string): string | undefined {

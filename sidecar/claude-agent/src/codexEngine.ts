@@ -34,6 +34,7 @@ import {
 } from './codexSecurity.js'
 import { FORGE_PENDING_SQL_STEER } from './forgePendingSql.js'
 import { CODEX_COMPUTER_USE_RECOVERY_STEER } from './codexComputerUsePolicy.js'
+import { VIBE_BROWSER_SERVER, VIBE_BROWSER_INSTRUCTION, vibeBrowserRequestForTurn, vibeBrowserServerConfig } from './vibeBrowser.js'
 import { takeCodexVoice } from './codexRealtime.js'
 import {
   CodexAppServerTurnError,
@@ -124,6 +125,8 @@ export interface CodexImageInput {
 
 /** 单次 Codex 轮次所需上下文，由 Session 注入；emit 复用与 Claude 相同的统一事件协议。 */
 export interface CodexTurnCtx {
+  /** Set only by the interactive Vibe session, never by one-shot or demo requests. */
+  interactiveVibe?: boolean
   voiceCallId?: string
   /** 持久化 Vibe Coding 会话 id；one-shot 不传，避免把后台任务误登记为会话 SQL。 */
   sessionId?: string
@@ -439,6 +442,7 @@ export async function runCodexTurn(ctx: CodexTurnCtx): Promise<void> {
 
   const toolsDisabled = ctx.toolPolicy === 'disabled' || ctx.toolPolicy === REVIEW_ONLY_POLICY
   const consultReadonly = ctx.toolPolicy === CONSULT_READONLY_POLICY
+  const browser = vibeBrowserRequestForTurn(ctx)
   const consultSourceRoot = consultReadonly && ctx.cwd.trim() ? resolve(ctx.cwd) : undefined
   const { approvalPolicy, sandboxMode } = reviewOnly
     ? { approvalPolicy: 'never' as ApprovalMode, sandboxMode: 'read-only' as SandboxMode }
@@ -455,6 +459,23 @@ export async function runCodexTurn(ctx: CodexTurnCtx): Promise<void> {
     let predictionEligible = false
     const prepared = prepareCodexInput(ctx.text, ctx.images)
     tempImageDir = prepared.tempDir
+    const baseConfig = withCodexWritableRoots(buildCodexConfig(
+      ctx.speed ?? 'default', ctx.toolPolicy ?? 'default', home, ctx.sessionId,
+      ctx.forgeSqlRegistration, ctx.developerInstructions, consultSourceRoot,
+      ctx.consultEvidenceSystems, ctx.consultToolAssembly,
+    ), ctx)
+    const servers = baseConfig.mcp_servers
+    const config = browser ? {
+      ...baseConfig,
+      mcp_servers: {
+        ...(servers && typeof servers === 'object' && !Array.isArray(servers) ? servers : {}),
+        [VIBE_BROWSER_SERVER]: vibeBrowserServerConfig(browser),
+      },
+      developer_instructions: [baseConfig.developer_instructions, VIBE_BROWSER_INSTRUCTION].filter(Boolean).join('\n\n'),
+    } : baseConfig
+    const mcpServers = codexMcpCapabilities(ctx.toolPolicy ?? 'default', ctx.sessionId, ctx.forgeSqlRegistration,
+      { codexHome: home, sourceRoot: consultSourceRoot, evidenceSystems: ctx.consultEvidenceSystems })
+    if (browser) mcpServers.push({ name: VIBE_BROWSER_SERVER, status: 'configured' })
     const appServerOptions: Parameters<typeof runCodexAppServerTurn>[0] = {
       voice,
       sessionId: ctx.sessionId ?? `ephemeral:${Date.now()}:${Math.random()}`,
@@ -464,17 +485,7 @@ export async function runCodexTurn(ctx: CodexTurnCtx): Promise<void> {
       reasoningEffort: ctx.reasoningEffort,
       sandbox: sandboxMode,
       approvalPolicy,
-      config: withCodexWritableRoots(buildCodexConfig(
-        ctx.speed ?? 'default',
-        ctx.toolPolicy ?? 'default',
-        home,
-        ctx.sessionId,
-        ctx.forgeSqlRegistration,
-        ctx.developerInstructions,
-        consultSourceRoot,
-        ctx.consultEvidenceSystems,
-        ctx.consultToolAssembly,
-      ), ctx),
+      config,
       input: toAppServerInput(prepared.input),
       consultReadonly: ctx.toolPolicy === CONSULT_READONLY_POLICY,
       codexHome: home,
@@ -487,16 +498,11 @@ export async function runCodexTurn(ctx: CodexTurnCtx): Promise<void> {
       setThreadId: threadId => { predictionThreadId = threadId; ctx.setSdkSessionId(threadId) },
       onTransportSelected: selection => { transportSelection = selection },
       canUseTool: ctx.canUseTool,
-      mcpServers: codexMcpCapabilities(
-        ctx.toolPolicy ?? 'default',
-        ctx.sessionId,
-        ctx.forgeSqlRegistration,
-        { codexHome: home, sourceRoot: consultSourceRoot, evidenceSystems: ctx.consultEvidenceSystems },
-      ),
+      mcpServers,
       requiredMcpTools: consultReadonly
         ? consultReadonlyRequiredMcpTools(consultSourceRoot, ctx.consultEvidenceSystems)
           .filter(item => assemblyAllows(ctx.consultToolAssembly, item.server, item.tool))
-        : undefined,
+        : browser ? [{ server: VIBE_BROWSER_SERVER, tool: 'browser_open_and_click' }] : undefined,
       forbidMcpTools: reviewOnly,
     }
     const runAppServer = (options: Parameters<typeof runCodexAppServerTurn>[0]) => runCodexAppServerWithStartupRetry(
@@ -525,7 +531,7 @@ export async function runCodexTurn(ctx: CodexTurnCtx): Promise<void> {
       && (!ctx.toolPolicy || ctx.toolPolicy === 'default') && predictionEligible && predictionThreadId && predictionTurnId) {
       codexPredictions.start({ sessionId: ctx.sessionId, threadId: predictionThreadId,
         sourceTurnId: predictionTurnId, codexHome: home, cwd: safeCwd,
-        model: ctx.model || undefined, config: appServerOptions.config, emit: ctx.emit })
+        model: ctx.model || undefined, config: baseConfig, emit: ctx.emit })
     }
   } catch (error) {
     if (ctx.signal.aborted) {
@@ -534,7 +540,7 @@ export async function runCodexTurn(ctx: CodexTurnCtx): Promise<void> {
       return
     }
     if (emitCodexThreadWriterConflict(error, ctx.emit)) return
-    if (!voice && !consultReadonly && error instanceof CodexAppServerTurnError && error.retrySafe) {
+    if (!voice && !consultReadonly && !browser && error instanceof CodexAppServerTurnError && error.retrySafe) {
       const diagnostic = isRetryableMcpInitializationFailure(error) ? `；${toolboxMcpRuntimeDiagnostics()}` : ''
       ctx.emit({
         type: 'warning',

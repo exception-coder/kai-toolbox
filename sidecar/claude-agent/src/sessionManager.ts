@@ -896,6 +896,7 @@ export class Session {
     }
     try {
       await runCodexTurn({
+        interactiveVibe: !this.demo,
         sessionId: this.id,
         voiceCallId,
         text,
