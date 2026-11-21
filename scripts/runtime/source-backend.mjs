@@ -1,3 +1,4 @@
+import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { mavenCommand, executable, run } from './commands.mjs';
 
@@ -7,7 +8,13 @@ export async function runBackend(root, settings, env, execute = run) {
   const goal = settings.mode === 'full' ? 'package' : 'install';
   console.log('[forge-stage] 编译 Java 模块');
   await execute(maven, ['-B', '-pl', 'toolbox-starter', '-am', '-Dskip.frontend=true', '-DskipTests', goal], { cwd: root, env });
-  const options = ['-Dfile.encoding=UTF-8', `-Dtoolbox.performance.build-started-at=${startedAt}`];
+  const javaSocketDirectory = join(root, '.runtime', 'java-sockets');
+  mkdirSync(javaSocketDirectory, { recursive: true });
+  const options = [
+    '-Dfile.encoding=UTF-8',
+    `-Djdk.net.unixdomain.tmpdir=${javaSocketDirectory}`,
+    `-Dtoolbox.performance.build-started-at=${startedAt}`,
+  ];
   console.log(`[startup-performance] maven-${goal} durationMs=${Date.now() - startedAt}`);
   console.log('[forge-stage] 启动 Spring Boot，等待 HTTP 服务');
   if (settings.mode === 'full') {

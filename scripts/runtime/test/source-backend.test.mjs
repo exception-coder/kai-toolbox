@@ -17,10 +17,12 @@ test('source launch preserves performance attribution and stops after build fail
   assert.ok(calls[0].args.includes('-am') && calls[0].args.includes('install'));
   assert.ok(!calls[1].args.includes('-am'));
   assert.match(calls[1].args.at(-1), /build-scope=maven-before-jvm/);
+  assert.match(calls[1].args.at(-1), /jdk\.net\.unixdomain\.tmpdir=/);
   assert.ok(!calls[1].args.at(-1).includes('build-duration-ms'));
   calls.length = 0;
   await runBackend(root, { mode: 'full' }, env, async (command, args) => { calls.push({ command, args }); });
   assert.ok(calls[1].command.args.some(arg => arg.startsWith('-Dtoolbox.performance.build-duration-ms=')));
+  assert.ok(calls[1].command.args.some(arg => arg.startsWith('-Djdk.net.unixdomain.tmpdir=')));
   assert.equal(calls[1].args[1], join(root, 'toolbox-starter/target/kai-toolbox.jar'));
   let attempts = 0;
   await assert.rejects(runBackend(root, { mode: 'full' }, env, async () => { attempts++; throw new Error('build failed'); }), /build failed/);
