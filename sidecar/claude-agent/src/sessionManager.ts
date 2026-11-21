@@ -189,6 +189,7 @@ const TURN_ACTIVITY_HEARTBEAT_MS = 5_000
 /** 单会话：持有 SDK session_id、当前轮的 AbortController、权限交互。 */
 export class Session {
   strictNativeResume = false
+  codexHandoffConfirmation = false
   sdkSessionId?: string
   model?: string
   claudeOptions?: ClaudeSessionOptions
@@ -896,7 +897,8 @@ export class Session {
     }
     try {
       await runCodexTurn({
-        interactiveVibe: !this.demo,
+        interactiveVibe: !this.demo && !this.codexHandoffConfirmation,
+        handoffConfirmation: this.codexHandoffConfirmation,
         sessionId: this.id,
         voiceCallId,
         text,
@@ -1868,8 +1870,12 @@ export class SessionManager {
           candidate.engine = engine
           candidate.sdkSessionId = nativeId || undefined
           candidate.codexHome = source.codexHome
-          candidate.apiBaseUrl = source.apiBaseUrl
-          candidate.authToken = source.authToken
+          // Codex is activated with its own official account, never the source engine’s provider.
+          candidate.codexHandoffConfirmation = engine === 'codex'
+          if (!candidate.codexHandoffConfirmation) {
+            candidate.apiBaseUrl = source.apiBaseUrl
+            candidate.authToken = source.authToken
+          }
           candidate.toolPolicy = engine === 'codex' ? 'review-only' : 'disabled'
           candidate.strictNativeResume = true
           candidate.forgeSqlRegistration = false
