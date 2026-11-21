@@ -36,3 +36,10 @@ export function latestSettledResult(items: ChatItem[]): Result | null {
   }
   return null
 }
+
+/** 运行状态与上一轮结果分离；重连不把已失败轮次重新标为运行。 */
+export function restoredTurnFailureMessage(status: string | undefined, failure?: TurnFailure | null): string | null {
+  if (status === 'RUNNING' || !failure) return null
+  const label = FAILURE_LABELS[failure.category] ?? FAILURE_LABELS.unknown
+  return `上一轮未完成：${label}。请核对上一条消息及会话状态，修正问题后可重新发送。`
+}

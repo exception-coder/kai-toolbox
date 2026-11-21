@@ -386,6 +386,20 @@ class QueueReliabilityTest {
         assertThat(sends()).isEqualTo(4);
     }
 
+    @Test void readyRestoresLegacyFailureWithoutInventingCauseAndSuppressesItWhileRunning() {
+        store.begin("s", "legacy", null, null);
+        store.settle("s", "legacy", "error", false);
+        SessionCtx ctx = ReflectionTestUtils.invokeMethod(chat, "restoreQueueContext", "s");
+        ctx.status = SessionStatus.IDLE;
+        ServerMessage.Ready ready = ReflectionTestUtils.invokeMethod(chat, "ready", ctx);
+        assertThat(ready.lastTurnFailure().turnId()).isEqualTo("legacy");
+        assertThat(ready.lastTurnFailure().failure().category()).isEqualTo("unknown");
+        assertThat(ready.lastTurnFailure().failure().code()).isNull();
+        ctx.status = SessionStatus.RUNNING;
+        ServerMessage.Ready running = ReflectionTestUtils.invokeMethod(chat, "ready", ctx);
+        assertThat(running.lastTurnFailure()).isNull();
+    }
+
     @Test void completionCheckIsAnnouncedOnlyAfterReceiptAndRestoredInReady() throws Exception {
         when(dep(ClaudeChatProperties.class).getEventBufferSize()).thenReturn(128);
         store.begin("s", "original", "q1", "epoch", "original task");
@@ -421,6 +435,10 @@ class QueueReliabilityTest {
 
     @Test void classifiedFailureReachesBrowserWithoutReleasingQueueOrNotifyingSuccess() throws Exception {
         when(dep(ClaudeChatProperties.class).getEventBufferSize()).thenReturn(128);
+        new ResourceDatabasePopulator(new ClassPathResource("db/claude-chat-last-outcome-schema.sql")).execute(source);
+        var outcomes = new com.exceptioncoder.toolbox.claudechat.repository.LastTurnOutcomeRepository(jdbc);
+        outcomes.begin("s", "failed-turn");
+        ReflectionTestUtils.setField(chat, "lastOutcomes", outcomes);
         store.begin("s", "failed-turn", "q1", "epoch", "task");
         SessionCtx ctx = ReflectionTestUtils.invokeMethod(chat, "restoreQueueContext", "s");
         chat.onSidecarEvent("s", mapper.readTree("""
@@ -431,6 +449,8 @@ class QueueReliabilityTest {
                 .map(ServerMessage.Result.class::cast).findFirst().orElseThrow();
         assertThat(result.failure().category()).isEqualTo("quota");
         assertThat(result.failure().code()).isEqualTo("usageLimitExceeded");
+        ServerMessage.Ready restored = ReflectionTestUtils.invokeMethod(chat, "ready", ctx);
+        assertThat(restored.lastTurnFailure().failure()).isEqualTo(result.failure());
         assertThat(store.runtime("s").orElseThrow().ready()).isFalse();
         assertThat(queue.findBySessionId("s")).hasSize(2);
         assertThat(sends()).isZero();

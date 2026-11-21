@@ -48,6 +48,22 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.useRealTimers(); vi.clearAllMocks(); vi.unstubAllGlobals() })
 
 describe('Codex 会话参数恢复', () => {
+  it('restores the last failed turn after history loading and clears it for a running turn', async () => {
+    const { result } = renderHook(() => useClaudeChatSocket({ autoConnect: false }))
+    act(() => result.current.switchTo('failed'))
+    await waitFor(() => expect(TestSocket.sockets).toHaveLength(1))
+    const socket = TestSocket.sockets[0]
+    const lastTurnFailure = { turnId: 'old', endedAt: 100, failure: { category: 'network' as const, code: 'NETWORK_ERROR' } }
+    act(() => { socket.open(); socket.receive({ ...ready('failed'), lastTurnFailure }) })
+    await waitFor(() => expect(result.current.historyLoading).toBe(false))
+    expect(result.current.errorMessage).toContain('上一轮未完成')
+    expect(result.current.items).not.toContainEqual(expect.objectContaining({ kind: 'error' }))
+    act(() => socket.receive({ ...ready('failed'), seq: 2, status: 'RUNNING', lastTurnFailure }))
+    expect(result.current.errorMessage).toBeNull()
+    act(() => socket.receive({ ...ready('failed'), seq: 3 }))
+    expect(result.current.errorMessage).toBeNull()
+  })
+
   it('keeps collaboration scoped to the shared session and clears it on revocation', async () => {
     const { result } = renderHook(() => useClaudeChatSocket({ autoConnect: false, channel: 'collaboration', collaborationSessionId: 'shared' }))
     act(() => result.current.switchTo('other'))

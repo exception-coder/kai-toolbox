@@ -68,10 +68,13 @@ class ReviewPublicMessageProjectorTest {
                 List.of(), "gpt-secret", "high", "fast", "bypassPermissions", "server", true, SessionExecutionPolicy.REVIEW_ONLY,
                 new com.exceptioncoder.toolbox.claudechat.api.dto.ClaudeSessionOptions("max", true),
                 new ServerMessage.ActiveModelConfiguration("claude", "secret-model", "high", null, false),
-                new ServerMessage.QueueCheckProgress("check-turn", 1, 3));
+                new ServerMessage.QueueCheckProgress("check-turn", 1, 3),
+                new com.exceptioncoder.toolbox.claudechat.api.dto.LastTurnFailure("failed", 100L,
+                    new com.exceptioncoder.toolbox.claudechat.api.dto.TurnFailure("unknown", "PRIVATE_ERROR")));
 
         assertThat(((ServerMessage.Ready) ReviewPublicMessageProjector.projectRealtime(ready)).activeModelConfiguration()).isNull();
         assertThat(((ServerMessage.Ready) ReviewPublicMessageProjector.projectRealtime(ready)).queueCheck()).isNull();
+        assertThat(((ServerMessage.Ready) ReviewPublicMessageProjector.projectRealtime(ready)).lastTurnFailure()).isNull();
         assertThat(ReviewPublicMessageProjector.projectRealtime(new ServerMessage.ModelConfiguration(2L, ready.activeModelConfiguration()))).isNull();
 
         assertThat(ReviewPublicMessageProjector.projectRealtime(tool)).isNull();

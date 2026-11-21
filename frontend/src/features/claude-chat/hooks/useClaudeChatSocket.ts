@@ -1,3 +1,4 @@
+import { restoredTurnFailureMessage } from '../lib/turnFailure'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { normalizeCodexSpeed } from '../lib/codexSpeed'
 import type { ActiveModelConfiguration, ClaudeSessionOptions } from '../types'
@@ -591,7 +592,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
           })
         setState('ready')
         setCollaborationAccessLost(false)
-        setErrorMessage(null) // sidecar 重连恢复后会重发 ready，借此清掉 SIDECAR_DOWN 横幅
+        setErrorMessage(restoredTurnFailureMessage(msg.status, msg.lastTurnFailure?.failure)) // 重连恢复失败摘要，运行状态另行同步
         // 后端数据库是会话权限模式的权威来源；刷新和跨设备切换均以 Ready 为准。
         {
           const restricted = channel === 'consult' || reviewOnlyRef.current

@@ -45,7 +45,7 @@ public sealed interface ServerMessage
                  String codexReasoningEffort, String codexSpeed, String permissionMode, String queueDispatchMode,
                  Boolean authHandoffRequired, String executionPolicy,
                  ClaudeSessionOptions claudeOptions, ActiveModelConfiguration activeModelConfiguration,
-                 QueueCheckProgress queueCheck) implements ServerMessage {}
+                 QueueCheckProgress queueCheck, LastTurnFailure lastTurnFailure) implements ServerMessage {}
 
     /** 已由 Sidecar 接收的完成核对轮次，供重连快照恢复。 */
     record QueueCheckProgress(String turnId, int attempt, int maxAttempts) {}

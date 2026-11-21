@@ -12,6 +12,8 @@ import com.exceptioncoder.toolbox.claudechat.api.dto.ClaudeSessionOptions;
 import com.exceptioncoder.toolbox.claudechat.api.dto.ModelInfo;
 import com.exceptioncoder.toolbox.claudechat.api.dto.ServerMessage;
 import com.exceptioncoder.toolbox.claudechat.api.dto.TurnFailure;
+import com.exceptioncoder.toolbox.claudechat.api.dto.LastTurnFailure;
+import com.exceptioncoder.toolbox.claudechat.repository.LastTurnOutcomeRepository;
 import com.exceptioncoder.toolbox.claudechat.config.ClaudeChatProperties;
 import com.exceptioncoder.toolbox.claudechat.config.ReviewHandshakeInterceptor;
 import com.exceptioncoder.toolbox.claudechat.domain.ClaudeChatSession;
@@ -142,6 +144,8 @@ public class ClaudeChatService {
     private ConsultRuntimeCoordinator consultRuntime;
     @org.springframework.beans.factory.annotation.Autowired
     private EngineHandoffService engineHandoffs;
+    @org.springframework.beans.factory.annotation.Autowired
+    private LastTurnOutcomeRepository lastOutcomes;
     /** 仅为评审轮次累计可见回复，供回复完成后的结构校验；不作为历史事实源。 */
     private final Map<String, ActiveReviewReply> activeReviewReplies = new ConcurrentHashMap<>();
     private static final Set<String> TURN_SCOPED_SIDECAR_EVENTS = Set.of(
@@ -1031,6 +1035,7 @@ public class ClaudeChatService {
                 sessionProjectDirectories.buildContext(ctx.sessionId, ctx.cwd, ctx.executionPolicy);
         String sessionContext = mergeSessionContext(projectContext, trustedContinuationContext);
         AgentRunMetadata metadata = resolveMetadata(ctx);
+        if (lastOutcomes != null) lastOutcomes.begin(ctx.sessionId, turnId);
         turnChanges.begin(ctx.sessionId, turnId);
         String spanName = "fore-consult".equals(metadata.scope()) ? "fore_consult.turn" : "agent.turn";
         AgentSpan span = telemetry.start(spanName, metadata);
@@ -1587,7 +1592,18 @@ public class ClaudeChatService {
                 pendingAuthHandoff.remove(ctx.sessionId), ctx.executionPolicy,
                 "claude".equals(ctx.engine) ? claudeOptions.get(ctx.sessionId) : ClaudeSessionOptions.DEFAULT,
                 ctx.status == SessionStatus.RUNNING ? ctx.activeModelConfiguration : null,
-                currentQueueCheck(ctx));
+                currentQueueCheck(ctx), lastFailure(ctx));
+    }
+
+    private LastTurnFailure lastFailure(SessionCtx ctx) {
+        if (ctx.status == SessionStatus.RUNNING) return null;
+        var saved = lastOutcomes == null ? java.util.Optional.<LastTurnFailure>empty()
+                : lastOutcomes.failure(ctx.sessionId);
+        // 升级前仅保存了 error 的轮次只能恢复未知原因，不能推断额度或网络故障。
+        return saved.orElseGet(() -> queueDelivery.runtime(ctx.sessionId)
+                .filter(r -> "error".equals(r.stopReason()))
+                .map(r -> new LastTurnFailure(r.turnId(), 0,
+                        new TurnFailure("unknown", null))).orElse(null));
     }
 
     private ServerMessage.QueueCheckProgress currentQueueCheck(SessionCtx ctx) {
@@ -2202,7 +2218,13 @@ public class ClaudeChatService {
         String resultStopReason = stopReason;
         turnChanges.finish(ctx.sessionId, turnId, stopReason);
         var resultFailure = "interrupted".equals(stopReason) ? null : failure;
-        events.sendToBrowser(ctx, seq -> new ServerMessage.Result(seq, usage, resultStopReason, resultTraceId, turnId, resultFailure));
+        if (resultFailure != null && resultFailure.code() == null && ctx.lastTurnErrorCode != null
+                && ctx.lastTurnErrorCode.matches("[A-Za-z][A-Za-z0-9_]{0,79}")) {
+            resultFailure = new TurnFailure(resultFailure.category(), ctx.lastTurnErrorCode);
+        }
+        if (lastOutcomes != null) lastOutcomes.finish(ctx.sessionId, turnId, resultFailure);
+        var persistedFailure = resultFailure;
+        events.sendToBrowser(ctx, seq -> new ServerMessage.Result(seq, usage, resultStopReason, resultTraceId, turnId, persistedFailure));
         if (!completionCheck) applicationEvents.publishEvent(new SessionTurnSettledEvent(
                 ctx.sessionId, turnId, stopReason, queueReleaseSafe, System.currentTimeMillis(),
                 ctx.lastTurnErrorCode, ctx.lastTurnErrorMessage));

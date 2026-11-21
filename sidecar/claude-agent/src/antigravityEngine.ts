@@ -1,3 +1,4 @@
+import { sanitizeText } from './telemetry/sanitizer.js'
 import { spawn, type ChildProcess } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, rmSync, statSync } from 'node:fs'
@@ -555,7 +556,7 @@ async function runAntigravityAttempt(ctx: AntigravityTurnCtx, runState: Antigrav
           return
         }
         for (const event of reconcileAntigravityReply(assistantText, authoritativeText)) ctx.emit(event)
-        ctx.emit(resolveAntigravityTerminal({
+        const terminal = resolveAntigravityTerminal({
           aborted: ctx.signal.aborted,
           timedOut,
           idleTimedOut,
@@ -564,7 +565,14 @@ async function runAntigravityAttempt(ctx: AntigravityTurnCtx, runState: Antigrav
           pendingResult,
           pendingError,
           diagnostic,
-        }))
+        })
+        if (terminal.type === 'error') {
+          console.warn('[antigravity] turn failed', JSON.stringify({
+            conversationId: reportedSessionId, exitCode: code, elapsedMs: Date.now() - turnStartedAt,
+            code: terminal.code, message: sanitizeText(terminal.message),
+          }))
+        }
+        ctx.emit(terminal)
         resolve()
       })
     })
