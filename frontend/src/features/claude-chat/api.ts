@@ -1332,3 +1332,38 @@ function toChatItem(m: RawHistoryMessage): ChatItem {
     }
   }
 }
+
+/** 本机开源引擎的原生模型配置；Key 只返回末 4 位。 */
+export interface EngineNativeConfig {
+  engine: string
+  label: string
+  configured: boolean
+  provider: string | null
+  baseUrl: string | null
+  model: string | null
+  keyHint: string | null
+  supportsCustom: boolean
+  takesEffect: string
+  configPath: string
+  note: string | null
+}
+
+export interface EngineNativeConfigApplyInput {
+  engines: string[]
+  provider: 'deepseek' | 'openai-compatible'
+  baseUrl?: string
+  /** 留空表示沿用同一服务已有的 Key。 */
+  apiKey?: string
+  model: string
+}
+
+export function getEngineNativeConfig() {
+  return http<EngineNativeConfig[]>('/claude-chat/engine-native-config')
+}
+
+export function applyEngineNativeConfig(input: EngineNativeConfigApplyInput) {
+  return http<{ applied: string[]; failures: string[]; engines: EngineNativeConfig[] }>('/claude-chat/engine-native-config', {
+    method: 'PUT',
+    body: JSON.stringify(input),
+  })
+}

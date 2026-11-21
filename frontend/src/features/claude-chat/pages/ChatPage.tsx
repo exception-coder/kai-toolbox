@@ -20,7 +20,7 @@ import { createPortal } from 'react-dom'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { reportVibeEntry, reportVibeResourceSummary } from '@/lib/vibeEntryDiagnostics'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowUpToLine, Bell, Bug, Check, ChevronDown, EyeOff, FileDown, FileText, FolderGit2, FolderOpen, FolderTree, Gauge, GitBranch, GitCommit, Hand, LayoutGrid, Link2, List, ListChecks, ListFilter, Loader2, Maximize2, Menu, MessageSquare, Package, Palette, PanelLeftClose, PanelLeftOpen, PictureInPicture2, Plus, RefreshCw, RotateCw, Send, Server, Settings, Share2, Slash, Sparkles, Square, TriangleAlert } from 'lucide-react'
+import { ArrowUpToLine, Bell, KeyRound, Bug, Check, ChevronDown, EyeOff, FileDown, FileText, FolderGit2, FolderOpen, FolderTree, Gauge, GitBranch, GitCommit, Hand, LayoutGrid, Link2, List, ListChecks, ListFilter, Loader2, Maximize2, Menu, MessageSquare, Package, Palette, PanelLeftClose, PanelLeftOpen, PictureInPicture2, Plus, RefreshCw, RotateCw, Send, Server, Settings, Share2, Slash, Sparkles, Square, TriangleAlert } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { PagePreviewDialog } from '@/features/browser-request/public-api/page-preview'
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet'
@@ -141,6 +141,7 @@ const CodexDesktopSyncDialog = deferredPanel(() => import('../components/CodexDe
 const NotifySettings = deferredPanel(() => import('../components/NotifySettings').then(m => ({ default: m.NotifySettings })))
 const PluginPanel = deferredPanel(() => import('../components/PluginPanel').then(m => ({ default: m.PluginPanel })))
 const EngineUpdatePanel = deferredPanel(() => import('../components/EngineUpdatePanel').then(m => ({ default: m.EngineUpdatePanel })))
+const EngineNativeConfigPanel = deferredPanel(() => import('../components/EngineNativeConfigPanel').then(m => ({ default: m.EngineNativeConfigPanel })))
 const LogsPanel = deferredPanel(() => import('../components/LogsPanel').then(m => ({ default: m.LogsPanel })))
 const GestureDebugPanel = deferredPanel(() => import('../components/GestureDebugPanel').then(m => ({ default: m.GestureDebugPanel })))
 const ExportSessionDialog = deferredPanel(() => import('../components/ExportSessionDialog').then(m => ({ default: m.ExportSessionDialog })))
@@ -162,7 +163,7 @@ const PlanReviewDialog = deferredPanel(() => import('../components/PlanReviewDia
 const ReviewWorkspace = deferredPanel(() => import('../components/ReviewWorkspace').then(m => ({ default: m.ReviewWorkspace })), workspaceLoading)
 const OpenSpecInitializationDialog = deferredPanel(() => import('../components/OpenSpecInitializationDialog').then(m => ({ default: m.OpenSpecInitializationDialog })))
 
-type Panel = 'none' | 'sessions' | 'settings' | 'new' | 'plugins' | 'engines' | 'providers' | 'clone' | 'onboard' | 'caps' | 'filetree'
+type Panel = 'none' | 'sessions' | 'settings' | 'new' | 'plugins' | 'engines' | 'engine-config' | 'providers' | 'clone' | 'onboard' | 'caps' | 'filetree'
 
 interface PendingOpenSpecInitialization {
   request: OpenSpecProjectRequest
@@ -1420,6 +1421,9 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
                 <HeaderMenuItem nested icon={<RefreshCw className="size-4" />} label="同步 Codex 项目与会话" hint="读取本机账号目录，导入历史并续接原会话" onClick={() => { setHeaderMenu(false); setCodexSyncOpen(true) }} />
               )}
               <HeaderMenuItem nested icon={<Server className="size-4" />} label="服务商" hint="第三方网关(按会话,不动官方)" onClick={() => { setHeaderMenu(false); setPanel(p => p === 'providers' ? 'none' : 'providers') }} />
+              {!mockMode && (!codexSyncAuth.user || codexSyncAuth.user.roles.includes('ADMIN')) && (
+                <HeaderMenuItem nested icon={<KeyRound className="size-4" />} label="引擎配置" hint="给 Qwen、OpenCode、Hermes 等开源引擎配置第三方 Key 与默认模型" onClick={() => { setHeaderMenu(false); setPanel(p => p === 'engine-config' ? 'none' : 'engine-config') }} />
+              )}
             </MenuSection>
             <MenuSection icon={<Settings className="size-4" />} {...SESSION_TOOL_GROUPS.system} open={menuGroup === 'system'} onToggle={() => setMenuGroup('system')}>
               <AssistantRestoreMenuItem />
@@ -1583,6 +1587,11 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
       {panel === 'engines' && (
         <div className="scrollbar-autohide max-h-[70vh] overflow-y-auto">
           <EngineUpdatePanel catalog={engineCatalogQuery.data} onClose={() => setPanel('none')} />
+        </div>
+      )}
+      {panel === 'engine-config' && (
+        <div className="scrollbar-autohide max-h-[70vh] overflow-y-auto">
+          <EngineNativeConfigPanel onClose={() => setPanel('none')} />
         </div>
       )}
       {panel === 'plugins' && (
