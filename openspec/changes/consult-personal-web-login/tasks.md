@@ -2,6 +2,14 @@
 
 ## 原生浏览器运行诊断
 
+### 2026-11-21 宿主授权链路复核（仍未恢复点击）
+
+- [x] 再次使用修改后的真实 `runCodexTurn`、`consult-readonly` 和 `.codex` 执行公开 example.com 点击验收。线程 `01a1fc9a-28a1-7721-a1c5-c00d2aa89928` 的 `cua_repl/js` 返回 `The browser access host is unavailable`，未完成打开页面或点击；随后 `Completion summary received.` 只是收尾回执，不是点击成功。
+- [x] 只读核对本机 Codex Desktop 26.1111.2228.0、官方 unified-computer-use 26.1111.21308：`require-browser-access.mjs` 启用访问校验；`browser-service.mjs` 在操作前要求当前 executor/session/turn，通过宿主管道请求许可并验证签名。缺少管道或验证身份时返回上述原始错误。本机执行环境未提供 BROWSER_USE_ACCESS_EXECUTOR_ID、BROWSER_USE_ACCESS_PIPE_PATH、BROWSER_USE_ACCESS_VERIFYING_IDENTITY、CODEX_WINDOWS_REGISTERED_CORE；插件可见不代表宿主授权已连接。
+- [x] 只读核对桌面宿主 `readLocalWorkBrowserAccess`：校验执行器、当前登录身份和会话访问授权，返回受签名保护的许可。Forge 当前独立启动 App Server，没有已验证的官方宿主注册与授权连接；不能靠开启插件或修改提示词补齐，也不能复制其他会话身份或跳过官方校验。
+- [x] 对照官方 [Computer Use](https://learn.chatgpt.com/docs/computer-use) 与 [远程连接](https://learn.chatgpt.com/docs/remote-connections) 文档：已说明桌面宿主和官方客户端连接方式，但本次未找到第三方 Forge 独立 App Server 可用的正式浏览器授权接入入口。此结论限于本次核验，不能推断所有版本均不支持。
+- [ ] 官方宿主接入与实际点击仍未完成；同事实例原始错误仍未取得，不能以本机结果断言其 Work 设置关闭。既有插件装配修复已随 `382e43662` 推送，不代表同事已部署或浏览器已验收。本次仅追加诊断证据，无架构契约或运行配置变更，未重启服务。
+
 ### 2026-11-21 浏览器拒绝原因核对
 
 - [x] 同事截图只有模型回答，未包含原始工具返回；对同事实例的登录请求返回HTTP403，未取得该轮记录，不能断言其关闭了Work设置。
