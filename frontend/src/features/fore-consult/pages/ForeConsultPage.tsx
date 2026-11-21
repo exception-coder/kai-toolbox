@@ -104,7 +104,6 @@ import {
   listOwnRecentConsult,
   readConsultSourceRouting,
   syncConsultTurns,
-  type ConsultOrchestrationVersion,
   type ConsultSessionView,
   type SaveSystemPrefItem,
   type TopoLink,
@@ -163,17 +162,6 @@ const CONSULT_GROUP = '业务咨询'
 const CONSULT_ROLE: ConsultRole = 'BIZ'
 const QUESTION_TITLE_MAX_LENGTH = 33
 const HISTORY_PAGE_SIZE = 20
-const DEFAULT_ORCHESTRATION_VERSION: ConsultOrchestrationVersion = 'v4'
-const ORCHESTRATION_OPTIONS: Array<{ value: ConsultOrchestrationVersion; label: string }> = [
-  { value: 'v1', label: '经典版' },
-  { value: 'v2', label: '优化版' },
-  { value: 'v3', label: '备库校验版' },
-  { value: 'v4', label: '动态证据版' },
-]
-
-function orchestrationLabel(value: ConsultOrchestrationVersion): string {
-  return ORCHESTRATION_OPTIONS.find(item => item.value === value)?.label ?? '动态证据版'
-}
 
 function formatUtcDatePrefix(date: Date): string {
   const year = String(date.getUTCFullYear()).slice(-2)
@@ -519,8 +507,6 @@ export function ForeConsultPage() {
   const [consultReasoningEffort, setConsultReasoningEffort] = useState<CodexReasoningEffort>('low')
   const [consultSpeed, setConsultSpeed] = useState<CodexSpeed>('default')
   const [consultCodexHome, setConsultCodexHome] = useState('')
-  const [orchestrationVersion, setOrchestrationVersion] =
-    useState<ConsultOrchestrationVersion>(DEFAULT_ORCHESTRATION_VERSION)
   const [role, setRole] = useState<ConsultRole>(CONSULT_ROLE)
   const [moduleQuery, setModuleQuery] = useState('')
   const [modulesExpanded, setModulesExpanded] = useState(false)
@@ -998,7 +984,6 @@ export function ForeConsultPage() {
         model: isAdmin ? consultModel : null,
         codexReasoningEffort: isAdmin ? consultReasoningEffort : 'low',
         codexSpeed: isAdmin ? consultSpeed : 'default' as const,
-        orchestrationVersion,
       }
       const created = continuationSource
         ? await requestConsultContinuation(user?.userId, continuationSource.sessionId, request,
@@ -1408,7 +1393,6 @@ export function ForeConsultPage() {
       model: isAdmin ? consultModel : null,
       codexReasoningEffort: isAdmin ? consultReasoningEffort : 'low',
       codexSpeed: isAdmin ? consultSpeed : 'default',
-      orchestrationVersion: current?.orchestrationVersion || orchestrationVersion,
     })
     setSystem(nextSystem)
     setModuleTags(nextModules)
@@ -1548,15 +1532,6 @@ export function ForeConsultPage() {
                   codexHomes={codexHomes}
                   codexHomesLoading={codexHomesLoading}
                   showCodexHome
-                  advancedOptions={[{
-                    id: 'orchestrationVersion',
-                    label: '调度版本',
-                    value: orchestrationLabel(orchestrationVersion),
-                    icon: <Route className="size-4" />,
-                    options: ORCHESTRATION_OPTIONS,
-                    disabled: startMutation.isPending || !initialSessionStateResolved,
-                    onChange: value => setOrchestrationVersion(value as ConsultOrchestrationVersion),
-                  }]}
                   disabled={startMutation.isPending || !initialSessionStateResolved}
                   optionsDisabled={!isAdmin || startMutation.isPending || !initialSessionStateResolved}
                   onModelChange={(value) => setConsultModel(value || null)}
@@ -2361,17 +2336,6 @@ export function ForeConsultPage() {
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="shrink-0 rounded-full border border-slate-200 px-2 py-0.5 text-[10px] text-slate-500">
                           {s.role === 'BIZ' ? '业务员' : 'IT 客服'}
-                        </span>
-                        <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] ${
-                          s.orchestrationVersion === 'v4'
-                            ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-                            : s.orchestrationVersion === 'v3'
-                            ? 'border-violet-200 bg-violet-50 text-violet-700'
-                            : s.orchestrationVersion === 'v2'
-                            ? 'border-sky-200 bg-sky-50 text-sky-700'
-                            : 'border-slate-200 bg-slate-50 text-slate-500'
-                        }`}>
-                          {orchestrationLabel(s.orchestrationVersion)}
                         </span>
                         <ArchiveBadge status={s.archiveStatus} />
                       </div>
