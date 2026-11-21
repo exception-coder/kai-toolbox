@@ -1,0 +1,9 @@
+runtime:
+  scenarios:
+    - id: query-tools
+      type: api
+      url: http://127.0.0.1:18080/api/tools
+      method: GET
+      expectStatus: 200
+      requiredJsonPaths: []
+      timeoutSeconds: 15
