@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useAuth } from '@/lib/auth'
+import { ApiError } from '@/lib/api'
 import { Monitor, Smartphone, X, RefreshCw } from 'lucide-react'
 import { createPreview, getPreview, closePreview, continuePreview, previewResources, type PreviewTarget, type PreviewView } from './api'
 import { PreviewScreen } from './PreviewScreen'
@@ -22,6 +23,7 @@ export function PagePreviewWorkspace({ initial, previewId, onOpened, embedded = 
   const [target, setTarget] = useState(initial)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [capacityReached, setCapacityReached] = useState(false)
   const [interactive, setInteractive] = useState(false)
   const [productionConfirmed, setProductionConfirmed] = useState(false)
   const launched = useRef<string | null>(null)
@@ -35,16 +37,22 @@ export function PagePreviewWorkspace({ initial, previewId, onOpened, embedded = 
   const selectionReady = !target.resourceId || (resources.isSuccess && !!selectedResource)
   const query = useQuery({ queryKey: ['page-preview', user?.userId, previewId], queryFn: () => getPreview(previewId!), enabled: !!previewId && visible, refetchIntervalInBackground: false,
     refetchInterval: state => ['CLOSED', 'EXPIRED', 'TIMED_OUT'].includes(state.state.data?.status ?? '') ? false : 1500 })
-  const open = useCallback(async (value: PreviewTarget, closeId?: string) => {
+  const open = useCallback(async (value: PreviewTarget, closeId?: string, replaceOldest = false) => {
     if (operation.current) return
     operation.current = true
-    setBusy(true); setError(''); setInteractive(false)
+    setBusy(true); setError(''); setCapacityReached(false); setInteractive(false)
     try {
       if (closeId) await closePreview(closeId)
-      const view = await createPreview(value)
+      const view = await (replaceOldest ? createPreview(value, true) : createPreview(value))
       if (!active.current) { await closePreview(view.id); return }
       setSettingsOpen(false); onOpened(view)
-    } catch (failure) { if (active.current) { setError(failure instanceof Error ? failure.message : '创建预览失败'); setSettingsOpen(true) } }
+    } catch (failure) {
+      if (active.current) {
+        setError(failure instanceof Error ? failure.message : '创建预览失败')
+        setCapacityReached(failure instanceof ApiError && failure.status === 409 && failure.message.includes('预览会话已达上限'))
+        setSettingsOpen(true)
+      }
+    }
     finally { operation.current = false; if (active.current) setBusy(false) }
   }, [onOpened])
   useEffect(() => {
@@ -73,14 +81,20 @@ export function PagePreviewWorkspace({ initial, previewId, onOpened, embedded = 
     setProductionConfirmed(false)
     setTarget({ ...target, resourceId: resourceId || undefined, route, loginPage: undefined, productionConfirmed: false })
   }
+  const submitPreview = (replaceOldest = false) => {
+    if (!selectionReady || (production && !productionConfirmed)) return
+    void open({ ...target, productionConfirmed: production && productionConfirmed,
+      requestKey: previewId ? crypto.randomUUID() : target.requestKey }, view?.id, replaceOldest)
+  }
   return <main className={embedded ? "page-preview page-preview-embedded" : "page-preview"}>
     {!embedded && <header className="preview-heading"><div><h1>页面预览</h1><p>真实浏览器渲染 · 当前账号隔离 · 查看中自动续期 · 闲置 15 分钟后回收</p></div><a href="/tools/fore-consult">返回咨询</a></header>}
     {error && <p role="alert" className="preview-error">{error}</p>}
     {settingsOpen && <form className="preview-setup" onSubmit={event => {
       event.preventDefault()
-      if (!selectionReady || (production && !productionConfirmed)) return
-      void open({ ...target, productionConfirmed: production && productionConfirmed, requestKey: previewId ? crypto.randomUUID() : target.requestKey }, view?.id)
+      submitPreview()
     }}>
+      {capacityReached && <button type="button" disabled={busy || !selectionReady || (production && !productionConfirmed)}
+        onClick={() => submitPreview(true)}>关闭我最早的预览并重试</button>}
       <label>应用与环境<select disabled={busy} value={target.resourceId ?? ''} onChange={event => chooseResource(event.target.value)}>
         <option value="">当前登录的 Forge 用户</option>
         {target.resourceId && !resources.data?.some(item => item.id === target.resourceId) && <option value={target.resourceId}>已引用账号（等待核对）</option>}

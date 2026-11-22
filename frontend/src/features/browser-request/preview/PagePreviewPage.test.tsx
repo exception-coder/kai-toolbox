@@ -4,6 +4,7 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { PagePreviewPage } from './PagePreviewPage'
+import { ApiError } from '@/lib/api'
 import type { PreviewView } from './api'
 const calls = vi.hoisted(() => ({ create: vi.fn(), get: vi.fn(), close: vi.fn(), resume: vi.fn(), input: vi.fn(), resources: vi.fn() }))
 vi.mock('@/lib/auth', () => ({ useAuth: () => ({ user: { userId: 1 } }) }))
@@ -41,6 +42,18 @@ it('automatically opens a stable handoff once and uses the current identity by d
   expect(await screen.findByText('目标页面已加载')).toBeVisible()
   expect(screen.getByText(/运行版本尚未核验/)).toBeVisible()
 })
+it('only requests oldest-preview replacement after the user explicitly chooses it', async () => {
+  calls.create.mockRejectedValueOnce(new ApiError(409, {}, '预览会话已达上限，请关闭不用的预览后重试'))
+  mount('/tools/fore-consult/preview?auto=1&requestKey=full&route=%2Ftools%2Ffore-consult&device=phone')
+  const retry = await screen.findByRole('button', { name: '关闭我最早的预览并重试' })
+  expect(calls.create).toHaveBeenCalledOnce()
+  expect(calls.create.mock.calls[0]).toHaveLength(1)
+  fireEvent.click(retry)
+  expect(await screen.findByText('目标页面已加载')).toBeVisible()
+  expect(calls.create).toHaveBeenLastCalledWith(expect.objectContaining({ requestKey: 'full', device: 'phone' }), true)
+  expect(calls.close).not.toHaveBeenCalled()
+})
+
 it('requires explicit takeover before sending clicks and can close the preview', async () => {
   mount('/tools/fore-consult/preview/preview-1')
   const image = await screen.findByRole('img', { name: '目标页面的实时渲染画面' })

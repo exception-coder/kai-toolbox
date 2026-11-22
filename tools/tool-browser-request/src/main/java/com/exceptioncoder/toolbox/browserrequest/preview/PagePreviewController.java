@@ -29,11 +29,12 @@ public class PagePreviewController {
     public List<BrowserLoginTarget> resources() { return targets.resources(user()); }
 
     @PostMapping
-    public PagePreviewService.View create(@Valid @RequestBody PreviewRequest request, HttpServletRequest http) {
+    public PagePreviewService.View create(@Valid @RequestBody PreviewRequest request,
+                                          @RequestParam(defaultValue = "false") boolean replaceOldest, HttpServletRequest http) {
         String authorization = http.getHeader("Authorization");
         String token = authorization != null && authorization.startsWith("Bearer ")
                 ? authorization.substring(7).trim() : null;
-        return previews.create(request, user(), token);
+        return previews.create(request, user(), token, replaceOldest);
     }
 
     @GetMapping("/{id}")
