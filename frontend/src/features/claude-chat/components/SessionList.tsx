@@ -1,3 +1,4 @@
+import { SessionSharedBadge } from './SessionSharedBadge'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, Check, ChevronRight, Filter, Folder, FolderMinus, FolderPlus, Link2, Loader2, LockKeyhole, Pencil, Pin, Search, Tags, X } from 'lucide-react'
@@ -586,6 +587,7 @@ export function SessionList({ currentSessionId, onSwitch, onDuplicate, onShare, 
               )}
               {engineBadge}
               <SessionImportBadge session={s} />
+              <SessionSharedBadge shared={s.shared} />
               {s.planExpired && (
                 <span className="inline-flex shrink-0 items-center gap-0.5 rounded bg-amber-100 px-1 py-0.5 text-[10px] font-medium text-amber-700 opacity-100 dark:bg-amber-950 dark:text-amber-300">
                   <LockKeyhole className="size-2.5" />规划已过期

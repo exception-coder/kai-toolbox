@@ -5,6 +5,7 @@ import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.Set;
 
 /** 只保存对象和接收者身份，不复制会话内容或账号凭据。 */
 @Repository
@@ -40,6 +41,14 @@ public class SessionSharingRepository {
                     Long expiry = row.wasNull() ? null : expiresAt;
                     return new ReaderGrant(row.getLong("user_id"), expiry, row.getBoolean("collaborate"));
                 }, now, now, sessionId);
+    }
+
+    public Set<String> activeSharedSessionIds() {
+        long now = System.currentTimeMillis();
+        return Set.copyOf(jdbc.queryForList(ACTIVE_READERS + """
+                SELECT DISTINCT grant_row.session_id FROM active_readers grant_row
+                JOIN auth_user account ON account.id = grant_row.user_id AND account.enabled = 1
+                """, String.class, now, now));
     }
 
     public List<String> sharedSessions(long userId) {

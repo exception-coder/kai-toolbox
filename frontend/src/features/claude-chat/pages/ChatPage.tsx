@@ -1690,6 +1690,7 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
         <SessionSharingPanel key={sharingPanel === 'inbox' ? 'inbox' : sharingPanel.id}
           sessionId={sharingPanel === 'inbox' ? undefined : sharingPanel.id}
           sessionTitle={sharingPanel === 'inbox' ? undefined : sharingPanel.title}
+          onSharingChange={() => void qc.invalidateQueries({ queryKey: ['claude-chat-sessions'] })}
           onClose={() => setSharingPanel(null)} returnFocus={() => {
             const trigger = sharingPanel === 'inbox' ? null : sharingPanel.trigger
             const target = trigger?.isConnected ? trigger : sessionToolsTriggerRef.current

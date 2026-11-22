@@ -7,8 +7,8 @@ import {
   collaborationPath, searchSessionRecipients, sharedSessionPath, type SessionReader, type SessionReaderGrant, type SharedSession,
 } from '../sessionSharingApi'
 
-export function SessionSharingPanel({ sessionId, sessionTitle, onClose, returnFocus }: {
-  sessionId?: string; sessionTitle?: string; onClose: () => void; returnFocus?: () => void
+export function SessionSharingPanel({ sessionId, sessionTitle, onClose, returnFocus, onSharingChange }: {
+  sessionId?: string; sessionTitle?: string; onClose: () => void; returnFocus?: () => void; onSharingChange?: () => void
 }) {
   const [readers, setReaders] = useState<SessionReaderGrant[]>([])
   const [hours, setHours] = useState(24)
@@ -58,7 +58,7 @@ export function SessionSharingPanel({ sessionId, sessionTitle, onClose, returnFo
       await reload()
       setError(`${e instanceof Error ? e.message : '保存结果未确认'}。请核对当前授权后再试。`)
     }
-    finally { setBusy(false) }
+    finally { onSharingChange?.(); setBusy(false) }
   }
 
   return <Sheet open onOpenChange={open => { if (!open && !busy) onClose() }}>

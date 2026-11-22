@@ -53,6 +53,7 @@ export interface ClaudeChatSessionView {
   favorite?: boolean
   /** 用户主动置顶时间；favorite 保留为兼容字段，不由选中或执行触发。 */
   pinnedAt?: number | null
+  shared?: boolean
   /** 真实执行活动；旧服务使用 lastSeenAt 兼容。 */
   lastActivityAt?: number
   status: SessionStatus

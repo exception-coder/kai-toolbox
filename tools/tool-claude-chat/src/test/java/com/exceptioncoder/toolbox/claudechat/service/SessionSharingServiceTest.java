@@ -15,6 +15,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.Mockito.*;
@@ -44,6 +45,22 @@ class SessionSharingServiceTest {
 
     private void login(long id, String role) {
         AuthContext.set(new AuthPrincipal(id, "user", List.of(role), List.of(), "jti", Long.MAX_VALUE));
+    }
+
+    @Test
+    void activeShareStatusIsOnlyVisibleToAuthorizedManagers() {
+        var visible = List.of(session);
+        assertThat(service.activeSharesForManagers(visible)).isEmpty();
+        verify(shares, never()).activeSharedSessionIds();
+        when(shares.activeSharedSessionIds()).thenReturn(Set.of("one", "out-of-scope"));
+        login(7, "USER");
+        assertThat(service.activeSharesForManagers(visible)).containsExactly("one");
+        login(8, "USER");
+        assertThat(service.activeSharesForManagers(visible)).isEmpty();
+        login(9, "ADMIN");
+        assertThat(service.activeSharesForManagers(visible)).containsExactly("one");
+        when(users.findById(9L)).thenReturn(Optional.of(AuthUser.builder().id(9L).enabled(false).build()));
+        assertThat(service.activeSharesForManagers(visible)).isEmpty();
     }
 
     @Test

@@ -16,6 +16,7 @@ import com.exceptioncoder.toolbox.claudechat.service.SessionHistoryService;
 import com.exceptioncoder.toolbox.claudechat.service.SessionProjectService;
 import com.exceptioncoder.toolbox.claudechat.service.SessionDeletionService;
 import com.exceptioncoder.toolbox.claudechat.service.SessionPinService;
+import com.exceptioncoder.toolbox.claudechat.service.SessionSharingService;
 import com.exceptioncoder.toolbox.claudechat.service.SessionRuntimeStateService;
 import com.exceptioncoder.toolbox.claudechat.service.EngineCatalogService;
 import com.exceptioncoder.toolbox.claudechat.service.ClaudeChatSessionAccessPolicy;
@@ -56,6 +57,7 @@ public class ClaudeChatSessionController {
     private final ClaudeChatSessionAccessPolicy sessionAccessPolicy;
     private final CodexDesktopSyncService codexDesktopSyncService;
     private final SessionPinService sessionPins;
+    private final SessionSharingService sessionSharing;
 
     public ClaudeChatSessionController(ClaudeChatSessionRepository repo, ClaudeChatService service,
                                        SessionHistoryService historyService,
@@ -65,7 +67,8 @@ public class ClaudeChatSessionController {
                                        SessionRuntimeStateService runtimeStateService,
                                        EngineCatalogService engineCatalogService,
                                        ClaudeChatSessionAccessPolicy sessionAccessPolicy,
-                                       CodexDesktopSyncService codexDesktopSyncService, SessionPinService sessionPins) {
+                                       CodexDesktopSyncService codexDesktopSyncService, SessionPinService sessionPins,
+                                       SessionSharingService sessionSharing) {
         this.repo = repo;
         this.service = service;
         this.historyService = historyService;
@@ -77,6 +80,7 @@ public class ClaudeChatSessionController {
         this.sessionAccessPolicy = sessionAccessPolicy;
         this.codexDesktopSyncService = codexDesktopSyncService;
         this.sessionPins = sessionPins;
+        this.sessionSharing = sessionSharing;
     }
 
     @GetMapping
@@ -98,11 +102,12 @@ public class ClaudeChatSessionController {
                 planStateService.listStates(all.stream().map(ClaudeChatSession::getId).toList());
         long afterPlans = System.nanoTime();
         var pins = sessionPins.current();
+        Set<String> sharedIds = sessionSharing.activeSharesForManagers(all);
         List<ClaudeChatSessionView> result = all.stream()
                 .map(s -> ClaudeChatSessionView.from(s, service.isLive(s.getId()),
                         transcriptMissing(s, missing), planStates.get(s.getId()),
                         codexDesktopSyncService.isImportedSession(s) ? "codex" : null,
-                        pins.state(s).pinned(), pins.state(s).pinnedAt()))
+                        pins.state(s).pinned(), pins.state(s).pinnedAt(), sharedIds.contains(s.getId())))
                 .toList();
         long finished = System.nanoTime();
         long totalMs = millis(finished - started);

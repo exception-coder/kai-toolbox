@@ -14,6 +14,8 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
+import java.util.stream.Collectors;
 import java.time.Duration;
 
 /** 具名查看和限时协作共用授权管理，交互权限由会话访问策略检查。 */
@@ -102,6 +104,18 @@ public class SessionSharingService {
         requireManager(sessionId);
         shares.revoke(sessionId, userId);
         if (events != null) events.publishEvent(new SharedAccessRevoked(sessionId, userId));
+    }
+
+    public Set<String> activeSharesForManagers(List<ClaudeChatSession> visibleSessions) {
+        var principal = AuthContext.current().orElse(null);
+        var accounts = users.getIfAvailable();
+        if (principal == null || accounts == null
+                || accounts.findById(principal.userId()).filter(account -> account.isEnabled()).isEmpty()) {
+            return Set.of();
+        }
+        Set<String> active = shares.activeSharedSessionIds();
+        return visibleSessions.stream().filter(this::shareable).filter(access::canAccessCurrentUser)
+                .map(ClaudeChatSession::getId).filter(active::contains).collect(Collectors.toUnmodifiableSet());
     }
 
     public List<SharedSession> sharedWithMe() {

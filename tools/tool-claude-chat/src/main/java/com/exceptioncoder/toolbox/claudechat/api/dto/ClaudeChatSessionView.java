@@ -38,7 +38,8 @@ public record ClaudeChatSessionView(
         Long planUnlockedAt,
         /** 通过同步创建的来源引擎；空值不推断来源。 */
         String importSource,
-        Long pinnedAt
+        Long pinnedAt,
+        boolean shared
 ) {
     /** 兼容 lastSeenAt 字段名；现在只记录真实执行活动，不记录打开/切换。 */
     @com.fasterxml.jackson.annotation.JsonProperty("lastActivityAt")
@@ -68,12 +69,12 @@ public record ClaudeChatSessionView(
     /** 将经过导入身份核对的来源与现有会话状态一并投影。 */
     public static ClaudeChatSessionView from(ClaudeChatSession s, boolean live, boolean transcriptMissing,
                                              SessionPlanState planState, String importSource) {
-        return from(s, live, transcriptMissing, planState, importSource, s.isFavorite(), null);
+        return from(s, live, transcriptMissing, planState, importSource, s.isFavorite(), null, false);
     }
 
     public static ClaudeChatSessionView from(ClaudeChatSession s, boolean live, boolean transcriptMissing,
                                              SessionPlanState planState, String importSource,
-                                             boolean pinned, Long pinnedAt) {
+                                             boolean pinned, Long pinnedAt, boolean shared) {
         String engine = s.getEngine() == null ? "claude" : s.getEngine();
         String engines = s.getEngines() == null || s.getEngines().isBlank() ? engine : s.getEngines();
         String providerBaseUrl = s.getApiBaseUrl() == null || s.getApiBaseUrl().isBlank() ? null : s.getApiBaseUrl();
@@ -86,6 +87,6 @@ public record ClaudeChatSessionView(
                 s.getStatus(), s.getStartedAt(), s.getLastSeenAt(), live, transcriptMissing,
                 planState != null && planState.planExpired(),
                 planState == null ? null : planState.expiredAt(),
-                planState == null ? null : planState.unlockedAt(), importSource, pinnedAt);
+                planState == null ? null : planState.unlockedAt(), importSource, pinnedAt, shared);
     }
 }
