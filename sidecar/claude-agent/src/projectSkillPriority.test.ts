@@ -42,6 +42,13 @@ test('Codex passes effective disable settings and actual global paths to the ins
   assert.deepEqual(JSON.parse(args[1]), { project, plugin, config, paths: [global] })
 })
 
+test('App Server refuses an adapter without structured configuration instead of silently skipping priority', async t => {
+  const { project, global } = fixture(t)
+  await assert.rejects(codexProjectSkillArgs(project, async method => method === 'skills/list'
+    ? { data: [{ skills: [{ name: 'openspec-auto', path: global }] }] }
+    : { config: {} }, undefined, () => assert.fail('invalid config must not be applied')), /结构化配置/)
+})
+
 test('Codex never replaces unknown effective configuration', async t => {
   const { project, global } = fixture(t)
   await assert.rejects(codexProjectSkillArgs(project, async method => method === 'skills/list'

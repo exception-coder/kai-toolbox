@@ -835,12 +835,7 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions, runti
   options.signal.throwIfAborted()
   await codexCleanupBarriers.verify(options.sessionId, options.threadId, options.codexHome, runtime.closeTimeoutMs)
   options.signal.throwIfAborted()
-  let skillInstruction = '', effectiveInstructions = ''
-  const skillArgs = await prepareCodexProjectSkills(options, (instruction, effective) => {
-    skillInstruction = instruction; effectiveInstructions = effective
-  }, runtime)
-  options.signal.throwIfAborted()
-  const child = runtime.open(options.codexHome, skillArgs)
+  const child = runtime.open(options.codexHome)
   const lifetime = observeCodexProcess(child)
   const lines = createInterface({ input: child.stdout })
   const pending = new Map<number, PendingRequest>()
@@ -1379,6 +1374,13 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions, runti
     options.onTransportSelected?.(transport)
     options.signal.throwIfAborted()
     let threadConfig = withRealtimeConversationConfig(transport.config)
+    // 在当前已初始化进程读取项目优先策略，避免前置探测重复启动整个原生宿主。
+    // 配置仍在 thread/start 或 resume 前生效；SDK/Exec 路径继续使用 CLI 参数适配。
+    let skillInstruction = '', effectiveInstructions = ''
+    await codexProjectSkillArgs(options.cwd, request, (instruction, effective) => {
+      skillInstruction = instruction; effectiveInstructions = effective
+    }, config => { threadConfig['skills.config'] = config })
+    options.signal.throwIfAborted()
     if (options.consultReadonly) {
       // Read the merged account/project policy, not just CODEX_HOME/config.toml.
       // If discovery fails, do not open plugins with an incomplete deny list.
