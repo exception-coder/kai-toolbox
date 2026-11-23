@@ -39,12 +39,14 @@ class EngineCatalogServiceTest {
                 }
                 """)));
 
-        EngineCatalogView result = new EngineCatalogService(sidecar).list(false);
+        EngineCatalogService catalog = new EngineCatalogService(sidecar);
+        EngineCatalogView result = catalog.list(false);
 
         assertThat(result.protocolVersion()).isEqualTo(1);
         assertThat(result.engines()).hasSize(1);
         assertThat(result.engines().getFirst().selectable()).isFalse();
         assertThat(result.engines().getFirst().probe().status()).isEqualTo("dependencyMissing");
+        assertThat(catalog.creationIssue("deepseekHarness")).contains("DeepSeek Harness", "缺少运行环境");
     }
 
     @Test
@@ -52,10 +54,13 @@ class EngineCatalogServiceTest {
         SidecarClient sidecar = mock(SidecarClient.class);
         when(sidecar.queryEngineCatalog(anyBoolean(), anyLong())).thenReturn(Optional.empty());
 
-        EngineCatalogView result = new EngineCatalogService(sidecar).list(true);
+        EngineCatalogService catalog = new EngineCatalogService(sidecar);
+        EngineCatalogView result = catalog.list(true);
 
         assertThat(result.engines()).isEmpty();
         assertThat(result.error()).isEqualTo("Sidecar 引擎目录不可用");
+        assertThat(catalog.creationIssue("deepseekHarness")).contains("无法读取 Sidecar 引擎目录");
+        assertThat(catalog.creationIssue("codex")).isNull();
     }
 
     @Test

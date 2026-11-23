@@ -228,7 +228,7 @@ public class SidecarClient implements ReviewThreadForkGateway {
                 codexReasoningEffort, codexSpeed, toolPolicy, null);
     }
 
-    public void startSession(String sessionId, String cwd, String model, String mode, String engine,
+    public boolean startSession(String sessionId, String cwd, String model, String mode, String engine,
                              String apiBaseUrl, String authToken, String codexHome, boolean autoApprove,
                              String codexReasoningEffort, String codexSpeed, String toolPolicy,
                              List<String> consultEvidenceSystems) {
@@ -247,7 +247,7 @@ public class SidecarClient implements ReviewThreadForkGateway {
         m.put("codexSpeed", nz(codexSpeed));
         m.put("toolPolicy", nz(toolPolicy));
         m.put("consultEvidenceSystems", consultEvidenceSystems == null ? List.of() : consultEvidenceSystems);
-        send(m);
+        return send(m);
     }
 
     /**

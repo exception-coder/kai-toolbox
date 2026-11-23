@@ -285,8 +285,9 @@ public class ClaudeChatService {
         }
 
         String engine = normalizeEngine(open.engine());
-        if (!engineCatalog.selectable(engine)) {
-            events.sendError(ws, 0, "ENGINE_UNAVAILABLE", "当前引擎尚未通过 Runtime 检测，请刷新引擎目录后重试");
+        String engineIssue = engineCatalog.creationIssue(engine);
+        if (engineIssue != null) {
+            events.sendError(ws, 0, "ENGINE_UNAVAILABLE", engineIssue);
             return;
         }
         if (consultReadonly && !"claude".equals(engine) && !"codex".equals(engine)) {
@@ -369,9 +370,13 @@ public class ClaudeChatService {
         // UI 模式不是安全边界；咨询会话固定为 plan，真正的硬约束由 executionPolicy/toolPolicy 执行。
         ctx.mode = consultReadonly ? "plan" : normalizeMode(open.mode());
         repo.updatePermissionMode(sessionId, ctx.mode);
-        sidecar.startSession(sessionId, cwd, open.model(), ctx.mode, engine, apiBaseUrl, authToken,
+        boolean startSent = sidecar.startSession(sessionId, cwd, open.model(), ctx.mode, engine, apiBaseUrl, authToken,
                 codexHome, ctx.autoApprove, codexReasoningEffort, codexSpeed, ctx.executionPolicy,
                 ctx.consultEvidenceSystems);
+        if (!startSent) {
+            events.sendError(ws, 0, "SIDECAR_DOWN", "无法确认引擎已收到启动请求。请先查看会话列表，再决定是否重试。");
+            return;
+        }
         pushGatewayModels(ctx); // 网关会话：按服务商端点拉模型目录，供命令菜单选/切模型
         log.info("[claude-chat] open 会话 {} cwd={} mode={} engine={}", sessionId, cwd, ctx.mode, engine);
     }

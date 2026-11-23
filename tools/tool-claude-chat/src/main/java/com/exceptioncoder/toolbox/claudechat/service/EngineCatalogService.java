@@ -28,12 +28,30 @@ public class EngineCatalogService {
 
     /** 以 Sidecar 探活结果裁决外部运行时引擎准入；内嵌引擎不增加同步查询开销。 */
     public boolean selectable(String engine) {
+        return creationIssue(engine) == null;
+    }
+
+    /** 返回新建入口可展示的拒绝原因，探测原始输出仍由引擎目录提供。 */
+    String creationIssue(String engine) {
         if (!"deepseekHarness".equals(engine) && !"antigravity".equals(engine) && !"trae".equals(engine)
-                && !"zcode".equals(engine) && !"hermes".equals(engine)) {
-            return true;
+                && !"zcode".equals(engine) && !"hermes".equals(engine)) return null;
+
+        EngineCatalogView catalog = list(false);
+        if (catalog.error() != null) {
+            return "暂时无法读取 Sidecar 引擎目录。请刷新引擎状态后重试。";
         }
-        return list(false).engines().stream()
-                .anyMatch(entry -> engine.equals(entry.id()) && Boolean.TRUE.equals(entry.selectable()));
+        EngineCatalogView.EngineEntry entry = catalog.engines().stream()
+                .filter(candidate -> engine.equals(candidate.id()))
+                .findFirst()
+                .orElse(null);
+        if (entry == null) return "当前 Sidecar 未登记所选引擎，请刷新引擎状态。";
+        if (Boolean.TRUE.equals(entry.selectable())) return null;
+        return entry.displayName() + switch (entry.probe().status()) {
+            case "disabled" -> " 已禁用，请检查引擎配置。";
+            case "dependencyMissing" -> " 缺少运行环境，请查看引擎状态。";
+            case "incompatible" -> " 运行环境版本不兼容，请查看引擎状态。";
+            default -> " 尚未通过运行检查，请刷新引擎状态后重试。";
+        };
     }
 
     private EngineCatalogView parse(JsonNode root) {

@@ -28,6 +28,7 @@ const testRuntime = vi.hoisted(() => ({
     activeModelConfiguration: null as ActiveModelConfiguration | null,
     sessionId: 'session-config-regression',
     state: 'ready',
+    errorMessage: null as string | null,
     items: [],
     models: [{ value: 'gpt-5.6-sol', displayName: 'GPT-5.6-Sol', description: '' }] as Array<Pick<ModelInfo, 'value' | 'displayName'> & Partial<ModelInfo>>,
     currentEngine: 'codex',
@@ -129,6 +130,8 @@ afterEach(() => {
   testRuntime.chat.codexReasoningEffort = 'low'
   testRuntime.chat.models = [{ value: 'gpt-5.6-sol', displayName: 'GPT-5.6-Sol', description: '' }]
   testRuntime.chat.sessionId = 'session-config-regression'
+  testRuntime.chat.state = 'ready'
+  testRuntime.chat.errorMessage = null
   vi.mocked(uploadAttachment).mockReset()
   previewCalls.create.mockReset(); previewCalls.get.mockReset(); previewCalls.close.mockReset()
 })
@@ -377,6 +380,25 @@ describe('ChatPage session configuration', () => {
     const create = screen.getByRole('button', { name: '创建会话' })
     fireEvent.click(create); fireEvent.click(create)
     expect(testRuntime.chat.open).toHaveBeenCalledExactlyOnceWith('D:/second', undefined, undefined, 'codex', { codexHome: undefined }, undefined)
+  })
+
+  it('keeps creation options visible and unlocks retry after the engine rejects a new session', async () => {
+    testRuntime.profiles = []
+    testRuntime.roots = [{ root: 'D:/work', exists: true, dirs: [] }]
+    testRuntime.engines = [{ id: 'deepseekHarness', displayName: 'DeepSeek Harness', selectable: true,
+      availability: 'experimental', probe: { status: 'ready' }, capabilities: [] }]
+    saveNewSessionPreferences(undefined, { workspaceRoot: 'D:/work', cwd: 'D:/work', engine: 'deepseekHarness', providerId: '' })
+    const view = mountChat()
+    await openNewSessionForm()
+    await waitFor(() => expect(screen.getByRole('button', { name: '创建会话' })).toBeEnabled())
+    fireEvent.click(screen.getByRole('button', { name: '创建会话' }))
+    expect(screen.getByRole('button', { name: '正在创建…' })).toBeDisabled()
+
+    testRuntime.chat.state = 'error'
+    testRuntime.chat.errorMessage = '暂时无法读取 Sidecar 引擎目录。'
+    view.rerender(<StrictMode><QueryClientProvider client={view.queryClient}><MemoryRouter><ConfirmProvider><ChatPage /></ConfirmProvider></MemoryRouter></QueryClientProvider></StrictMode>)
+    expect(await screen.findByText('暂时无法读取 Sidecar 引擎目录。')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '创建会话' })).toBeEnabled()
   })
 
   it('does not silently replace a missing project or offer its recent shortcut', async () => {

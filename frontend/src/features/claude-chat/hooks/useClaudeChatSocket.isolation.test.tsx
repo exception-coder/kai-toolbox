@@ -47,6 +47,39 @@ beforeEach(() => {
 })
 afterEach(() => { cleanup(); vi.useRealTimers(); vi.clearAllMocks(); vi.unstubAllGlobals() })
 
+describe('new session acknowledgement', () => {
+  it('surfaces an engine rejection before ready and allows an explicit retry', async () => {
+    const { result } = renderHook(() => useClaudeChatSocket({ autoConnect: false }))
+    await act(async () => result.current.open('D:/work', undefined, undefined, 'deepseekHarness'))
+    const first = TestSocket.sockets[0]
+    act(() => {
+      first.open()
+      first.receive({ type: 'error', seq: 0, code: 'ENGINE_UNAVAILABLE', message: 'Sidecar 引擎目录不可用', terminal: false })
+    })
+    expect(result.current).toMatchObject({ state: 'error', sessionId: null, errorMessage: 'Sidecar 引擎目录不可用' })
+
+    await act(async () => result.current.open('D:/work', undefined, undefined, 'deepseekHarness'))
+    const retry = TestSocket.sockets[1]
+    await act(async () => { retry.open(); retry.receive({ ...ready('new'), engine: 'deepseekHarness' }) })
+    expect(result.current).toMatchObject({ state: 'ready', sessionId: 'new', errorMessage: null })
+  })
+
+  it.each(['disconnect', 'timeout'] as const)('does not replay a sent open after %s before ready', async failure => {
+    vi.useFakeTimers()
+    const { result } = renderHook(() => useClaudeChatSocket({ autoConnect: false }))
+    await act(async () => result.current.open('D:/work', undefined, undefined, 'deepseekHarness'))
+    const socket = TestSocket.sockets[0]
+    act(() => socket.open())
+    expect(socket.send).toHaveBeenCalledExactlyOnceWith(expect.stringContaining('"type":"open"'))
+    if (failure === 'disconnect') act(() => socket.close())
+    await act(async () => vi.advanceTimersByTimeAsync(60_000))
+    expect(TestSocket.sockets).toHaveLength(1)
+    expect(result.current).toMatchObject({ state: 'error', sessionId: null, errorMessage: expect.stringContaining('请先查看会话列表') })
+    act(() => socket.receive(ready('late')))
+    expect(result.current.sessionId).toBeNull()
+  })
+})
+
 describe('Codex 会话参数恢复', () => {
   it('restores the last failed turn after history loading and clears it for a running turn', async () => {
     const { result } = renderHook(() => useClaudeChatSocket({ autoConnect: false }))

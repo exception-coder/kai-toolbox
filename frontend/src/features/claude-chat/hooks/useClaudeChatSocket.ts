@@ -379,6 +379,8 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
   const turnStartRef = useRef<number | null>(null)
   const ttftRef = useRef<number | null>(null)
   const intentRef = useRef<Intent | null>(null)
+  const openTimeoutRef = useRef<number | null>(null)
+  const openSentRef = useRef(false)
   const duplicateSourceRef = useRef<string | null>(null)
   const duplicateContextSeedRef = useRef<string | null>(null)
   const duplicateTimeoutRef = useRef<number | null>(null)
@@ -410,6 +412,27 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
   const probingRef = useRef(false)
   /** 待触发的退避重连定时器：网络恢复时要能提前取消它，避免与立即重连叠成两条退避链。 */
   const reconnectTimerRef = useRef<number | null>(null)
+  const clearOpenTimeout = useCallback(() => {
+    if (openTimeoutRef.current === null) return
+    window.clearTimeout(openTimeoutRef.current)
+    openTimeoutRef.current = null
+  }, [])
+  const failOpen = useCallback((message: string) => {
+    clearOpenTimeout()
+    openSentRef.current = false
+    intentRef.current = null
+    const socket = wsRef.current
+    wsRef.current = null
+    connectionGenerationRef.current += 1
+    connectingRef.current = false
+    if (reconnectTimerRef.current !== null) {
+      window.clearTimeout(reconnectTimerRef.current)
+      reconnectTimerRef.current = null
+    }
+    setErrorMessage(message)
+    setState('error')
+    socket?.close()
+  }, [clearOpenTimeout])
   // 订阅登录态：登录成功后 token 变化 → 若之前因失效停连，则自动恢复重连。
   const { token: sessionToken } = useAuth()
   useEffect(() => {
@@ -528,6 +551,11 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
         setSyncWarning(engineSwitchingRef.current || msg.status === 'FAILED' ? msg.message : null)
         break
       case 'ready':
+        if (intentRef.current?.kind === 'open') {
+          clearOpenTimeout()
+          openSentRef.current = false
+          intentRef.current = { kind: 'attach', sessionId: msg.sessionId, lastEventSeq: lastSeqRef.current }
+        }
         reportVibeEntry('session_ready', 'ok', msg.sessionId)
         let duplicateContextSeed: string | null = null
         if (duplicateSourceRef.current && !configurationCopyRef.current && msg.sessionId !== duplicateSourceRef.current) {
@@ -978,6 +1006,9 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
           || msg.outcome === 'accepted' || msg.outcome === 'correcting'))
         break
       case 'error':
+        if (intentRef.current?.kind === 'open' && !sessionIdRef.current) {
+          failOpen(msg.message || '会话创建失败，请重试。')
+        }
         if (engineSwitchingRef.current && ['ENGINE_HANDOFF_FAILED', 'ENGINE_HANDOFF_UNAVAILABLE', 'ENGINE_HANDOFF_BUSY',
           'ENGINE_UNAVAILABLE', 'PROVIDER_UNSUPPORTED', 'ENGINE_UNSUPPORTED', 'COMMAND_FAILED', 'SESSION_NOT_FOUND'].includes(msg.code)) {
           engineSwitchingRef.current = false
@@ -1040,27 +1071,29 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
         setPendingSessions(msg.sessions)
         break
     }
-  }, [])
+  }, [clearOpenTimeout, failOpen])
 
   const flushIntent = useCallback(() => {
     const intent = intentRef.current
     if (!intent) return
-    if (intent.kind === 'open') sendRaw({
-      type: 'open',
-      cwd: intent.cwd,
-      title: intent.title,
-      model: intent.model,
-      mode: intent.mode,
-      engine: intent.engine,
-      apiBaseUrl: intent.apiBaseUrl,
-      authToken: intent.authToken,
-      providerProfileId: intent.providerProfileId,
-      codexHome: intent.codexHome,
-      codexReasoningEffort: intent.codexReasoningEffort,
-      codexSpeed: intent.codexSpeed,
-      consultEvidenceSystems: intent.consultEvidenceSystems,
-    })
-    else if (intent.kind === 'switch') sendRaw({ type: 'switchSession', sessionId: intent.sessionId })
+    if (intent.kind === 'open') {
+      if (openSentRef.current) return
+      openSentRef.current = sendRaw({
+        type: 'open',
+        cwd: intent.cwd,
+        title: intent.title,
+        model: intent.model,
+        mode: intent.mode,
+        engine: intent.engine,
+        apiBaseUrl: intent.apiBaseUrl,
+        authToken: intent.authToken,
+        providerProfileId: intent.providerProfileId,
+        codexHome: intent.codexHome,
+        codexReasoningEffort: intent.codexReasoningEffort,
+        codexSpeed: intent.codexSpeed,
+        consultEvidenceSystems: intent.consultEvidenceSystems,
+      })
+    } else if (intent.kind === 'switch') sendRaw({ type: 'switchSession', sessionId: intent.sessionId })
     else if (intent.kind === 'duplicate') {
       // 复制是写操作；请求已经发送时，断线重连不能再次创建副本。
       if (!duplicateSentRef.current) duplicateSentRef.current = sendRaw({
@@ -1128,8 +1161,9 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
       await ensureFreshToken(true, rejectedToken)
       if (!getToken()) {
         gaveUpRef.current = true
-        setState('error')
-        setErrorMessage('登录已过期或凭证失效，请重新登录后重试。')
+        const message = '登录已过期或凭证失效，请重新登录后重试。'
+        if (intentRef.current?.kind === 'open') failOpen(message)
+        else { setState('error'); setErrorMessage(message) }
         return
       }
 
@@ -1149,14 +1183,15 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
         return
       }
       gaveUpRef.current = true
-      setState('error')
-      setErrorMessage('登录已过期或凭证失效，请重新登录后重试。')
+      const message = '登录已过期或凭证失效，请重新登录后重试。'
+      if (intentRef.current?.kind === 'open') failOpen(message)
+      else { setState('error'); setErrorMessage(message) }
       logout()
       emitSessionExpired()
     })().finally(() => {
       probingRef.current = false
     })
-  }, [])
+  }, [failOpen])
 
   // 用新鲜 token 真正建 WS（已确保 token 续期、并发守卫已置位）。
   const openSocket = useCallback(() => {
@@ -1211,6 +1246,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
     }
     ws.onerror = () => {
       if (wsRef.current !== ws) return
+      if (intentRef.current?.kind === 'open') return // 等待 close 或创建超时判定本次结果
       setState('error')
       setErrorMessage(channel === 'collaboration' ? '连接中断，正在尝试恢复。请保留草稿。' : 'WebSocket 连接出错')
       pushDebug('conn', 'error', 'WebSocket 连接出错')
@@ -1222,6 +1258,10 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
       wsRef.current = null
       pushDebug('conn', 'close', `WS 关闭（openedThisAttempt=${openedRef.current}）`)
       if (manualCloseRef.current) return
+      if (intentRef.current?.kind === 'open' && openSentRef.current) {
+        failOpen('连接已断开，尚未确认创建结果。请先查看会话列表，再决定是否重试。')
+        return
+      }
       if (channel === 'collaboration' && event?.code === 4003) {
         setCollaborationAccessLost(true)
         intentRef.current = null
@@ -1274,10 +1314,10 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
           connect()
         }, delay)
       } else {
-        setState('closed')
+        setState(previous => previous === 'error' && !sessionIdRef.current ? 'error' : 'closed')
       }
     }
-  }, [applyEvent, flushIntent, flushPendingSends, demo, channel, prdSessionId, reviewToken, collaborationSessionId, publicWithoutLogin, confirmAuthOrKeepRetrying])
+  }, [applyEvent, failOpen, flushIntent, flushPendingSends, demo, channel, prdSessionId, reviewToken, collaborationSessionId, publicWithoutLogin, confirmAuthOrKeepRetrying])
 
   const connect = useCallback(() => {
     // 幂等：已有在连/已连的 socket，或正处于「续期+建连」异步窗口时，不再叠一条。
@@ -1289,7 +1329,11 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
     }
     if (connectingRef.current) return
     // 登录失效只影响需要登录的通道；demo / 公开评审使用各自 capability，不能被本机登录态拦住。
-    if (!publicWithoutLogin && gaveUpRef.current) { setState('error'); return }
+    if (!publicWithoutLogin && gaveUpRef.current) {
+      if (intentRef.current?.kind === 'open') failOpen('登录已失效，请重新登录后重试。')
+      else setState('error')
+      return
+    }
     connectingRef.current = true
     const connectionGeneration = connectionGenerationRef.current
     setState('connecting')
@@ -1316,13 +1360,16 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
       // 登录后由 sessionToken 变化的 effect 自动恢复重连。
       if (!getToken()) {
         gaveUpRef.current = true
-        setState('error')
-        setErrorMessage('未登录或登录已过期，请登录后重试。')
+        if (intentRef.current?.kind === 'open') failOpen('未登录或登录已过期，请登录后重试。')
+        else {
+          setState('error')
+          setErrorMessage('未登录或登录已过期，请登录后重试。')
+        }
         return
       }
       openSocket()
     })
-  }, [openSocket, publicWithoutLogin])
+  }, [failOpen, openSocket, publicWithoutLogin])
 
   // 通道切换必须在页面的普通 effect（例如“开始开发”handoff）之前完成清理。
   // 否则 handoff 会把 open/send 发给上一条仍处于 OPEN 的 ADMIN socket，形成已创建但未绑定 PRD 的孤儿会话。
@@ -1339,13 +1386,15 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
       }
       wsRef.current?.close()
       wsRef.current = null
+      clearOpenTimeout()
+      if (intentRef.current?.kind === 'open') intentRef.current = null
       configurationCopyRef.current = null
       if (duplicateTimeoutRef.current != null) {
         window.clearTimeout(duplicateTimeoutRef.current)
         duplicateTimeoutRef.current = null
       }
     }
-  }, [autoConnect, connect])
+  }, [autoConnect, clearOpenTimeout, connect])
 
   /**
    * 网络恢复即刻重连，不等退避到点。
@@ -1385,6 +1434,8 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
   }, [sessionToken, connect, publicWithoutLogin])
 
   const resetForNewSession = () => {
+    clearOpenTimeout()
+    openSentRef.current = false
     engineSwitchingRef.current = false
     setEngineSwitching(false)
     setFollowUpPrediction(null)
@@ -1486,22 +1537,13 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
       codexSpeed,
       consultEvidenceSystems,
     }
-    if (!sendRaw({
-      type: 'open',
-      cwd,
-      title,
-      model,
-      mode: m,
-      engine,
-      apiBaseUrl,
-      authToken,
-      providerProfileId,
-      codexHome,
-      codexReasoningEffort,
-      codexSpeed,
-      consultEvidenceSystems,
-    })) connect()
-  }, [sendRaw, connect])
+    openTimeoutRef.current = window.setTimeout(() => {
+      const sent = openSentRef.current
+      failOpen(sent ? '等待会话创建确认超时。请先查看会话列表，再决定是否重试。'
+        : '连接超时，会话创建请求尚未发送。请检查连接后重试。')
+    }, 50_000) // 给 Sidecar 建连和引擎目录的两段等待留出回传时间。
+    connect()
+  }, [connect, failOpen])
 
   const switchTo = useCallback((sid: string, hintRunning = false) => {
     if (channel === 'collaboration' && sid !== collaborationSessionId) return

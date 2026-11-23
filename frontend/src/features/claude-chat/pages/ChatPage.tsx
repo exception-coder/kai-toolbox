@@ -735,11 +735,13 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
   }, [panel])
   useEffect(() => {
     if (!newSessionCreating) return
-    if (chat?.sessionId && chat.sessionId !== newSessionPreviousId.current && chat.state === 'ready' || chat?.state === 'error') {
-      newSessionCreateLock.current = false
-      setNewSessionCreating(false)
-    }
-  }, [chat?.sessionId, chat?.state, newSessionCreating])
+    const created = chat?.sessionId && chat.sessionId !== newSessionPreviousId.current && chat.state === 'ready'
+    if (!created && chat?.state !== 'error') return
+    newSessionCreateLock.current = false
+    setNewSessionCreating(false)
+    if (created) setPanel(previous => previous === 'new' ? 'none' : previous)
+    else setNewSessionCreateError(chat?.errorMessage || '尚未确认创建结果，请先查看会话列表。')
+  }, [chat?.sessionId, chat?.state, chat?.errorMessage, newSessionCreating])
   const adoptNewWorkspace = async (path: string) => {
     try {
       const existing = visibleNewRoots.find(root => workspacePathKey(root.root) === workspacePathKey(path)
@@ -962,7 +964,6 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
       chat.open(directory.cwd, model, undefined, choice.engine, provider, undefined)
       newSessionPreferences.remember(root!.root, { ...choice, cwd: directory.cwd })
       setNewSessionCreateError(null)
-      setPanel('none')
     } catch (error) {
       newSessionCreateLock.current = false
       setNewSessionCreating(false)
@@ -1978,7 +1979,8 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
                 )
               ) : (
                 <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center text-[var(--color-muted-foreground)]">
-                  <p>选一个历史会话，或新建一个开始对话</p>
+                  {newSessionCreateError && panel !== 'new' ? <p role="alert">{newSessionCreateError}</p>
+                    : <p>{newSessionCreating ? '正在等待会话创建确认…' : '选一个历史会话，或新建一个开始对话'}</p>}
                   <Button size="lg" className="shadow-md" onClick={() => setPanel('new')}>
                     <Plus className="size-4" /> 新建会话
                   </Button>
