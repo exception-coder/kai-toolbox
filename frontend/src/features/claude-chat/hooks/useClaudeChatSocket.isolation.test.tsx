@@ -4,12 +4,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useClaudeChatSocket } from './useClaudeChatSocket'
 import { ApiError } from '@/lib/api'
 import type { ChatItem, ServerMessage } from '../types'
+import { useMessageSendRecords } from '../lib/messageSendRecords'
 
 const api = vi.hoisted(() => ({
   loadMessages: vi.fn(), listQueuedMessages: vi.fn().mockResolvedValue([]), requestSessionCopy: vi.fn(),
-  stopQueuedMessage: vi.fn(), pauseQueuedMessage: vi.fn(), deleteQueuedMessage: vi.fn(), clearQueuedMessages: vi.fn(),
+  stopQueuedMessage: vi.fn(), pauseQueuedMessage: vi.fn(), deleteQueuedMessage: vi.fn(), clearQueuedMessages: vi.fn(), saveQueuedMessage: vi.fn(),
 }))
-vi.mock('../api', () => ({ ...api, loadPublicReviewMessages: vi.fn(), saveQueuedMessage: vi.fn() }))
+vi.mock('../api', () => ({ ...api, loadPublicReviewMessages: vi.fn() }))
 vi.mock('@/lib/auth', () => ({ useAuth: () => ({ token: 'test-login' }), getToken: () => 'test-login',
   ensureFreshToken: () => Promise.resolve(), emitSessionExpired: vi.fn(), logout: vi.fn(), probeAuth: vi.fn() }))
 vi.mock('@/lib/vibeEntryDiagnostics', () => ({ reportVibeEntry: vi.fn() }))
@@ -41,11 +42,87 @@ beforeEach(() => {
   api.requestSessionCopy.mockImplementation((sourceSessionId: string, requestId: string) =>
     Promise.resolve({ sourceSessionId, requestId, targetSessionId: 'copy' }))
   TestSocket.sockets = []
+  api.saveQueuedMessage.mockResolvedValue(undefined)
   vi.stubGlobal('WebSocket', TestSocket)
   api.loadMessages.mockImplementation((id: string | null, _cwd: string, _before: unknown, _limit: number, sessionId: string) =>
     Promise.resolve(page(id?.replace('sdk-', '') ?? sessionId)))
 })
 afterEach(() => { cleanup(); vi.useRealTimers(); vi.clearAllMocks(); vi.unstubAllGlobals() })
+
+describe('durable outgoing input', () => {
+  it('accepts a receipt replay after refresh without resending the stored input', async () => {
+    localStorage.clear()
+    const first = renderHook(() => useClaudeChatSocket({ autoConnect: false }))
+    act(() => first.result.current.switchTo('receipt-replay'))
+    await waitFor(() => expect(TestSocket.sockets).toHaveLength(1))
+    const original = TestSocket.sockets[0]
+    await act(async () => { original.open(); original.receive(ready('receipt-replay')) })
+    act(() => first.result.current.send('刷新时仍未收到回执的原文'))
+    const sent = original.send.mock.calls.map(([payload]) => JSON.parse(payload)).find(message => message.type === 'send')
+    first.unmount()
+    const restored = renderHook(() => useClaudeChatSocket({ autoConnect: false }))
+    const record = renderHook(() => useMessageSendRecords('anonymous', 'receipt-replay'))
+    act(() => restored.result.current.switchTo('receipt-replay'))
+    await waitFor(() => expect(TestSocket.sockets).toHaveLength(2))
+    const reconnected = TestSocket.sockets[1]
+    await act(async () => { reconnected.open(); reconnected.receive(ready('receipt-replay')) })
+    act(() => reconnected.receive({ type: 'sendAccepted', seq: 2, messageId: sent.messageId }))
+    expect(record.result.current.records[0].status).toBe('accepted')
+    expect(reconnected.send.mock.calls.map(([payload]) => JSON.parse(payload)).some(message => message.type === 'send')).toBe(false)
+  })
+
+  it('keeps queued input when the server cannot save the queue item', async () => {
+    localStorage.clear()
+    api.saveQueuedMessage.mockRejectedValueOnce(new Error('offline'))
+    const { result } = renderHook(() => useClaudeChatSocket({ autoConnect: false }))
+    act(() => result.current.switchTo('queue-failed'))
+    await waitFor(() => expect(TestSocket.sockets).toHaveLength(1))
+    const socket = TestSocket.sockets[0]
+    await act(async () => { socket.open(); socket.receive(ready('queue-failed')) })
+    const record = renderHook(() => useMessageSendRecords('anonymous', 'queue-failed'))
+    act(() => result.current.enqueue('排队任务原文'))
+    await waitFor(() => expect(record.result.current.records[0]).toMatchObject({ text: '排队任务原文', status: 'failed' }))
+    expect(result.current.syncWarning).toContain('加入队列失败')
+  })
+
+  it('keeps the original message after send acknowledgement, engine failure and page remount', async () => {
+    localStorage.clear()
+    const { result, unmount } = renderHook(() => useClaudeChatSocket({ autoConnect: false }))
+    act(() => result.current.switchTo('record-session'))
+    await waitFor(() => expect(TestSocket.sockets).toHaveLength(1))
+    const socket = TestSocket.sockets[0]
+    await act(async () => { socket.open(); socket.receive(ready('record-session')) })
+    act(() => result.current.send('完整任务原文'))
+    const sent = socket.send.mock.calls.map(([payload]) => JSON.parse(payload)).find(message => message.type === 'send')
+    expect(sent.messageId).toBeTruthy()
+    const record = renderHook(() => useMessageSendRecords('anonymous', 'record-session'))
+    expect(record.result.current.records[0]).toMatchObject({ text: '完整任务原文', status: 'waiting' })
+    act(() => socket.receive({ type: 'sendAccepted', seq: 2, messageId: sent.messageId }))
+    expect(record.result.current.records[0].status).toBe('accepted')
+    act(() => socket.receive({ type: 'error', seq: 3, code: 'CODEX_QUERY_FAILED', message: 'MCP startup failed' }))
+    expect(record.result.current.records[0].status).toBe('failed')
+    unmount()
+    record.unmount()
+    const restored = renderHook(() => useMessageSendRecords('anonymous', 'record-session'))
+    expect(restored.result.current.records[0]).toMatchObject({ text: '完整任务原文', status: 'failed' })
+  })
+
+  it('does not send when the local recovery record cannot be saved', async () => {
+    const { result } = renderHook(() => useClaudeChatSocket({ autoConnect: false }))
+    act(() => result.current.switchTo('storage-full'))
+    await waitFor(() => expect(TestSocket.sockets).toHaveLength(1))
+    const socket = TestSocket.sockets[0]
+    await act(async () => { socket.open(); socket.receive(ready('storage-full')) })
+    const storage = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('full') })
+    try {
+      let accepted: boolean | void
+      act(() => { accepted = result.current.send('草稿必须保留') })
+      expect(accepted!).toBe(false)
+      expect(socket.send.mock.calls.map(([payload]) => JSON.parse(payload)).some(message => message.type === 'send')).toBe(false)
+      expect(result.current.syncWarning).toContain('本次未发送')
+    } finally { storage.mockRestore() }
+  })
+})
 
 describe('new session acknowledgement', () => {
   it('surfaces an engine rejection before ready and allows an explicit retry', async () => {

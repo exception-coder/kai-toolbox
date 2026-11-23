@@ -53,8 +53,9 @@ export function SharedConversation({ sessionId }: { sessionId: string }) {
     event.preventDefault()
     if (!current || !ready || uploading || (!draft.trim() && !attachments.length)) return
     const files = attachments.map(({ name, path, mime, previewUrl }) => ({ name, path, mime, url: previewUrl }))
-    if (current.running || current.backgroundTasks.length > 0 || pending) current.enqueue(draft, files)
-    else current.send(draft, files)
+    if (current.running || current.backgroundTasks.length > 0 || pending) {
+      if (current.enqueue(draft, files) === false) return
+    } else if (current.send(draft, files) === false) return
     setDraft('')
     setAttachments([])
   }

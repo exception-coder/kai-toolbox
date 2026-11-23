@@ -34,6 +34,7 @@ import { applyAssistantSnapshot } from '../lib/assistantSnapshot'
 import { RecentHistoryCache } from '../lib/recentHistoryCache'
 import { currentFollowUpPrediction, type FollowUpPrediction } from '../lib/followUpPrediction'
 import { acknowledgeSessionCopy, copySessionConfiguration, isCopyRejected } from '../lib/sessionConfigurationCopy'
+import { messageRecordScope, saveMessageSendRecord, updateMessageSendRecord, type SendRecordStatus } from '../lib/messageSendRecords'
 
 /**
  * 「弹窗自动允许」：全局偏好（跨会话共用一个键，保持与旧版本一致）。
@@ -255,15 +256,15 @@ export interface UseClaudeChatSocket {
    * 平台调度协议必须走 developerInstructions，不能再借 displayText 隐藏后混入用户历史。
    */
   send: (text: string, attachments?: SendAttachment[], displayText?: string, developerInstructions?: string,
-         assistant?: AssistantMessageEnvelope) => void
+         assistant?: AssistantMessageEnvelope) => boolean | void
   /** 将纯文本追加到官方 Codex 当前活跃轮次。 */
-  steer: (text: string) => void
+  steer: (text: string) => boolean | void
   /** 待发送队列：running 时入队的消息，本轮结束后按序自动发出 */
   queued: QueuedMessage[]
   /** 上一轮未正常完成时的暂停原因；队列保留但不会自动发出。 */
   queuePausedReason: string | null
   /** 入队一条待发送消息（running 时排队；空闲时也可入队，会立即触发发送）。displayText 同 send()。 */
-  enqueue: (text: string, attachments?: SendAttachment[], displayText?: string, developerInstructions?: string) => void
+  enqueue: (text: string, attachments?: SendAttachment[], displayText?: string, developerInstructions?: string) => boolean | void
   /** 移除队列中某条 */
   editQueued: (id: string, text: string) => Promise<void>
   removeQueued: (id: string) => void
@@ -434,7 +435,36 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
     socket?.close()
   }, [clearOpenTimeout])
   // 订阅登录态：登录成功后 token 变化 → 若之前因失效停连，则自动恢复重连。
-  const { token: sessionToken } = useAuth()
+  const { token: sessionToken, user: sessionUser } = useAuth()
+  const recordScopeRef = useRef(messageRecordScope(sessionUser?.userId))
+  recordScopeRef.current = messageRecordScope(sessionUser?.userId)
+  const outgoingRecordsRef = useRef(new Map<string, { sessionId: string; scope: string; kind: 'send' | 'steer' | 'queue'; accepted: boolean }>())
+  const rememberOutgoing = (id: string, text: string, attachments?: SendAttachment[], kind: 'send' | 'steer' | 'queue' = 'send') => {
+    const owner = sessionIdRef.current
+    if (!owner) return false
+    try {
+      saveMessageSendRecord(recordScopeRef.current, owner, { id, text, attachments, status: 'waiting', createdAt: Date.now() })
+      if (kind === 'send') {
+        for (const [previousId, previous] of outgoingRecordsRef.current) {
+          if (previous.sessionId === owner && previous.kind !== 'queue') outgoingRecordsRef.current.delete(previousId)
+        }
+      }
+      outgoingRecordsRef.current.set(id, { sessionId: owner, scope: recordScopeRef.current, kind, accepted: false })
+      return true
+    } catch {
+      setSyncWarning('原文未能保存到本机发送记录，本次未发送。请检查浏览器存储空间，输入内容已保留。')
+      return false
+    }
+  }
+  const updateOutgoing = (id: string, status: SendRecordStatus, note?: string) => {
+    const record = outgoingRecordsRef.current.get(id)
+    const owner = record?.sessionId ?? sessionIdRef.current
+    if (!owner) return
+    if (status === 'accepted' && record) record.accepted = true
+    // 刷新后的回执仍可更新原记录，无需恢复自动发送或旧轮次的内存跟踪。
+    try { updateMessageSendRecord(record?.scope ?? recordScopeRef.current, owner, id, status, note) }
+    catch { setSyncWarning('发送状态未能保存，请先核对会话实际进度；原文保留在本机发送记录。') }
+  }
   useEffect(() => {
     setFollowUpPrediction(null)
     predictionAnchorRef.current = null
@@ -461,7 +491,10 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
     const ws = wsRef.current
     if (ws && ws.readyState === WebSocket.OPEN) {
       const text = JSON.stringify(msg)
-      ws.send(text)
+      try { ws.send(text) } catch {
+        pushDebug('conn', 'send-failed', `连接写入失败 type=${msg.type}`)
+        return false
+      }
       if (msg.type !== 'voiceControl' && !(msg.type === 'send' && msg.voice)) pushDebug('send', msg.type, text)
       return true
     }
@@ -802,6 +835,9 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
           return prev
         })
         break
+      case 'sendAccepted':
+        updateOutgoing(msg.messageId, 'accepted')
+        break
       case 'reviewIntent':
         setItems(prev => prev.map(item => item.kind === 'user' && item.id === msg.messageId
           ? {
@@ -950,6 +986,13 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
         setInterrupting(false)
         setPending(null)
         const completedSuccessfully = isSuccessfulTurnCompletion(msg.stopReason)
+        for (const [id, record] of outgoingRecordsRef.current) {
+          if (record.sessionId === sessionIdRef.current && record.scope === recordScopeRef.current && record.kind !== 'queue'
+            && (!completedSuccessfully || record.accepted)) {
+            updateOutgoing(id, completedSuccessfully ? 'settled' : 'failed', completedSuccessfully ? undefined : `本轮未正常完成（${msg.stopReason}），重发前请先核对实际执行结果。`)
+            outgoingRecordsRef.current.delete(id)
+          }
+        }
         queueReleaseSessionRef.current = !serverQueueDispatchRef.current && completedSuccessfully
           ? sessionIdRef.current : null
         setQueuePausedReason(completedSuccessfully
@@ -973,6 +1016,8 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
         window.dispatchEvent(new CustomEvent('claude-chat:autopilot-changed', { detail: msg }))
         break
       case 'queueDispatched': {
+        const queuedRecord = outgoingRecordsRef.current.get(msg.messageId)
+        if (queuedRecord) { queuedRecord.kind = 'send'; updateOutgoing(msg.messageId, 'accepted') }
         activeTurnIdRef.current = null
         setQueueCheck(null)
         queueReleaseSessionRef.current = null
@@ -1006,6 +1051,13 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
           || msg.outcome === 'accepted' || msg.outcome === 'correcting'))
         break
       case 'error':
+        for (const [id, record] of outgoingRecordsRef.current) {
+          if (record.sessionId === sessionIdRef.current && record.scope === recordScopeRef.current && record.kind !== 'queue'
+            && (msg.terminal !== false || ['SESSION_STATE_UNCONFIRMED', 'TURN_BUSY', 'SYSTEM_UPDATING', 'SEND_STATUS_UNCONFIRMED', 'SIDECAR_DOWN', 'STEER_UNAVAILABLE'].includes(msg.code))) {
+            updateOutgoing(id, 'failed', `本次发送或引擎调用出现异常（${msg.code}），请核对执行结果后再发送。`)
+            outgoingRecordsRef.current.delete(id)
+          }
+        }
         if (intentRef.current?.kind === 'open' && !sessionIdRef.current) {
           failOpen(msg.message || '会话创建失败，请重试。')
         }
@@ -1453,6 +1505,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
     previousSocket?.close()
     sessionReadyRef.current = false
     pendingSendsRef.current = []
+    outgoingRecordsRef.current.clear()
     duplicateSourceRef.current = null
     configurationCopyRef.current = null
     duplicateContextSeedRef.current = null
@@ -1657,10 +1710,12 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
 
   const send = useCallback((text: string, attachments?: SendAttachment[], displayText?: string,
                             developerInstructions?: string, assistant?: AssistantMessageEnvelope) => {
-    if (engineSwitchingRef.current) return
+    if (engineSwitchingRef.current) return false
     const t = text.trim()
     const hasAtt = !!attachments && attachments.length > 0
-    if (!t && !hasAtt) return
+    if (!t && !hasAtt) return false
+    const messageId = nextId()
+    if (!rememberOutgoing(messageId, text, attachments)) return false
     // 任意新轮一旦开始就撤销旧轮凭证；下一条队列消息必须等待本轮自己的成功终态。
     queueReleaseSessionRef.current = null
     setQueuePausedReason(null)
@@ -1670,7 +1725,6 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
     const disp = hasAtt ? attachments!.map(a => ({ name: a.name, mime: a.mime, url: a.url })) : undefined
     // displayText 只影响本地这条气泡的展示；真正发给 agent 的仍是完整的 t（下面 sendRaw 不变）
     const dt = displayText?.trim()
-    const messageId = nextId()
     setItems(prev => [...prev, { kind: 'user', id: messageId, text: t, displayText: dt && dt !== t ? dt : undefined, ts: Date.now(), attachments: disp && disp.length ? disp : undefined }])
     turnStartRef.current = Date.now()
     ttftRef.current = null
@@ -1678,7 +1732,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
     applyTurnRunningSignal('localStart')
     setInterrupting(false)
     const hiddenInstructions = developerInstructions?.trim() || undefined
-    if (sendRaw({ type: 'send', text: t, attachments: atts, developerInstructions: hiddenInstructions, assistant, messageId })) return
+    if (sendRaw({ type: 'send', text: t, attachments: atts, developerInstructions: hiddenInstructions, assistant, messageId })) return true
     // WS 未连上：排队并触发重连（带 attach 意图），onopen 时先 attach 再补发，避免消息丢失/卡“思考中”
     pendingSendsRef.current.push({ messageId, text: t, attachments: atts, developerInstructions: hiddenInstructions, assistant })
     const ws = wsRef.current
@@ -1688,17 +1742,21 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
       }
       connect()
     }
+    return true
   }, [sendRaw, connect])
 
   const steer = useCallback((text: string) => {
     const t = text.trim()
-    if (!t) return
+    if (!t) return false
     const messageId = nextId()
+    if (!rememberOutgoing(messageId, text, undefined, 'steer')) return false
     if (!sendRaw({ type: 'steer', text: t, messageId })) {
       setSyncWarning('连接暂不可用，补充内容未发送；请重连后重试')
-      return
+      updateOutgoing(messageId, 'failed', '连接暂不可用，补充内容未发送。')
+      return false
     }
     setItems(previous => [...previous, { kind: 'user', id: messageId, text: t, ts: Date.now() }])
+    return true
   }, [sendRaw])
 
   /**
@@ -1716,28 +1774,36 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
                                developerInstructions?: string) => {
     if (channel === 'consult') {
       setSyncWarning('业务咨询不支持排队发送，请等待当前回答完成后再追问')
-      return
+      return false
     }
     const t = text.trim()
-    if (!t && !(attachments && attachments.length > 0)) return
+    if (!t && !(attachments && attachments.length > 0)) return false
     const sessionId = sessionIdRef.current
-    if (!sessionId) return
+    if (!sessionId) return false
     const message = { id: nextId(), ownerSessionId: sessionId, text: t, attachments, displayText, developerInstructions, createdAt: Date.now() }
+    if (!rememberOutgoing(message.id, text, attachments, 'queue')) return false
     if (publicWithoutLogin || reviewOnlyRef.current) {
       setQueued(prev => [...prev, message])
-      return
+      return true
     }
     // 先落盘再进入可调度内存队列，避免当前轮恰好结束时 DELETE 抢在 POST 前面导致幽灵队列项。
     void saveQueuedMessage(sessionId, message)
       .then(async () => {
-        const messages = await listQueuedMessages(sessionId)
-        if (sessionIdRef.current === sessionId) setQueued(messages.map(item => ({ ...item, ownerSessionId: item.sessionId })))
+        updateOutgoing(message.id, 'queued')
+        try {
+          const messages = await listQueuedMessages(sessionId)
+          if (sessionIdRef.current === sessionId) setQueued(messages.map(item => ({ ...item, ownerSessionId: item.sessionId })))
+        } catch {
+          if (sessionIdRef.current === sessionId) setSyncWarning('消息已保存到服务端队列，列表刷新失败。请重新查看队列，避免重复发送。')
+        }
       })
       .catch(error => {
+        updateOutgoing(message.id, 'failed', '队列保存未确认，请先检查服务端队列，再决定是否重新发送。')
         if (sessionIdRef.current === sessionId) {
           setSyncWarning(`消息加入队列失败：${error instanceof Error ? error.message : String(error)}`)
         }
       })
+    return true
   }, [channel, publicWithoutLogin])
   const pauseQueued = useCallback((id: string) => {
     const sessionId = sessionIdRef.current

@@ -19,6 +19,7 @@ import { latestSettledResult, resultFailure, turnResultLabel } from '../lib/turn
 import { MessageCopyButton as CopyButton } from './MessageCopyButton'
 import { MessageImage } from './messages/MessageImage'
 import { ImageLightbox } from './ImageLightbox'
+import { MessageSendRecords } from './MessageSendRecords'
 import { ThinkingIndicator, type ActiveTask } from './ThinkingIndicator'
 import { EngineIcon, engineIdFromDisplayName } from './EngineIcon'
 import { useMobileViewport } from '../hooks/useMobileViewport'
@@ -397,6 +398,7 @@ export const MessageList = memo(forwardRef<MessageListHandle, Props>(function Me
             className="ml-2 underline underline-offset-4 hover:text-[var(--color-foreground)]">显示工具记录</button>
         </div>
       )}
+      <MessageSendRecords key={sessionKey} sessionId={sessionKey} />
       <Virtuoso
         key={`${resetKey}::${listRevision}`}
         ref={virtuosoRef}

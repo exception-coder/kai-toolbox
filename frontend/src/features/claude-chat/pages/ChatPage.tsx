@@ -444,7 +444,7 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
     seed: string
   } | null>(null)
   const pendingSendIntentRef = useRef<{
-    intentId: string
+    intentId?: string
     previousSessionId: string | null
     seed: string
     prdSessionId?: string
@@ -607,16 +607,19 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
     if (!pendingIntent || !chat || !isChatLaunchTargetReady(pendingIntent.previousSessionId, targetSessionId)) return
 
     pendingSendIntentRef.current = null
-    chat.send(pendingIntent.seed)
+    const accepted = chat.send(pendingIntent.seed)
+    if (accepted === false) setDraft(current => current.trim() ? `${current}\n\n${pendingIntent.seed}` : pendingIntent.seed)
 
     const search = new URLSearchParams({ sessionId: targetSessionId })
     if (pendingIntent.prdSessionId) search.set('prdSessionId', pendingIntent.prdSessionId)
     navigate(`/tools/claude-chat?${search.toString()}`, { replace: true })
 
-    void acknowledgeLaunchIntent(pendingIntent.intentId).catch(error => {
-      setLaunchIntentError(error instanceof Error ? error.message : String(error))
-    })
-  }, [chat?.sessionId, chat?.send, navigate])
+    if (accepted !== false && pendingIntent.intentId) {
+      void acknowledgeLaunchIntent(pendingIntent.intentId).catch(error => {
+        setLaunchIntentError(error instanceof Error ? error.message : String(error))
+      })
+    }
+  }, [chat?.sessionId, chat?.send, navigate, setDraft])
 
   useEffect(() => {
     const pendingIntent = pendingDraftIntentRef.current
@@ -1014,13 +1017,13 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
     const atts = attachments.map(a => ({ name: a.name, path: a.path, mime: a.mime, url: a.previewUrl }))
     if (shouldQueueMessage) {
       if (runningAction === 'steer' && canInsertRunningMessage) {
-        chat.steer(draft)
+        if (chat.steer(draft) === false) return
       } else {
-        chat.enqueue(draft, atts)
+        if (chat.enqueue(draft, atts) === false) return
       }
     } else {
       // 图片把本地 previewUrl 一并带上 → 气泡里显示缩略图（object URL 不在此 revoke，已被消息引用）
-      chat.send(draft, atts)
+      if (chat.send(draft, atts) === false) return
     }
     setDraft('')
     setComposerExpanded(false)
@@ -1505,10 +1508,9 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
       {panel === 'onboard' && (
         <OnboardPipelinePanel
           onLaunch={(seed, cwd) => {
-            // 开一个 Claude 会话（skill 依赖 Claude 端团队插件 + Bash）并投喂触发语，
-            // 让 yoooni-onboard-pipeline 接管：open 先于 send 到达（已验证），真正一键。
+            // 等新会话身份确认后复用首条消息投递，确保原文能按目标会话保存。
+            pendingSendIntentRef.current = { previousSessionId: chat.sessionId, seed }
             chat.open(cwd.trim(), undefined, undefined, 'claude')
-            chat.send(seed)
             setPanel('none')
           }}
           onClose={() => setPanel('none')}

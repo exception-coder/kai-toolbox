@@ -8,6 +8,7 @@ import { clearRecentSessionHint, readRecentSessionHint, saveRecentSessionHint } 
 import { useAuth } from '@/lib/auth'
 import { reportVibeEntry } from '@/lib/vibeEntryDiagnostics'
 import { resolveSharingRoute } from '../sessionSharingApi'
+import { setDraftFor } from '../lib/draftPref'
 
 // 独立常驻引擎：仅首次激活后下载，不包裹页面，加载完成不重建外壳或输入草稿。
 export const ChatRuntimeEngine = memo(function ChatRuntimeEngine({
@@ -52,7 +53,9 @@ export const ChatRuntimeEngine = memo(function ChatRuntimeEngine({
     [location.search],
   )
   const handledEmergencyRef = useRef<string | null>(null)
-  const pendingEmergencyTitleRef = useRef<{ requestId: string; title: string } | null>(null)
+  const pendingEmergencyLaunchRef = useRef<{
+    requestId: string; title: string; previousSessionId: string | null; prompt: string; displayText: string
+  } | null>(null)
   const autoOpenedRef = useRef(false)
 
   useEffect(() => {
@@ -87,7 +90,10 @@ export const ChatRuntimeEngine = memo(function ChatRuntimeEngine({
 
         if (reusable) {
           chat.switchTo(reusable.id, reusable.status === 'RUNNING' && reusable.live)
-          chat.enqueue(prompt, undefined, `紧急修复 ${request.featureId}：检查异常并立即恢复模块`)
+          if (chat.enqueue(prompt, undefined, `紧急修复 ${request.featureId}：检查异常并立即恢复模块`) === false) {
+            setDraftFor(reusable.id, previous => previous.trim() ? `${previous}\n\n${prompt}` : prompt)
+            throw new Error('修复指令未加入队列，原文已保留到目标会话草稿。')
+          }
           publishEmergencyRepairStatus({
             id: request.id,
             state: 'started',
@@ -95,13 +101,13 @@ export const ChatRuntimeEngine = memo(function ChatRuntimeEngine({
             message: `已找到正在处理该模块的会话“${reusable.title || reusable.id.slice(0, 8)}”，修复指令已强制加入队列。`,
           })
         } else {
-          pendingEmergencyTitleRef.current = { requestId: request.id, title }
+          pendingEmergencyLaunchRef.current = { requestId: request.id, title, previousSessionId: chat.sessionId,
+            prompt, displayText: `紧急修复 ${request.featureId}：检查异常并立即恢复模块` }
           chat.open(selfRepo.path, undefined, 'bypassPermissions', chat.currentEngine === 'codex' ? 'codex' : 'claude')
-          chat.send(prompt, undefined, `紧急修复 ${request.featureId}：检查异常并立即恢复模块`)
           publishEmergencyRepairStatus({
             id: request.id,
             state: 'started',
-            message: '未发现正在修复该模块的活跃会话，已创建全自动临时会话并发出修复指令。',
+            message: '正在创建临时修复会话，确认目标会话后提交修复指令。',
           })
         }
       } catch (error) {
@@ -118,19 +124,25 @@ export const ChatRuntimeEngine = memo(function ChatRuntimeEngine({
   }, [chat, demo, emergencyRepair, onEmergencyRepairHandled])
 
   useEffect(() => {
-    const pendingTitle = pendingEmergencyTitleRef.current
-    if (!pendingTitle || !chat.sessionId) return
-    pendingEmergencyTitleRef.current = null
-    renameSession(chat.sessionId, pendingTitle.title).catch(() => {
+    const pendingLaunch = pendingEmergencyLaunchRef.current
+    if (!pendingLaunch || !chat.sessionId || chat.state !== 'ready' || chat.sessionId === pendingLaunch.previousSessionId) return
+    pendingEmergencyLaunchRef.current = null
+    if (chat.send(pendingLaunch.prompt, undefined, pendingLaunch.displayText) === false) {
+      setDraftFor(chat.sessionId, previous => previous.trim() ? `${previous}\n\n${pendingLaunch.prompt}` : pendingLaunch.prompt)
+      publishEmergencyRepairStatus({ id: pendingLaunch.requestId, state: 'failed',
+        message: '修复指令未提交，原文已保留到目标会话草稿。' })
+      return
+    }
+    renameSession(chat.sessionId, pendingLaunch.title).catch(() => {
       // 标题只用于后续复用识别；改名失败不影响已发出的修复任务。
     })
     publishEmergencyRepairStatus({
-      id: pendingTitle.requestId,
+      id: pendingLaunch.requestId,
       state: 'started',
       sessionId: chat.sessionId,
-      message: `全自动临时修复会话 ${chat.sessionId.slice(0, 8)} 已开始执行。`,
+      message: `临时修复会话 ${chat.sessionId.slice(0, 8)} 已提交指令，等待引擎回执。`,
     })
-  }, [chat.sessionId])
+  }, [chat.sessionId, chat.state, chat.send])
 
   // 挂载即开一次会话：demo 直接 open（服务端供给受约束副本沙箱，忽略入参）；
   // 正式态优先打开路由指定会话，否则续接最近一条会话。
