@@ -49,12 +49,14 @@ export function subscriptionQuotaRows(
       const thirdParty = session.providerKind === 'thirdParty'
       const home = engine === 'codex' ? session.codexHome?.trim() || '' : ''
       const normalized = normalizeHome(home)
-      const key = thirdParty ? `${engine}:api` : `${engine}:official:${normalized}`
+      const gateway = thirdParty ? gatewaySource(session.providerBaseUrl) : undefined
+      const key = thirdParty ? `${engine}:api:${gateway?.key ?? session.id}` : `${engine}:official:${normalized}`
       const existing = accounts.get(key)
       if (existing) { existing.sessionCount++; continue }
       const supported = engine === 'claude' || engine === 'codex'
       accounts.set(key, {
-        key, billing: thirdParty ? 'metered' : supported ? 'subscription' : 'unsupported', engine, label, account: thirdParty ? '第三方 / API 计费' : home.split(/[\\/]/).filter(Boolean).at(-1) || '默认官方账号',
+        key, billing: thirdParty ? 'metered' : supported ? 'subscription' : 'unsupported', engine, label,
+        account: thirdParty ? gateway?.label ?? 'API 账号' : home.split(/[\\/]/).filter(Boolean).at(-1) || '默认官方账号',
         sessionId: session.id, current: session.id === currentId, sessionCount: 1,
         queryable: !thirdParty && supported,
         reason: thirdParty ? 'API 计费不提供订阅窗口' : !supported ? '此引擎尚无已核验的对应额度接口' : undefined,
@@ -64,6 +66,15 @@ export function subscriptionQuotaRows(
     else rows.push(...accounts.values())
   }
   return rows.sort((a, b) => Number(b.current) - Number(a.current))
+}
+
+function gatewaySource(value?: string | null) {
+  if (!value) return undefined
+  try {
+    const url = new URL(value)
+    if (!['http:', 'https:'].includes(url.protocol)) return undefined
+    return { key: url.origin + url.pathname.replace(/\/+$/, ''), label: url.host }
+  } catch { return undefined }
 }
 
 function normalizeHome(home: string): string {

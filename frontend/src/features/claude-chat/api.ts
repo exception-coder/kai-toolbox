@@ -987,6 +987,7 @@ export function fetchUsage(): Promise<EngineUsage[]> {
 
 export interface SubscriptionQuota {
   available: boolean
+  billing?: 'metered'
   message?: string
   fetchedAt: number | null
   planType?: string

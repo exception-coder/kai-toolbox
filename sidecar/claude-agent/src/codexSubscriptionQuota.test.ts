@@ -42,6 +42,7 @@ test('两个账号并发查询各自目录，API与未登录账号不查询配�
   assert.equal(a.windows[0].remainingPercent, 90)
   assert.equal(b.windows[0].remainingPercent, 20)
   assert.equal(api.available, false)
+  assert.equal(api.billing, 'metered')
   assert.equal(calls.some(([method, home]) => home === 'api' && method === 'account/rateLimits/read'), false)
 })
 

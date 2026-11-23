@@ -6,6 +6,7 @@ import { callAppServer } from './codexAppServer.js'
 
 export interface SubscriptionQuota {
   available: boolean
+  billing?: 'metered'
   message?: string
   fetchedAt: number | null
   planType?: string
@@ -70,6 +71,10 @@ export async function readCodexSubscriptionQuota(
     const before = await fingerprint(home)
     if (before === 'unreadable') return unavailableQuota('当前账号登录信息无法读取')
     const account = record((await request('account/read', { refreshToken: false }, home)).account)
+    if (account?.type === 'apiKey') {
+      if (before !== await fingerprint(home)) return unavailableQuota('账号登录状态已变化，请重新获取')
+      return { ...unavailableQuota('按量计费'), billing: 'metered' }
+    }
     if (account?.type !== 'chatgpt') return unavailableQuota('当前账号不是可查询额度的 ChatGPT 订阅')
     const result = await request('account/rateLimits/read', {}, home)
     if (before !== await fingerprint(home)) return unavailableQuota('账号登录状态已变化，请重新获取')

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { ApiError } from '@/lib/api'
 import type { SubscriptionQuota } from '../api'
 import type { QuotaAccountRow } from './subscriptionQuotaRows'
 import { QUOTA_STALE_MS, quotaState, quotaSummary, quotaWindowLabel } from './quotaStatus'
@@ -30,6 +31,12 @@ describe('额度状态', () => {
   it('刷新中保留上次成功结果，不回退为获取中', () => {
     const state = quotaState(row('subscription'), { data: quota(now), error: null, isFetching: true }, now)
     expect(state).toMatchObject({ kind: 'ok', refreshing: true })
+  })
+
+  it('刷新失去访问权限时隐藏旧额度', () => {
+    const state = quotaState(row('subscription'), { data: quota(now), error: new ApiError(403, null, 'forbidden'), isFetching: false }, now)
+    expect(state.kind).toBe('failed')
+    expect(state).not.toHaveProperty('quota')
   })
 
   it('窗口命名与折叠摘要只使用服务商返回的数据', () => {
