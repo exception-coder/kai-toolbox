@@ -25,9 +25,25 @@ test('RPC diagnostics preserve failures and omit history, credentials and raw er
   const failure = new Error('secret-token and private history')
   await assert.rejects(observeCodexRpc('thread/resume', async () => { throw failure }, context), error => error === failure)
   await assert.rejects(observeCodexRpc('thread/resume', async () => { throw new CodexRpcTimeoutError('thread/resume', 120_000) }, context), CodexRpcTimeoutError)
-  assert.deepEqual(logs.map(value => JSON.parse(value).outcome), ['completed', 'failed', 'timeout'])
-  assert.ok(logs.every(value => JSON.parse(value).elapsedMs >= 0))
+  const completed = logs.map(value => JSON.parse(value)).filter(value => value.event === 'codex_rpc_finished')
+  assert.deepEqual(completed.map(value => value.outcome), ['completed', 'failed', 'timeout'])
+  assert.ok(completed.every(value => value.elapsedMs >= 0))
   assert.doesNotMatch(logs.join('\n'), /secret-token|private history/)
+})
+
+test('successful startup stages are timed without logging metadata payloads or ordinary polling', async t => {
+  const logs: string[] = []
+  t.mock.method(console, 'info', (value: string) => logs.push(value))
+  for (const method of ['initialize', 'config/read', 'skills/list', 'mcpServerStatus/list', 'thread/turns/list']) {
+    await observeCodexRpc(method, async () => ({ token: 'private-account', instructions: 'private-content' }),
+      { sessionId: 'session', threadId: 'thread' })
+  }
+  const entries = logs.map(value => JSON.parse(value))
+  assert.equal(entries.length, 8)
+  assert.deepEqual(entries.filter(value => value.event === 'codex_rpc_finished').map(value => value.method),
+    ['initialize', 'config/read', 'skills/list', 'mcpServerStatus/list'])
+  assert.ok(entries.filter(value => value.event === 'codex_rpc_finished').every(value => value.outcome === 'completed'))
+  assert.doesNotMatch(logs.join('\n'), /private-account|private-content|thread\/turns\/list/)
 })
 
 test('upstream diagnostics distinguish an explicit 1009 from an unknown close code', t => {
