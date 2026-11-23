@@ -72,6 +72,7 @@ public class QueuedChatMessageService {
     public QueuedChatMessage save(String sessionId, String id, String text, String displayText,
                                   String developerInstructions, List<QueuedChatMessage.Attachment> attachments,
                                   Long createdAt) {
+        repository.acquireWriteIntent();
         requireSession(sessionId);
         if (id == null || id.isBlank()) throw new IllegalArgumentException("队列消息 ID 不能为空");
         if (id.trim().startsWith("autopilot:")) {
@@ -164,6 +165,7 @@ public class QueuedChatMessageService {
 
     @Transactional
     public void clear(String sessionId) {
+        repository.acquireWriteIntent();
         requireSession(sessionId);
         for (var message : repository.findBySessionId(sessionId)) delete(sessionId, message.id());
     }
