@@ -280,7 +280,8 @@ function useMentionEditor({
     const textarea = textareaRef.current
     const foldStart = Number(textarea?.dataset.foldStart)
     const foldEnd = Number(textarea?.dataset.foldEnd)
-    const fold = Number.isFinite(foldStart) && Number.isFinite(foldEnd) ? { raw: value, start: foldStart, end: foldEnd } : null
+    const fold = Number.isFinite(foldStart) && Number.isFinite(foldEnd)
+      ? { raw: value, start: foldStart, end: foldEnd, separatorLength: Number(textarea?.dataset.foldSeparatorLength ?? 0) } : null
     const visible = visibleDraft(value, fold)
     const selectionStart = textarea?.selectionStart ?? visible.length
     const selectionEnd = textarea?.selectionEnd ?? selectionStart

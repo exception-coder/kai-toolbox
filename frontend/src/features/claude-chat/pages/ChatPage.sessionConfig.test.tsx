@@ -22,6 +22,7 @@ const testRuntime = vi.hoisted(() => ({
   engines: undefined as EngineCatalogEntry[] | undefined,
   chat: {
     open: vi.fn(),
+    dismissFollowUpPrediction: vi.fn(),
     send: vi.fn(), steer: vi.fn(), enqueue: vi.fn(), interrupt: vi.fn(),
     setModel: vi.fn(), setCodexOptions: vi.fn(), refreshModels: vi.fn(), modelsRefreshing: false,
     setClaudeOptions: vi.fn(), claudeOptions: { effort: 'auto', ultracode: false } as ClaudeSessionOptions,
@@ -157,6 +158,17 @@ async function openNewSessionSettings() {
 }
 
 describe('ChatPage session configuration', () => {
+  it('sends the text after a folded Markdown paste as a separate paragraph', async () => {
+    mountChat()
+    const doc = '# 验收说明\n' + '- 保留 Markdown 正文与排版\n'.repeat(100).trimEnd()
+    const input = await screen.findByRole('textbox', { name: '消息输入' })
+    fireEvent.paste(input, { clipboardData: { getData: () => doc, files: [] } })
+    expect(input).toHaveValue('')
+    fireEvent.change(input, { target: { value: '按这份文档复核' } })
+    fireEvent.click(screen.getByRole('button', { name: '发送' }))
+    expect(testRuntime.chat.send).toHaveBeenCalledExactlyOnceWith(doc + '\n\n按这份文档复核', [])
+  })
+
   it('running Codex distinguishes the dispatched request from next-turn choices without interrupting', async () => {
     testRuntime.chat.running = true
     testRuntime.chat.models = [{ value: 'gpt-5.6-sol', displayName: 'GPT-5.6-Sol', reasoningEfforts: ['low', 'high'], fastSupported: true }]
