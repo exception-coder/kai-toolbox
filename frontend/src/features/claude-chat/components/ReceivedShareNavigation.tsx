@@ -26,8 +26,9 @@ export function ReceivedShareNavigation({ session, mobile = false }: { session: 
     retry: false,
   })
   const list = received.isError ? [] : received.data ?? []
-  const sessions = (list.some(item => item.id === session.id) ? list : [session, ...list])
-    .filter(item => (!replyOnly || item.collaborate) && (item.title || '共享会话').toLowerCase().includes(search.trim().toLowerCase()))
+  const keyword = search.trim().toLowerCase()
+  const sessions = list.filter(item => (!replyOnly || item.collaborate)
+    && (item.title || '共享会话').toLowerCase().includes(keyword))
   const content = <>
     <div className="shrink-0 space-y-2 px-3 pb-3">
       <label className="flex min-w-0 items-center gap-2 rounded-md border bg-background px-2">
@@ -66,7 +67,9 @@ export function ReceivedShareNavigation({ session, mobile = false }: { session: 
             </Link>
           </li>
         })}
-      </ul> : <p className="px-2 py-3 text-xs text-muted-foreground">没有符合条件的共享会话</p>}
+      </ul> : received.isSuccess && <p className="px-2 py-3 text-xs text-muted-foreground">
+        {list.length ? '没有符合条件的共享会话' : '暂无收到的共享会话'}
+      </p>}
     </nav>
   </>
   if (!mobile) return <aside className="hidden w-64 shrink-0 flex-col border-r bg-muted/25 md:flex xl:w-72">
