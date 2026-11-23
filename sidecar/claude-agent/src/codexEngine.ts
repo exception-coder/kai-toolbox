@@ -51,6 +51,9 @@ import { isMcpToolTimeoutAbort } from './mcpToolWatchdog.js'
 import { isToolExecutionTimeoutAbort } from './toolExecutionWatchdog.js'
 import { standardToolboxMcpRequirements } from './codexMcpPolicy.js'
 import {
+  isPermanentMcpInitializationFailure,
+  mcpInitializationFailureReason,
+  mcpInitializationRetryMessage,
   emitCodexThreadWriterConflict,
   isRetryableMcpInitializationFailure,
   isRetryableThreadWriterConflict,
@@ -524,6 +527,7 @@ export async function runCodexTurn(ctx: CodexTurnCtx, runNative = runCodexAppSer
     const runAppServer = (options: Parameters<typeof runCodexAppServerTurn>[0]) => runCodexAppServerWithStartupRetry(
       () => runNative(options),
       async (error, attempt) => {
+        const initializationMessage = error.message
         if (isRetryableThreadWriterConflict(error)) {
           if (attempt === 1) ctx.emit({
             type: 'warning',
@@ -533,10 +537,13 @@ export async function runCodexTurn(ctx: CodexTurnCtx, runNative = runCodexAppSer
           await delay(THREAD_WRITER_RETRY_DELAY_MS, undefined, { signal: ctx.signal })
           return
         }
+        console.warn(JSON.stringify({ event: 'codex_mcp_initialization_retry', sessionId: ctx.sessionId,
+          reason: mcpInitializationFailureReason(initializationMessage), attempt,
+          runtime: toolboxMcpRuntimeDiagnostics() }))
         ctx.emit({
           type: 'warning',
           code: 'CODEX_MCP_INIT_RETRY',
-          message: `Codex App Server 的 MCP 初始化连接已关闭，正在使用全新进程重试（1/1）。${toolboxMcpRuntimeDiagnostics()}`,
+          message: mcpInitializationRetryMessage(initializationMessage),
         })
       },
       { maxWriterRetries: THREAD_WRITER_MAX_RETRIES, signal: ctx.signal },
@@ -556,7 +563,8 @@ export async function runCodexTurn(ctx: CodexTurnCtx, runNative = runCodexAppSer
       return
     }
     if (emitCodexThreadWriterConflict(error, ctx.emit)) return
-    if (!voice && !handoff && !consultReadonly && !browser && error instanceof CodexAppServerTurnError && error.retrySafe) {
+    if (!voice && !handoff && !consultReadonly && !browser && error instanceof CodexAppServerTurnError && error.retrySafe
+      && !isPermanentMcpInitializationFailure(error)) {
       const diagnostic = isRetryableMcpInitializationFailure(error) ? `；${toolboxMcpRuntimeDiagnostics()}` : ''
       ctx.emit({
         type: 'warning',

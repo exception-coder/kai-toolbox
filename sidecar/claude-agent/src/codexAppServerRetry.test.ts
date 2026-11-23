@@ -2,11 +2,28 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { CodexAppServerTurnError } from './codexAppServer.js'
 import {
+  mcpInitializationFailureReason,
+  mcpInitializationRetryMessage,
+  isPermanentMcpInitializationFailure,
   emitCodexThreadWriterConflict,
   isRetryableMcpInitializationFailure,
   isRetryableThreadWriterConflict,
   runCodexAppServerWithStartupRetry,
 } from './codexAppServerRetry.js'
+
+test('startup diagnostics distinguish timeouts, closed pipes and permanent module failures without exposing raw errors', () => {
+  assert.equal(mcpInitializationFailureReason('required MCP servers failed to initialize: timed out'), 'timeout')
+  assert.equal(mcpInitializationFailureReason('initialize response: connection closed'), 'closed')
+  assert.equal(mcpInitializationFailureReason('unknown initialization error'), 'unknown')
+  for (const detail of ['Cannot find module bridge.js', 'ERR_MODULE_NOT_FOUND', 'SyntaxError: invalid', 'ENOENT']) {
+    assert.equal(isPermanentMcpInitializationFailure(new CodexAppServerTurnError(`required MCP servers failed to initialize: ${detail}`, true)), true)
+    assert.equal(isRetryableMcpInitializationFailure(new CodexAppServerTurnError(`required MCP servers failed to initialize: ${detail}`, true)), false)
+  }
+  const text = mcpInitializationRetryMessage('required MCP servers failed to initialize: timeout Bearer secret')
+  assert.ok(text.includes('握手超时'))
+  assert.ok(!text.includes('连接关闭'))
+  assert.ok(!text.includes('secret'))
+})
 
 test('retries one fresh operation after transient MCP initialization failure', async () => {
   let attempts = 0
