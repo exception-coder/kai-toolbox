@@ -1541,7 +1541,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
       const sent = openSentRef.current
       failOpen(sent ? '等待会话创建确认超时。请先查看会话列表，再决定是否重试。'
         : '连接超时，会话创建请求尚未发送。请检查连接后重试。')
-    }, 50_000) // 给 Sidecar 建连和引擎目录的两段等待留出回传时间。
+    }, engine === 'deepseekHarness' ? 120_000 : 50_000) // 覆盖 Sidecar 建连与 DeepSeek 冷启动目录回传。
     connect()
   }, [connect, failOpen])
 

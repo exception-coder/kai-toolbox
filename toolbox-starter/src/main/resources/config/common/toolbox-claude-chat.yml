@@ -14,7 +14,7 @@ toolbox:
       provider: deepseek-official
       model: deepseek-flash
       max-tokens: 49152
-      handshake-timeout-ms: 15000
+      handshake-timeout-ms: 90000  # Windows 高负载时 SDK 冷启动实测可能超过 45 秒
       turn-timeout-ms: 1800000
     # 新建 Claude 会话时「工作目录下拉」的扫描配置。仅扫各 root 的一级子目录。
     # roots 为空 = 下拉为空，仍可手填 cwd。

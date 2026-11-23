@@ -72,7 +72,7 @@ describe('new session acknowledgement', () => {
     act(() => socket.open())
     expect(socket.send).toHaveBeenCalledExactlyOnceWith(expect.stringContaining('"type":"open"'))
     if (failure === 'disconnect') act(() => socket.close())
-    await act(async () => vi.advanceTimersByTimeAsync(60_000))
+    await act(async () => vi.advanceTimersByTimeAsync(120_000))
     expect(TestSocket.sockets).toHaveLength(1)
     expect(result.current).toMatchObject({ state: 'error', sessionId: null, errorMessage: expect.stringContaining('请先查看会话列表') })
     act(() => socket.receive(ready('late')))

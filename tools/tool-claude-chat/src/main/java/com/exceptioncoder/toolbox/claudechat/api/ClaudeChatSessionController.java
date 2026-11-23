@@ -1,5 +1,7 @@
 package com.exceptioncoder.toolbox.claudechat.api;
 
+import com.exceptioncoder.toolbox.common.auth.annotation.RequireRole;
+
 import com.exceptioncoder.toolbox.claudechat.api.dto.ClaudeChatActivityView;
 import com.exceptioncoder.toolbox.claudechat.api.dto.ClaudeChatSessionView;
 import com.exceptioncoder.toolbox.claudechat.api.dto.ClientMessage;
@@ -189,6 +191,12 @@ public class ClaudeChatSessionController {
     @GetMapping("/engine-catalog")
     public EngineCatalogView engineCatalog(@RequestParam(defaultValue = "false") boolean refresh) {
         return engineCatalogService.list(refresh);
+    }
+
+    @PostMapping("/engine-catalog/refresh")
+    @RequireRole("ADMIN")
+    public EngineCatalogView refreshEngineCatalog() {
+        return engineCatalogService.refresh();
     }
 
     /** 将项目及其全部会话原子重命名，保留需求子分组。 */

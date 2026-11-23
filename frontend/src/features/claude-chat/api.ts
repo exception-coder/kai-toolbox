@@ -1,4 +1,4 @@
-import { authFetch, http } from '@/lib/api'
+import { ApiError, authFetch, http } from '@/lib/api'
 import { reportVibeEntry } from '@/lib/vibeEntryDiagnostics'
 import { ensureFreshToken, getToken } from '@/lib/auth'
 import { listSystemModules, listSystemWorkspaces, saveSystemProjectAlias } from '@/lib/systemCatalog'
@@ -288,8 +288,16 @@ export function pullSessionCommits(sessionId: string, token: string, repo?: stri
 }
 
 /** Sidecar 权威引擎目录；refresh=true 会跳过短缓存并重新执行实验引擎握手。 */
-export function listEngineCatalog(refresh = false) {
-  return http<EngineCatalogView>(`/claude-chat/sessions/engine-catalog${refresh ? '?refresh=true' : ''}`)
+export async function listEngineCatalog(refresh = false) {
+  const path = '/claude-chat/sessions/engine-catalog'
+  if (!refresh) return http<EngineCatalogView>(path)
+  try {
+    return await http<EngineCatalogView>(`${path}/refresh`, { method: 'POST' })
+  } catch (error) {
+    // Static frontend can publish before the matching backend is restarted.
+    if (!(error instanceof ApiError) || (error.status !== 404 && error.status !== 405)) throw error
+    return http<EngineCatalogView>(`${path}?refresh=true`)
+  }
 }
 
 /** 实时核对浏览器、Java、Sidecar与Agent的全链路会话状态。 */

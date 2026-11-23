@@ -260,6 +260,13 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
     [engineCatalogQuery.data],
   )
   const [engineCatalogRefreshing, setEngineCatalogRefreshing] = useState(false)
+  const refreshEngineCatalog = () => {
+    if (engineCatalogRefreshing) return
+    setEngineCatalogRefreshing(true)
+    void listEngineCatalog(true).then(catalog => qc.setQueryData(['claude-chat-engine-catalog'], catalog))
+      .catch(() => qc.invalidateQueries({ queryKey: ['claude-chat-engine-catalog'] }))
+      .finally(() => setEngineCatalogRefreshing(false))
+  }
 
   // 新建/续接会话后，sessionId 变化即刷新会话列表缓存，让左侧常驻导航与「会话」面板立刻出现该会话。
   // 否则新会话只在缓存过期(staleTime)、窗口重新聚焦或手动开一次「会话」面板(重挂 SessionList 触发拉取)后才显示
@@ -1221,15 +1228,15 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
                         <button
                           key={eng}
                           type="button"
-                          onClick={() => void engineCatalogQuery.refetch()}
-                          disabled={engineCatalogQuery.isFetching}
+                          onClick={refreshEngineCatalog}
+                          disabled={engineCatalogQuery.isFetching || engineCatalogRefreshing}
                           title={engineCatalogQuery.data?.engines.find(entry => entry.id === eng)?.probe.detail
                             ?? `重新检测 ${engineName(eng)} 是否可用`}
                           className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-xs text-[var(--color-muted-foreground)] hover:bg-[var(--color-accent)] disabled:cursor-wait"
                         >
                           <EngineIcon engine={eng} className="size-3.5" />
                           <span className="min-w-0 flex-1 truncate text-left">{engineName(eng)}</span>
-                          <span className="shrink-0 text-[10px]">{engineCatalogQuery.isFetching ? '检测中' : '重新检测'}</span>
+                          <span className="shrink-0 text-[10px]">{engineCatalogQuery.isFetching || engineCatalogRefreshing ? '检测中' : '重新检测'}</span>
                         </button>
                       ))}
                     </div>
@@ -1473,20 +1480,15 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
           setPanel('none')
           requestAnimationFrame(() => { const target = newSessionReturnFocus.current; if (target?.isConnected) target.focus(); else taRef.current?.focus() })
         }}
-        onReload={() => { void workspacesQuery.refetch(); void engineCatalogQuery.refetch(); void refreshProviders() }}
-        onEngines={() => { void engineCatalogQuery.refetch() }}>
+        onReload={() => { void workspacesQuery.refetch(); refreshEngineCatalog(); void refreshProviders() }}
+        onEngines={refreshEngineCatalog}>
         <NewSessionEngineSettings engine={newEngine} providerId={newProviderId} providers={providers}
           providersLoading={providersLoading} providersError={providersError?.message} model={newModel} models={providerModels}
           modelsLoading={providerModelsLoading} modelsError={providerModelsError} codexHome={newCodexHome}
           catalog={engineCatalogQuery.data} refreshing={engineCatalogQuery.isFetching || engineCatalogRefreshing}
           onCodexHome={setNewCodexHome} onProvider={providerId => selectNewSessionPreference({ providerId })} onModel={setNewModel}
           onManage={() => setPanel('providers')} onRetryProviders={() => void refreshProviders()}
-          onRefresh={() => {
-            setEngineCatalogRefreshing(true)
-            void listEngineCatalog(true).then(catalog => qc.setQueryData(['claude-chat-engine-catalog'], catalog))
-              .catch(() => qc.invalidateQueries({ queryKey: ['claude-chat-engine-catalog'] }))
-              .finally(() => setEngineCatalogRefreshing(false))
-          }} />
+          onRefresh={refreshEngineCatalog} />
       </NewSessionPanel>}
       {panel === 'clone' && (
         <CloneProjectPanel

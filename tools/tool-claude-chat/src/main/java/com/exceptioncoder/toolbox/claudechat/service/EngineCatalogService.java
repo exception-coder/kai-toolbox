@@ -2,8 +2,11 @@ package com.exceptioncoder.toolbox.claudechat.service;
 
 import com.exceptioncoder.toolbox.claudechat.api.dto.EngineCatalogView;
 import com.fasterxml.jackson.databind.JsonNode;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -11,17 +14,40 @@ import java.util.List;
 @Service
 public class EngineCatalogService {
 
-    private static final long QUERY_TIMEOUT_MS = 30_000L;
+    private static final Logger log = LoggerFactory.getLogger(EngineCatalogService.class);
+    // Cold catalog reads also include the dsh handshake and subprocess cleanup (90s + teardown).
+    private static final long CATALOG_TIMEOUT_MS = 100_000L;
+    private static final long OTHER_ENGINE_ADMISSION_TIMEOUT_MS = 30_000L;
 
     private final SidecarClient sidecarClient;
+    private final SidecarProcessRegistry processRegistry;
 
-    public EngineCatalogService(SidecarClient sidecarClient) {
+    public EngineCatalogService(SidecarClient sidecarClient, SidecarProcessRegistry processRegistry) {
         this.sidecarClient = sidecarClient;
+        this.processRegistry = processRegistry;
     }
 
     /** 返回权威目录；Sidecar 不可达时返回显式错误和空目录。 */
     public EngineCatalogView list(boolean refresh) {
-        return sidecarClient.queryEngineCatalog(refresh, QUERY_TIMEOUT_MS)
+        return load(refresh, CATALOG_TIMEOUT_MS);
+    }
+
+    /** 管理员主动检测时复用正常的 Sidecar 冷启动入口。 */
+    public EngineCatalogView refresh() {
+        if (!sidecarClient.isConnected()) {
+            try {
+                processRegistry.ensureStarted();
+                sidecarClient.ensureConnected();
+            } catch (IOException exception) {
+                log.warn("[claude-chat] 重新检测引擎时无法启动 Sidecar：{}", exception.getMessage());
+                return new EngineCatalogView(1, List.of(), "Sidecar 启动失败，请查看 Forge 后端日志后重试。");
+            }
+        }
+        return list(true);
+    }
+
+    private EngineCatalogView load(boolean refresh, long timeoutMs) {
+        return sidecarClient.queryEngineCatalog(refresh, timeoutMs)
                 .map(this::parse)
                 .orElseGet(() -> new EngineCatalogView(1, List.of(), "Sidecar 引擎目录不可用"));
     }
@@ -36,7 +62,8 @@ public class EngineCatalogService {
         if (!"deepseekHarness".equals(engine) && !"antigravity".equals(engine) && !"trae".equals(engine)
                 && !"zcode".equals(engine) && !"hermes".equals(engine)) return null;
 
-        EngineCatalogView catalog = list(false);
+        EngineCatalogView catalog = load(false, "deepseekHarness".equals(engine)
+                ? CATALOG_TIMEOUT_MS : OTHER_ENGINE_ADMISSION_TIMEOUT_MS);
         if (catalog.error() != null) {
             return "暂时无法读取 Sidecar 引擎目录。请刷新引擎状态后重试。";
         }
