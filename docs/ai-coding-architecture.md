@@ -1037,6 +1037,18 @@ flowchart LR
 
 ### Vibe Coding 消息队列的可靠续发
 
+普通开发的 Codex App Server 使用原生工具装配；执行通道、工具目录、浏览器宿主和桌面窗口是不同层次的证据。`cua.getState` 的浏览器错误不否定同次返回的桌面库存：没有权限拒绝且目标窗口可用时，可沿原生 getApp 继续已授权开发操作。明确拒绝仍停止，咨询与评审沿原策略。Sidecar 记录原生错误白名单和库存布尔值，不记录页面/窗口内容或宿主凭据；工具可见不等于已点击。Vibe 回复的 browser-complete 只显示中性状态，咨询仍隐藏协议标记，原生历史不改写。实际宿主连通与模型选路验收见 [Vibe 浏览器任务](../openspec/changes/vibe-isolated-browser/tasks.md)。
+
+```mermaid
+flowchart LR
+  Native[App Server 原生工具] --> Inventory[本轮 CUA 库存与错误]
+  Inventory --> Browser[浏览器通道可用 按原生文档操作]
+  Inventory --> Desktop[仅浏览器宿主不可用且桌面可用 原生 getApp]
+  Inventory --> Denied[权限拒绝 停止对应访问]
+  Browser --> Evidence[实际操作结果与未完成项]
+  Desktop --> Evidence
+```
+
 普通开发消息另由同一聊天模块的 `ChatSubmissionRepository` 保存接单原文与派发状态。客户端向固定 sessionId 的 `/submissions` 提交；服务端先写 SQLite，再返回 202 并独立派发，浏览器切换只改变观察对象。唯一键 `(session_id,id)` 防止重复执行；失败保留原文，重启将未收口记录标为 UNKNOWN，不自动重放。最近 100 条通过原会话访问策略查询，本机备份只兜底未确认提交。该接单账本不替代引擎 transcript、不扩大咨询/公开评审权限，也不增加完成追问。源码已实现，目标版本及浏览器验收待重启后核对。
 
 ```mermaid

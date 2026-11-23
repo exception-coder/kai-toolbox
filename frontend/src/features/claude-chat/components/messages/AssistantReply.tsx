@@ -2,11 +2,13 @@ import { useId, useMemo, useState } from 'react'
 import { ChevronDown } from 'lucide-react'
 import { replyPreview, replySections } from '../../lib/replyPreview'
 import { Markdown } from '../Markdown'
+import { browserCompletionText } from '@/lib/browserCompletion'
 
 /** 手机长回复按原文分层，正在输出和短回复始终完整展示。 */
 export function AssistantReply({ text, sessionId, compact, streaming, layered }: {
   text: string; sessionId?: string; compact?: boolean; streaming?: boolean; layered?: boolean
 }) {
+  text = browserCompletionText(text, streaming, true)
   const [expanded, setExpanded] = useState(false)
   const detailsId = useId()
   const parts = useMemo(() => compact && !streaming ? replyPreview(text) : null, [text, compact, streaming])

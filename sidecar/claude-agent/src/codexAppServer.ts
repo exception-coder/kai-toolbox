@@ -1201,9 +1201,9 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions, runti
           finishReconnectActivity('completed')
           const item = asRecord(params.item)
           const phase = method === 'item/completed' ? 'completed' : 'inProgress'
-          if (options.consultReadonly && phase === 'completed' && item) {
+          if (phase === 'completed' && item) {
             const diagnostic = browserToolDiagnostic(item)
-            if (diagnostic) console.info(JSON.stringify({ event: 'codex_consult_browser_call',
+            if (diagnostic) console.info(JSON.stringify({ event: options.consultReadonly ? 'codex_consult_browser_call' : 'codex_computer_use_call',
               sessionId: options.sessionId, threadId, turnId: asString(params.turnId) || turnId,
               itemId: asString(item.id), ...diagnostic }))
           }
@@ -1455,9 +1455,9 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions, runti
         : {}),
     })
     options.emit({ type: 'init', sdkSessionId: threadId, ...capabilitySnapshot })
-    if (options.consultReadonly) {
+    {
       const desktopEnabled = asRecord(threadConfig.features)?.computer_use !== false
-      console.info(JSON.stringify({ event: 'codex_consult_browser_runtime', sessionId: options.sessionId,
+      console.info(JSON.stringify({ event: options.consultReadonly ? 'codex_consult_browser_runtime' : 'codex_computer_use_runtime', sessionId: options.sessionId,
         threadId, transport: 'app-server', desktopEnabled,
         cliVersion: require('@openai/codex/package.json').version,
         inventoryVerified: Boolean(mcpRuntimeResult),
@@ -1465,7 +1465,7 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions, runti
           .some(server => server.name === 'cua_repl' && server.tools.has(tool))),
         inheritedHostEnvironment: browserHostEnvironmentPresence(appServerEnv(options.codexHome)),
         hostConnectionVerified: false }))
-      const message = desktopEnabled ? consultBrowserNotice(options.input, mcpRuntimeResult ? runtimeStatuses : undefined) : undefined
+      const message = options.consultReadonly && desktopEnabled ? consultBrowserNotice(options.input, mcpRuntimeResult ? runtimeStatuses : undefined) : undefined
       if (message) options.emit({ type: 'warning', code: 'CODEX_CONSULT_BROWSER_UNAVAILABLE', message })
     }
     // 请求一旦发出，服务端就可能已经开始调用工具；从这里起禁止 SDK 自动重放，避免双执行。
@@ -1600,7 +1600,8 @@ function handleAppServerItem(
     }
     case 'mcpToolCall': {
       const label = `${asString(item.server)}/${asString(item.tool)}`
-      const browserError = browserToolDiagnostic(item)?.nativeError
+      const browserDiagnostic = browserToolDiagnostic(item)
+      const browserError = browserDiagnostic?.nativeError
       const failed = status === 'failed' || asRecord(item.result)?.isError === true || Boolean(browserError)
       if (phase === 'inProgress') {
         if (!mcpActivities.has(itemId)) mcpActivities.set(itemId, { toolName: label, startedAt: Date.now() })
@@ -1613,7 +1614,7 @@ function handleAppServerItem(
         emit({ type: 'toolResult', toolCallId: itemId, toolName: label, toolKind: 'mcp', output, isError: failed })
         emitToolActivity(emit, {
           toolCallId: itemId, toolName: label, status: failed ? 'failed' : 'completed',
-          title: failed ? computerUseFailureTitle(label, browserError ?? output) : undefined,
+          title: failed ? computerUseFailureTitle(label, browserError ?? output, browserDiagnostic?.desktopInventoryAvailable === true) : undefined,
           elapsedMs: elapsedSince(mcpActivities.get(itemId)?.startedAt), outputTail: activityOutputTail(output),
           outcome: failed ? 'failure' : 'success',
         })

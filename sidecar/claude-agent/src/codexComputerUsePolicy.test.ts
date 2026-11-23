@@ -66,6 +66,22 @@ test('consultation permits only official browser plugins over merged account/pro
   })
 })
 
+test('partial native inventory retains desktop availability after browser host failure', () => {
+  const diagnostic = browserToolDiagnostic({ type: 'mcpToolCall', server: 'cua_repl', tool: 'js',
+    status: 'completed', result: { content: [
+      { type: 'text', text: 'Computer Use documentation' },
+      { type: 'text', text: JSON.stringify({ apps: [{ title: 'private window' }], browsers: [],
+        errors: ['Browsers: Error: The browser access host is unavailable'] }) },
+    ] } })
+  assert.equal(diagnostic?.nativeError, 'The browser access host is unavailable')
+  assert.equal(diagnostic?.desktopInventoryAvailable, true)
+  assert.equal(diagnostic?.browserInventoryAvailable, false)
+  assert.match(computerUseFailureTitle('cua_repl/js', diagnostic?.nativeError, true) ?? '', /原生桌面窗口可用/)
+  assert.doesNotMatch(JSON.stringify(diagnostic), /private window/)
+  assert.match(CODEX_COMPUTER_USE_RECOVERY_STEER, /apps.*browsers.*独立通道/)
+  assert.match(CODEX_COMPUTER_USE_RECOVERY_STEER, /没有权限拒绝.*getApp/)
+})
+
 test('consult browser notice distinguishes missing native tool from a failed inventory lookup', () => {
   const request = [{ type: 'text', text: '用浏览器点击筛选' }]
   assert.match(consultBrowserNotice(request, []) ?? '', /未提供用于点击的 cua_repl/)
