@@ -4,6 +4,7 @@ import { normalizeCodexSpeed } from '../lib/codexSpeed'
 import type { ActiveModelConfiguration, ClaudeSessionOptions } from '../types'
 import { reportVibeEntry } from '@/lib/vibeEntryDiagnostics'
 import { ApiError } from '@/lib/api'
+import { submitChatMessage } from '../api'
 import { emitSessionExpired, ensureFreshToken, getToken, logout, probeAuth, useAuth } from '@/lib/auth'
 import type { AssistantMessageEnvelope, Attachment, BackgroundTaskInfo, CapabilitySnapshotSource, ChatItem, ClientMessage, CodexReasoningEffort, CodexSpeed, ConnState, Engine, McpCapability, ModelInfo, PendingRequest, PendingSessionRef, PermissionMode, PluginCapability, ProviderKind, SendAttachment, ServerMessage, SkillCapability, TurnDiag } from '../types'
 import { useVoiceTransport } from './useVoiceTransport'
@@ -1732,6 +1733,21 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
     applyTurnRunningSignal('localStart')
     setInterrupting(false)
     const hiddenInstructions = developerInstructions?.trim() || undefined
+    // HTTP 接单固定归属，不依赖当前 WS 的 attach 意图，也不会被切换会话清空。
+    const owner = sessionIdRef.current
+    if (owner && !demo && !publicWithoutLogin && !reviewOnlyRef.current && channel !== 'consult' && !assistant) {
+      const scope = recordScopeRef.current
+      void submitChatMessage(owner, { type: 'send', text, attachments: atts,
+        developerInstructions: hiddenInstructions, messageId }).then(() => {
+        try { updateMessageSendRecord(scope, owner, messageId, 'accepted', '原文已保存到服务端，执行状态请查看发送记录。') } catch { /* 服务端记录仍可查询 */ }
+      }).catch(error => {
+        try { updateMessageSendRecord(scope, owner, messageId, 'failed', '接单结果未确认，请先查看服务端发送记录，避免重复执行。') } catch { /* 保留原文 */ }
+        if (sessionIdRef.current === owner) {
+          setSyncWarning(`服务端接单未确认：${error instanceof Error ? error.message : String(error)}。原文可从发送记录恢复。`)
+        }
+      })
+      return true
+    }
     if (sendRaw({ type: 'send', text: t, attachments: atts, developerInstructions: hiddenInstructions, assistant, messageId })) return true
     // WS 未连上：排队并触发重连（带 attach 意图），onopen 时先 attach 再补发，避免消息丢失/卡“思考中”
     pendingSendsRef.current.push({ messageId, text: t, attachments: atts, developerInstructions: hiddenInstructions, assistant })
@@ -1743,7 +1759,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
       connect()
     }
     return true
-  }, [sendRaw, connect])
+  }, [sendRaw, connect, demo, publicWithoutLogin, channel])
 
   const steer = useCallback((text: string) => {
     const t = text.trim()

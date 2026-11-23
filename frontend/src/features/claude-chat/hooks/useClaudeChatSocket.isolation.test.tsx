@@ -7,6 +7,7 @@ import type { ChatItem, ServerMessage } from '../types'
 import { useMessageSendRecords } from '../lib/messageSendRecords'
 
 const api = vi.hoisted(() => ({
+  submitChatMessage: vi.fn().mockResolvedValue(undefined),
   loadMessages: vi.fn(), listQueuedMessages: vi.fn().mockResolvedValue([]), requestSessionCopy: vi.fn(),
   stopQueuedMessage: vi.fn(), pauseQueuedMessage: vi.fn(), deleteQueuedMessage: vi.fn(), clearQueuedMessages: vi.fn(), saveQueuedMessage: vi.fn(),
 }))
@@ -50,6 +51,23 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.useRealTimers(); vi.clearAllMocks(); vi.unstubAllGlobals() })
 
 describe('durable outgoing input', () => {
+  it('keeps HTTP acceptance bound to the submitted session after switching before reply', async () => {
+    localStorage.clear()
+    let accept!: () => void
+    api.submitChatMessage.mockReturnValueOnce(new Promise<void>(resolve => { accept = resolve }))
+    const { result } = renderHook(() => useClaudeChatSocket({ autoConnect: false }))
+    act(() => result.current.switchTo('original-owner'))
+    await waitFor(() => expect(TestSocket.sockets).toHaveLength(1))
+    await act(async () => { TestSocket.sockets[0].open(); TestSocket.sockets[0].receive(ready('original-owner')) })
+    act(() => result.current.send('不能随切换丢失的消息'))
+    expect(api.submitChatMessage).toHaveBeenCalledWith('original-owner', expect.objectContaining({ text: '不能随切换丢失的消息' }))
+    act(() => result.current.switchTo('another-session'))
+    await act(async () => accept())
+    const record = renderHook(() => useMessageSendRecords('anonymous', 'original-owner'))
+    expect(record.result.current.records[0].status).toBe('accepted')
+    expect(result.current.items.some(item => item.kind === 'user' && item.text === '不能随切换丢失的消息')).toBe(false)
+    expect(api.submitChatMessage).toHaveBeenCalledTimes(1)
+  })
   it('accepts a receipt replay after refresh without resending the stored input', async () => {
     localStorage.clear()
     const first = renderHook(() => useClaudeChatSocket({ autoConnect: false }))
@@ -58,7 +76,7 @@ describe('durable outgoing input', () => {
     const original = TestSocket.sockets[0]
     await act(async () => { original.open(); original.receive(ready('receipt-replay')) })
     act(() => first.result.current.send('刷新时仍未收到回执的原文'))
-    const sent = original.send.mock.calls.map(([payload]) => JSON.parse(payload)).find(message => message.type === 'send')
+    const sent = api.submitChatMessage.mock.calls.at(-1)![1]
     first.unmount()
     const restored = renderHook(() => useClaudeChatSocket({ autoConnect: false }))
     const record = renderHook(() => useMessageSendRecords('anonymous', 'receipt-replay'))
@@ -93,7 +111,7 @@ describe('durable outgoing input', () => {
     const socket = TestSocket.sockets[0]
     await act(async () => { socket.open(); socket.receive(ready('record-session')) })
     act(() => result.current.send('完整任务原文'))
-    const sent = socket.send.mock.calls.map(([payload]) => JSON.parse(payload)).find(message => message.type === 'send')
+    const sent = api.submitChatMessage.mock.calls.at(-1)![1]
     expect(sent.messageId).toBeTruthy()
     const record = renderHook(() => useMessageSendRecords('anonymous', 'record-session'))
     expect(record.result.current.records[0]).toMatchObject({ text: '完整任务原文', status: 'waiting' })

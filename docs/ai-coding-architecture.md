@@ -1037,6 +1037,19 @@ flowchart LR
 
 ### Vibe Coding 消息队列的可靠续发
 
+普通开发消息另由同一聊天模块的 `ChatSubmissionRepository` 保存接单原文与派发状态。客户端向固定 sessionId 的 `/submissions` 提交；服务端先写 SQLite，再返回 202 并独立派发，浏览器切换只改变观察对象。唯一键 `(session_id,id)` 防止重复执行；失败保留原文，重启将未收口记录标为 UNKNOWN，不自动重放。最近 100 条通过原会话访问策略查询，本机备份只兜底未确认提交。该接单账本不替代引擎 transcript、不扩大咨询/公开评审权限，也不增加完成追问。源码已实现，目标版本及浏览器验收待重启后核对。
+
+```mermaid
+flowchart LR
+    Input[固定会话提交] --> Receipt[SQLite 接单原文与幂等键]
+    Receipt --> Accepted[202 已保存]
+    Receipt --> Dispatch[服务端独立派发]
+    Dispatch --> Engine[既有引擎与权限门禁]
+    Engine --> Outcome[记录实际轮次结果]
+    Receipt --> Recover[切回或刷新后查询与恢复]
+    Outcome --> Recover
+```
+
 消息队列属于聊天会话的持久执行输入，不是浏览器定时任务，也不等同于 OpenSpec 自动监督。`QueuedChatMessageService` 保存原文，`QueueDeliveryStore` 在同一 SQLite 维护轮次准入、单会话派发认领与完成追问次数；`ClaudeChatService` 复用已有会话锁、权限、项目排除、运行态门禁和更新排空门禁。入队唤醒与有界服务端巡检共同驱动，关闭浏览器不停止续发。单次巡检至多处理 16 个会话，间隔 5 秒；这不是所有队列都在 5 秒内完成派发的 SLA。
 
 Sidecar 在执行前持久保存轮次接收回执，整轮收口后先保存终态再通知 Java。接收只表示已接收，正常终态也不等于功能验收。Java 保留原队列项直到正常终态、明确中断或人工明确确认完成，通过同一事务更新完成准入并删除已完成项。手动发送同样由服务端认领，不再由浏览器先删队列再发送。回执按轮次去重；裁剪已完成回执时更换证据代际，不能把旧代际查无记录当作从未执行。

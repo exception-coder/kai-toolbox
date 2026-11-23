@@ -89,3 +89,13 @@
 - [x] 项目质量门禁 status=PASSED、退出码 0，executedCheckers 为空，实际运行项为 API-RUNTIME-001，仅证明当前通用 API 探测通过。
 - [ ] 核对静态前端目标产物加载、HTTP 资源与稳定观察。
 - [ ] 在目标版本实际验证手机、桌面发送失败和刷新恢复。CUA getState 连接超时；phone/desktop 预览入口均为 WAITING_VIEWER_AUTH，未执行真实浏览器操作。
+
+## 普通消息服务端接单（2026-11-23）
+
+- [x] 普通发送使用固定会话 HTTP 接单；SQLite 保存原文及附件引用后才能返回 202。独立派发不依赖浏览器观察者，重复消息 ID 不重复执行。
+- [x] 保留派发失败及真实轮次结果；服务重启后未收口记录标为 UNKNOWN，不自动重放。最近 100 条通过原会话权限读取，发送记录可恢复原文和附件到草稿。
+- [x] 96 项前端定向用例通过（隔离、历史、手机及记录恢复；记录组件清理夹具修正后单独复跑 2 项）；6 项 Java 定向用例通过，覆盖 SQLite 持久化、幂等、异步派发、旧轮次隔离、权限拒绝及既有队列。
+- [x] 前端生产构建含 TypeScript 检查通过；完整宿主 reactor compile 通过。生产构建保留既有大分包和混合导入警告，Mockito 保留动态 agent 警告。
+- [x] OpenSpec strict 与差异检查通过；质量门禁 JSON status=PASSED、exit 0，executedCheckers=[]、executedVerifiers=[API-RUNTIME-001]，仅验证当前通用 API，不代表新接单接口运行验收。
+- [ ] 后端目标版本启动与新表部署核验。DDL 未核验：新表 prepare_sql_context=DDL_MISSING；实际 schema 已用于隔离 SQLite 测试，未执行运行库写入或服务重启。
+- [ ] 手机/桌面真实发送后切换、刷新及启动异常恢复验收。两种预览入口已准备，均为 WAITING_VIEWER_AUTH；未执行浏览器操作，不自动重发用户任务。

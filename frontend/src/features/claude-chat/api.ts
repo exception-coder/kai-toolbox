@@ -1376,3 +1376,19 @@ export function applyEngineNativeConfig(input: EngineNativeConfigApplyInput) {
     body: JSON.stringify(input),
   })
 }
+export interface ChatSubmission {
+  id: string
+  sessionId: string
+  text: string
+  attachments: import('./types').SendAttachment[]
+  status: 'RECEIVED' | 'DISPATCHED' | 'COMPLETED' | 'FAILED' | 'UNKNOWN'
+  note?: string
+  createdAt: number
+}
+export function listChatSubmissions(sessionId: string) {
+  return http<ChatSubmission[]>(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/submissions`)
+}
+export function submitChatMessage(sessionId: string, message: Extract<import('./types').ClientMessage, { type: 'send' }>) {
+  return http<void>(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/submissions`,
+    { method: 'POST', body: JSON.stringify(message) }, 'empty')
+}

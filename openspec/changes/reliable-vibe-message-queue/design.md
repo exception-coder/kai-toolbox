@@ -38,6 +38,14 @@ DDL 未核验：本次 prepare_sql_context=PARTIAL（4660c711-cf40-4c59-b1de-e59
 
 ## P1：原生状态与失败恢复
 
+### 普通消息服务端接单补充（2026-11-23）
+
+故障证据：`useClaudeChatSocket` 在普通发送时先显示临时用户气泡，未连接时仅加入 `pendingSendsRef`；切换会话会清空这份前端待发数组。服务端原 `sendUserMessage` 先恢复引擎与检查运行态，再进入 `startTurn`，因此接单前的初始化异常没有独立原文记录。原生历史尚未写入时，切回会话无法证明消息已提交。本次覆盖接单窗口，不将历史已丢失内容声称为可自动恢复。
+
+本机备份不能替代服务端所有权。普通开发与有回复权限的共享会话使用固定 sessionId 的 HTTP POST `/submissions`，按原会话交互权限校验。原文和附件引用写入 `claude_chat_submission` 后返回 202，独立虚拟线程沿已有门禁启动轮次；不依赖 WS 观察者或当前 attach 归属。缺失运行上下文、忙碌、启动失败均保留记录及原因，不把拒绝说成正在执行。`(session_id,id)` 幂等，同 ID 不再次派发或覆盖原文。按真实 turnId 记录结果，服务重启只标 UNKNOWN，不自动重放。列表最多返回最近 100 条，后台数据不裁剪。恢复只写草稿，仍需用户核对后发送。咨询、公开评审、语音及运行中 steer 保留原协议，普通排队仍由原持久队列拥有。
+
+适用 OBJ-01/CTX-01/FEED-01/CTRL-01/IDEM-01：沿已有发送记录入口展示服务端状态，无新导航；切换不撤销已接单工作，失败原文可复制恢复。新表由本模块 schema 初始化；prepare_sql_context 返回 DDL_MISSING（新增表且扫描达到上限），DDL 未核验，不证明运行库已部署。使用实际 schema 的 SQLite 测试验证契约，不执行运行库写入。新版本部署及浏览器验收单列。
+
 继续沿用 L2 和以上交互原则。Codex Adapter 接收 `thread/status/changed` 的等待审批、等待回答、空闲及系统错误；Claude Adapter 开启 SDK 原生 `session_state_changed` 事件，并接收 `api_retry`。仅观察当前根会话、当前 Forge turnId，子线程及迟到旧轮不覆盖当前状态。原生 idle 只是执行证据，不能直接释放队列；已有 TurnLifecycle 仍等待结果和原生进程清理结束，后台任务、暂停及中断规则不变。不改变 SDK 后台子任务等待策略。
 
 原生观察通过既有 `engineEvent` 协议的 `engine.status` 事件通知，运行快照携带 `nativeStatus`。前端只触发当前代次刷新，由后端聚合为等待回答、自动重试、收口或引擎异常。原生提供次数时显示次数，不推测重试总数。旧版本或未提供状态的引擎保留既有状态路径。

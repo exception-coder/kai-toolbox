@@ -146,6 +146,45 @@ public class ClaudeChatService {
     private EngineHandoffService engineHandoffs;
     @org.springframework.beans.factory.annotation.Autowired
     private LastTurnOutcomeRepository lastOutcomes;
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.exceptioncoder.toolbox.claudechat.repository.ChatSubmissionRepository submissions;
+
+    @EventListener(ApplicationReadyEvent.class)
+    public void reconcileSubmissionsAfterRestart() {
+        submissions.markUncertainAfterRestart();
+    }
+
+    /** HTTP 接单先提交原文；工作线程捕获会话对象，不再读取 WS 的可变归属。 */
+    public void submitUserMessage(String sessionId, ClientMessage.Send message) {
+        var saved = repo.findById(sessionId).orElseThrow(() -> new IllegalArgumentException("会话不存在"));
+        if (!SessionExecutionPolicy.STANDARD.equals(SessionExecutionPolicy.normalize(saved.getExecutionPolicy()))
+                || message.voice() != null || message.assistant() != null) {
+            throw new IllegalArgumentException("此入口仅接受普通开发会话消息");
+        }
+        if (blankToNull(message.messageId()) == null || message.messageId().length() > 128
+                || (blankToNull(message.text()) == null && (message.attachments() == null || message.attachments().isEmpty()))) {
+            throw new IllegalArgumentException("消息标识及内容不能为空");
+        }
+        sessionAccessPolicy.requireProjectAllowed(saved.getCwd());
+        if (!submissions.accept(sessionId, message)) return;
+        SessionCtx target = sessions.get(sessionId);
+        if (target == null) {
+            submissions.failed(sessionId, message.messageId(), "原文已保存，会话尚未连接，请打开会话后恢复重发");
+            return;
+        }
+        try {
+            Thread.startVirtualThread(() -> {
+                try { sendUserMessage(target, null, message, null); }
+                catch (RuntimeException error) {
+                    submissions.failed(sessionId, message.messageId(), "派发异常，请核对运行状态：" + error.getMessage());
+                    log.warn("[claude-chat] 持久消息派发失败 session={} message={}", sessionId, message.messageId(), error);
+                }
+            });
+        } catch (RuntimeException error) {
+            submissions.failed(sessionId, message.messageId(), "调度失败，原文已保存，请恢复重发");
+            throw error;
+        }
+    }
     /** 仅为评审轮次累计可见回复，供回复完成后的结构校验；不作为历史事实源。 */
     private final Map<String, ActiveReviewReply> activeReviewReplies = new ConcurrentHashMap<>();
     private static final Set<String> TURN_SCOPED_SIDECAR_EVENTS = Set.of(
@@ -759,12 +798,25 @@ public class ClaudeChatService {
             events.sendError(ws, 0, "SESSION_NOT_FOUND", "请先 open 或 attach 会话");
             return;
         }
+        sendUserMessage(ctx, ws, msg, turnPolicy);
+    }
+
+    private void rejectSubmission(SessionCtx ctx, WebSocketSession ws, ClientMessage.Send msg,
+                                  String code, String message) {
+        if (submissions != null && msg.messageId() != null) submissions.failed(ctx.sessionId, msg.messageId(), code + ": " + message);
+        boolean terminal = ctx.status != SessionStatus.RUNNING;
+        if (ws != null) events.sendError(ws, 0, code, message, terminal);
+        else events.sendToBrowser(ctx, seq -> new ServerMessage.Error(seq, code, message, terminal));
+    }
+
+    private void sendUserMessage(SessionCtx ctx, WebSocketSession ws, ClientMessage.Send msg, String turnPolicy) {
         if (admissionGate.isDraining()) {
-            events.sendError(ws, 0, "SYSTEM_UPDATING", "系统正在准备自动更新，暂不接受新的消息，请稍后重试");
+            rejectSubmission(ctx, ws, msg, "SYSTEM_UPDATING", "系统正在准备自动更新，暂不接受新的消息，请稍后重试");
             return;
         }
         // 状态 RPC 必须在会话锁外完成，否则接收线程等待 ctx 时无法处理后续查询回包。
         if (!ensureSessionResumable(ctx)) {
+            rejectSubmission(ctx, ws, msg, "SESSION_UNAVAILABLE", "会话恢复未确认，原文已保留，请核对后重发");
             return;
         }
         runtimeStates.inspect(ctx.sessionId);
@@ -786,17 +838,17 @@ public class ClaudeChatService {
                 return;
             }
             if (!planStateService.writable(ctx.sessionId)) {
-                events.sendError(ws, 0, "PLAN_EXPIRED", "该规划已过期，请先解锁后继续");
+                rejectSubmission(ctx, ws, msg, "PLAN_EXPIRED", "该规划已过期，请先解锁后继续");
                 return;
             }
             if (ctx.status == SessionStatus.RUNNING) {
-                events.sendError(ws, 0, "TURN_BUSY", "当前轮仍在运行或中断收口中，请稍后再发送");
+                rejectSubmission(ctx, ws, msg, "TURN_BUSY", "当前轮仍在运行或中断收口中，请稍后再发送");
                 return;
             }
             // 快速拒绝可避免 drain 期间为一条注定不会启动的消息重连 sidecar；真正
             // startTurn 时仍会再次走原子门禁，覆盖此检查后的并发切换。
             if (admissionGate.isDraining()) {
-                events.sendError(ws, 0, "SYSTEM_UPDATING",
+                rejectSubmission(ctx, ws, msg, "SYSTEM_UPDATING",
                         "系统正在准备自动更新，暂不接受新的消息，请稍后重试");
                 return;
             }
@@ -808,10 +860,10 @@ public class ClaudeChatService {
                 decision = runtimeStates.canReleaseQueue(ctx.sessionId);
             }
             if (!decision.allowed()) {
-                events.sendError(ws, 0, "SESSION_STATE_UNCONFIRMED",
+                rejectSubmission(ctx, ws, msg, "SESSION_STATE_UNCONFIRMED",
                         "SIDECAR_UNREACHABLE".equals(decision.code())
                                 ? "暂时无法确认连接状态，消息尚未发送。请稍后重试。"
-                                : "当前暂不能发送：" + decision.reason(), false);
+                                : "当前暂不能发送：" + decision.reason());
                 return;
             }
             applicationEvents.publishEvent(new SessionManualInputEvent(ctx.sessionId, "SEND"));
@@ -825,12 +877,12 @@ public class ClaudeChatService {
                 String code = error instanceof ClaudeOptionsMismatchException ? "CLAUDE_OPTIONS_INVALID"
                         : error instanceof ConsultRuntimeCoordinator.PreparationFailure
                         ? "CONSULT_ACCOUNT_HANDOFF_FAILED" : "SEND_STATUS_UNCONFIRMED";
-                events.sendError(ws, 0, code, error.getMessage());
+                rejectSubmission(ctx, ws, msg, code, error.getMessage());
                 return;
             }
             if (!started) {
                 voiceService.cancel(ctx.sessionId);
-                events.sendError(ws, 0, "SYSTEM_UPDATING",
+                rejectSubmission(ctx, ws, msg, "SYSTEM_UPDATING",
                         "系统正在准备自动更新，暂不接受新的消息，请稍后重试");
                 return;
             }
@@ -1056,6 +1108,7 @@ public class ClaudeChatService {
             var turnModelConfiguration = new ServerMessage.ActiveModelConfiguration(ctx.engine, ctx.currentModel,
                     requestedEffort, "codex".equals(ctx.engine) ? ctx.codexSpeed : null,
                     requestedClaudeOptions == null ? null : requestedClaudeOptions.ultracode());
+            if (submissions != null && msg.messageId() != null) submissions.dispatched(ctx.sessionId, msg.messageId(), turnId);
             if (accountPlan != null) {
                 try { consultRuntime.dispatched(ctx.sessionId, msg.messageId(), turnId, msg, accountPlan); }
                 catch (RuntimeException error) {
@@ -1100,6 +1153,8 @@ public class ClaudeChatService {
             activeTurnSpans.remove(ctx.sessionId, span);
             activeTurnMetadata.remove(ctx.sessionId, metadata);
             span.fail("sidecar send failed", e);
+            if (submissions != null) submissions.settled(ctx.sessionId, turnId, false,
+                    "引擎派发失败，原文已保存，请核对执行状态：" + e.getMessage());
             notifyCompleted(ctx.sessionId, metadata, span.traceId());
             throw e;
         }
@@ -2185,6 +2240,9 @@ public class ClaudeChatService {
                 && "user_paused".equals(r.stopReason())).isPresent()) {
             queueReleaseSafe = false;
         }
+        if (submissions != null) submissions.settled(ctx.sessionId, turnId,
+                SUCCESSFUL_TURN_STOP_REASONS.contains(stopReason),
+                ctx.lastTurnErrorMessage == null ? stopReason : ctx.lastTurnErrorMessage);
         if (ctx.consultAccountPlan != null) {
             if (SUCCESSFUL_TURN_STOP_REASONS.contains(stopReason)) commitConsultAccount(ctx);
             consultRuntime.settled(ctx.sessionId, turnId, stopReason);
