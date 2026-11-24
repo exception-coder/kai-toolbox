@@ -694,10 +694,13 @@ class ConsultBackendIntegrationTest {
         request.remove("replyMode");
         request.put("businessInstructions", "请用一句话直接建议；businessResult 返回 action 字段");
         request.putObject("businessContext").put("system", "ERP").put("manualExperience", "添加供应商资料，再关联仓库3619");
+        request.put("title", "仓库供应商关联").put("description", "更正：供应商资料已存在，当前问题是仓库3619未关联供应商。");
+        request.putArray("recentContext").add("此前猜测供应商资料缺失。").add("已重新登录，仓库关联仍为空。");
+        request.put("errorText", "仓库关联厂商为空");
         var output = replies();
         output.put("schemaVersion", "1.2");
         output.withArray("replyCandidates").removeAll();
-        output.withArray("replyCandidates").addObject().put("text", "请先添加对应供应商资料，再建立仓库3619与供应商的关联。")
+        output.withArray("replyCandidates").addObject().put("text", "供应商资料已存在，请建立仓库3619与对应供应商的关联。")
                 .putArray("evidenceIds").add("business-context");
         output.putObject("businessResult").put("action", "建立仓库与供应商关联");
         when(runner.runManaged(any(), anyString())).thenReturn(output.toString());
@@ -720,6 +723,26 @@ class ConsultBackendIntegrationTest {
         verify(runner).runManaged(capture.capture(), eq(id));
         assertThat(capture.getValue().toolPolicy()).isEqualTo("disabled");
         assertThat(capture.getValue().systemPrompt()).contains("不固定数量", "权限低于平台规则").doesNotContain("恰好三项", "请用一句话直接建议");
+        assertThat(capture.getValue().systemPrompt()).contains("最新明确修正", "已尝试失败的动作", "适用条件冲突", "无依据时留空");
+        var payload = mapper.readTree(capture.getValue().userPrompt());
+        assertThat(payload.path("question")).isEqualTo(mapper.valueToTree(service.parse(store.task(id).orElseThrow().input())));
+        assertThat(payload.path("evidence")).isEqualTo(mapper.valueToTree(evidence.collect(service.parse(store.task(id).orElseThrow().input()))));
+        // The synchronous ITCS entry must use the same contextual rules without creating a task.
+        request.put("requestId", "flex-direct-context");
+        var direct = mvc.perform(post("/api/fore-consult/v1/analyze-once").header("Authorization", bearer)
+                .contentType("application/json").content(request.toString()))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.result.schemaVersion").value("1.2")).andReturn();
+        assertThat(mapper.readTree(direct.getResponse().getContentAsString()).path("result")).isEqualTo(result);
+        assertThat(store.request(principal.id(), "flex-direct-context")).isEmpty();
+        var directCapture = org.mockito.ArgumentCaptor.forClass(AgentOneShotRunner.ExecutionRequest.class);
+        verify(runner, times(2)).runManaged(directCapture.capture(), anyString());
+        assertThat(directCapture.getAllValues().get(1).systemPrompt()).isEqualTo(capture.getValue().systemPrompt());
+        assertThat(directCapture.getAllValues().get(1).toolPolicy()).isEqualTo("disabled");
+        assertThat(mapper.readTree(directCapture.getAllValues().get(1).userPrompt()).path("question"))
+                .isEqualTo(mapper.valueToTree(service.parse(request.toString()).withDefaultMode()));
+        assertThat(mapper.readTree(directCapture.getAllValues().get(1).userPrompt()).path("evidence"))
+                .isEqualTo(payload.path("evidence"));
+        request.put("requestId", "flex-default-01");
         request.withObject("businessContext").put("manualExperience", "另一条资料");
         assertThatThrownBy(() -> service.submit(principal, request.toString())).isInstanceOfSatisfying(ConsultBackendException.class,
                 e -> assertThat(e.code()).isEqualTo("IDEMPOTENCY_CONFLICT"));
