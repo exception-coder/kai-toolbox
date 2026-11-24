@@ -27,6 +27,7 @@ public class ConsultAnalysisService {
     private final ConsultExternalImageSource externalImages;
     private final ObjectMapper mapper;
     private final long timeoutMs;
+    private final ConsultAnalysisTelemetry telemetry;
     private final Semaphore slots = new Semaphore(2);
     private final ConcurrentHashMap<String, Thread> running = new ConcurrentHashMap<>();
     private volatile boolean ready;
@@ -35,7 +36,8 @@ public class ConsultAnalysisService {
     public ConsultAnalysisService(ConsultBackendStore store, ConsultBackendAuth auth, ConsultAnalysisEvidence evidence,
             ConsultAnalysisModel model, ConsultAnalysisImages images, ObjectMapper mapper,
             ConsultExternalImageSource externalImages,
-            @Value("${toolbox.fore-consult.backend.timeout-ms:180000}") long timeoutMs) {
+            @Value("${toolbox.fore-consult.backend.timeout-ms:180000}") long timeoutMs,
+            ConsultAnalysisTelemetry telemetry) {
         this.store = store; this.auth = auth; this.evidence = evidence; this.model = model; this.images = images;
         this.externalImages = externalImages;
         this.mapper = mapper.copy().enable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
@@ -43,6 +45,14 @@ public class ConsultAnalysisService {
         this.mapper.enable(com.fasterxml.jackson.core.JsonParser.Feature.STRICT_DUPLICATE_DETECTION);
         if (timeoutMs < 1000 || timeoutMs > 600000) throw new IllegalArgumentException("分析任务超时须为 1000–600000ms");
         this.timeoutMs = timeoutMs;
+        this.telemetry = telemetry;
+    }
+
+    public ConsultAnalysisService(ConsultBackendStore store, ConsultBackendAuth auth, ConsultAnalysisEvidence evidence,
+            ConsultAnalysisModel model, ConsultAnalysisImages images, ObjectMapper mapper,
+            ConsultExternalImageSource externalImages, long timeoutMs) {
+        this(store, auth, evidence, model, images, mapper, externalImages, timeoutMs,
+                new ConsultAnalysisTelemetry(com.exceptioncoder.toolbox.llm.observability.AgentTelemetry.noop(512)));
     }
 
     ConsultAnalysisService(ConsultBackendStore store, ConsultBackendAuth auth, ConsultAnalysisEvidence evidence,
@@ -69,13 +79,32 @@ public class ConsultAnalysisService {
         }
         String executionId = UUID.randomUUID().toString();
         var work = new java.util.concurrent.FutureTask<DirectResult>(() -> {
-            auth.active(client.id());
-            var packets = evidence.collect(input);
-            var imageInputs = images.resolveExternal(client, input.imageRefs(), externalImages);
-            if (Thread.currentThread().isInterrupted()) { throw new InterruptedException(); }
-            var result = mapper.readTree(model.analyze(executionId, input, packets, imageInputs, false));
-            auth.active(client.id());
-            return new DirectResult(input.requestId(), result);
+            try (var execution = telemetry.start(client.id(), executionId, input, 0)) {
+                execution.attribute("consult.mode", "DIRECT");
+                try {
+                    auth.active(client.id());
+                    List<ConsultAnalysisEvidence.Packet> packets;
+                    try (var stage = execution.stage("evidence")) {
+                        packets = evidence.collect(input);
+                        stage.success();
+                    }
+                    ConsultAnalysisImages.Inputs imageInputs;
+                    try (var stage = execution.stage("images")) {
+                        imageInputs = images.resolveExternal(client, input.imageRefs(), externalImages);
+                        stage.success();
+                    }
+                    if (Thread.currentThread().isInterrupted()) {
+                        throw new InterruptedException();
+                    }
+                    var result = mapper.readTree(model.analyze(executionId, input, packets, imageInputs, false, execution));
+                    auth.active(client.id());
+                    execution.complete(result.path("missingInformation").isEmpty() ? "SUCCEEDED" : "NEEDS_INFORMATION", null);
+                    return new DirectResult(input.requestId(), result);
+                } catch (Exception error) {
+                    execution.complete("FAILED", error instanceof ConsultBackendException known ? known.code() : "ANALYSIS_FAILED");
+                    throw error;
+                }
+            }
         });
         try {
             Thread.ofVirtual().name("consult-direct-" + executionId).start(() -> {
@@ -121,10 +150,13 @@ public class ConsultAnalysisService {
         catch (Exception error) { throw ConsultBackendException.invalid("无法读取请求内容"); }
         images.resolve(client, input.attachmentIds(), false);
         if (!input.imageRefs().isEmpty()) { externalImages.requireAccess(client); }
-        if (store.unfinished(null) >= 64 || store.unfinished(client.id()) >= 8) throw new ConsultBackendException(429, "TASK_LIMITED", "分析任务繁忙，请保留请求标识稍后重试", true);
+        int unfinishedBeforeAdmission = store.unfinished(null);
+        if (unfinishedBeforeAdmission >= 64 || store.unfinished(client.id()) >= 8) throw new ConsultBackendException(429, "TASK_LIMITED", "分析任务繁忙，请保留请求标识稍后重试", true);
         var task = new ConsultBackendStore.Task(UUID.randomUUID().toString(), client.id(), input.requestId(), hash,
                 normalized, "QUEUED", null, null, System.currentTimeMillis(), null, null, null);
         images.admit(client, input.attachmentIds(), () -> store.insertTask(task));
+        LOG.info("Consult backend admitted client={} request={} task={} unfinishedBeforeAdmission={}",
+                client.id(), input.requestId(), task.id(), unfinishedBeforeAdmission);
         return view(store.task(task.id()).orElseThrow());
     }
 
@@ -184,30 +216,61 @@ public class ConsultAnalysisService {
     }
 
     private void execute(String id) {
+        ConsultAnalysisTelemetry.Execution execution = null;
         try {
             var task = store.task(id).orElseThrow();
             if (!"RUNNING".equals(task.status())) { store.finish(id, "CANCELLED", null, "CANCELLED_BY_CALLER"); return; }
             var client = auth.active(task.clientId());
             var input = parse(task.input());
+            execution = telemetry.start(client.id(), id, input, task.startedAt() - task.createdAt());
+            execution.attribute("consult.mode", "ASYNC");
             authorize(client, input);
-            var packets = evidence.collect(input);
-            var imageInputs = input.imageRefs().isEmpty() ? images.resolve(client, input.attachmentIds(), true)
-                    : images.resolveExternal(client, input.imageRefs(), externalImages);
-            if (!"RUNNING".equals(store.task(id).orElseThrow().status())) { store.finish(id, "CANCELLED", null, "CANCELLED_BY_CALLER"); return; }
-            String result = model.analyze(id, input, packets, imageInputs);
+            List<ConsultAnalysisEvidence.Packet> packets;
+            try (var stage = execution.stage("evidence")) {
+                packets = evidence.collect(input);
+                stage.success();
+            }
+            ConsultAnalysisImages.Inputs imageInputs;
+            try (var stage = execution.stage("images")) {
+                imageInputs = input.imageRefs().isEmpty() ? images.resolve(client, input.attachmentIds(), true)
+                        : images.resolveExternal(client, input.imageRefs(), externalImages);
+                stage.success();
+            }
+            if (!"RUNNING".equals(store.task(id).orElseThrow().status())) {
+                store.finish(id, "CANCELLED", null, "CANCELLED_BY_CALLER");
+                var stopped = store.task(id).orElseThrow();
+                execution.complete(stopped.status(), stopped.errorCode());
+                return;
+            }
+            String result = model.analyze(id, input, packets, imageInputs, true, execution);
             var current = store.task(id).orElseThrow();
             if (current.startedAt() != null && System.currentTimeMillis() - current.startedAt() >= timeoutMs) store.cancel(id, "ANALYSIS_TIMEOUT");
             // Credential expiry/revocation while generating must not publish a fresh successful result.
             auth.active(client.id());
             String status = mapper.readTree(result).path("missingInformation").isEmpty() ? "SUCCEEDED" : "NEEDS_INFORMATION";
-            store.finish(id, status, result, null);
+            try (var stage = execution.stage("persistence")) {
+                store.finish(id, status, result, null);
+                stage.success();
+            }
+            var finished = store.task(id).orElseThrow();
+            execution.complete(finished.status(), finished.errorCode());
         } catch (Exception error) {
             String code = error instanceof ConsultBackendException known ? known.code() : "ANALYSIS_FAILED";
             LOG.warn("Consult backend analysis failed task={} code={} kind={}", id, code, error.getClass().getSimpleName());
             store.finish(id, "FAILED", null, code);
+            if (execution != null) {
+                var finished = store.task(id).orElseThrow();
+                execution.complete(finished.status(), finished.errorCode());
+            }
         } finally {
-            running.remove(id);
-            slots.release();
+            try {
+                if (execution != null) {
+                    execution.close();
+                }
+            } finally {
+                running.remove(id);
+                slots.release();
+            }
         }
     }
 
@@ -249,6 +312,7 @@ public class ConsultAnalysisService {
     }
 
     private void requestCancellation(String id) {
+        telemetry.cancellationRequested(id);
         try { model.cancel(id); }
         catch (RuntimeException error) { LOG.warn("Consult analysis cancellation unconfirmed task={} kind={}", id, error.getClass().getSimpleName()); }
     }

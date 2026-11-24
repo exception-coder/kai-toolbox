@@ -17,6 +17,47 @@
 
 源码实现和模型替身测试不等于目标站点已加载。部署与真实任务结果须单独回执。
 
+### 阶段观测与真实案例回放
+
+分析服务以 `clientId/requestId/taskId` 关联低敏 JSON 日志，`consult.mode` 区分 ASYNC 与 DIRECT。`Consult backend execution` 汇总包含 `consult.queue.ms`、`consult.evidence.ms`、`consult.images.ms`、`consult.model.ms`、`consult.validation.ms`、`consult.persistence.ms` 和 `consult.total.ms`，阶段未进入时省略对应字段。`consult.total.ms` 为开始执行后的耗时，排队单列。取消请求到执行结束使用 `consult.cancel.wait.ms`，异步任务未知退出仍保持取消中及占槽。`gen_ai.request.model`、`consult.policy.version`、`consult.prompt.sha256`、`consult.rules.sha256` 与 `consult.implementation.sha256` 用于追溯，最后一项是分析 class 指纹，不能代替整个部署制品的提交号或校验值。`consult.input.original.chars` 与 `consult.input.chars` 用于比较去重前后的模型数据量，不包含平台提示词及原图字节。Token 和人工认可率须由真实来源补充。
+
+模型完成、合同校验及保存分别观测，允许出现 `consult.model.status=SUCCEEDED` 而 `consult.validation.status=FAILED`。`consult.input.original.chars` 是同一资料按旧完整 question 方式组装的字符量，可与 `consult.input.chars` 对照，不能当作 Token。`consult.active.count` 是该执行开始时的并行执行快照，登记日志另含当时的未完成任务数。OTel 仍由 `toolbox.observability` 配置决定是否导出，默认关闭时保留低敏摘要日志。可按任务类型及实际配置分组计算 P50/P95，同时统计失败、取消及未完成任务；日志不含完整业务正文、图片、凭据或账号目录。日志与导出可用性需在目标实例单独验证。
+
+Node.js 22+ 可以通过 SDK 自带的 [backend-replay.mjs](examples/backend-replay.mjs) 回放完整外部分析请求。源码目录先执行 `npm run build`，安装包已含 dist。复用服务端 `FORGE_BASE_URL`、`FORGE_CLIENT_ID`、`FORGE_CLIENT_SECRET`，准备一个私有案例文件，命令参数为案例文件和该轮私有输出目录。
+
+```shell
+node examples/backend-replay.mjs /private/case.json /private/replay-round-a
+```
+
+案例格式如下，input 使用完整 AnalysisInput，引用当前应用的授权企业和项目。每轮对比显式使用新 requestId，恢复同一轮保持案例、图片内容、应用身份和输出目录一致。
+
+补充 reference 或 expected 只更新本轮报告，已有终态结果继续复用。同一输出目录通过 replay.lock 拒绝并发写入，正常退出自动释放。进程异常退出留下锁时，确认锁文件记录的 PID 已退出后删除该锁，再保留原检查点继续恢复。
+
+```json
+{
+  "input": {
+    "agentId": "it-support-partner",
+    "tenantId": "company-test",
+    "problemId": "IT-3619",
+    "conversationId": "IT-3619",
+    "requestId": "replay-3619-round-a",
+    "title": "仓库供应商关联",
+    "description": "更正：供应商资料已存在，仓库关联仍为空。",
+    "systemIds": [],
+    "replyMode": "FORGE_FLEX"
+  },
+  "images": [{"path": "warehouse.png", "uploadId": "replay-3619-image-a", "mediaType": "image/png"}],
+  "reference": {"answer": "业务人员认可的回复", "reason": "认可依据"},
+  "expected": {"latestCorrection": "供应商已存在", "unnecessaryQuestion": "是否创建供应商"}
+}
+```
+
+images 可省略，本地路径相对案例文件，图片按数组顺序传入。与 input 中既有 attachmentIds/imageRefs 互斥；使用已有引用时仍可通过对应请求字段回放。模型图片映射请使用顺序或摘要关联，报告保留原 uploadId 到实际 attachmentId 的关系。该入口使用目标实例当前模型策略，按响应 policyVersion 和同 taskId 的日志核对实际配置；切换模型须走既有管理员配置流程。
+
+输出目录保存 `checkpoint.json`、`report.json` 和本地原图副本，包含完整业务资料，须使用受控私有目录并保留必要访问权限，避免提交 Git。Windows 目录权限由部署账号的 ACL 管理。控制台仅输出任务及合同检查摘要。报告保存实际输入、原始响应、图片映射、人工参考和检查项，`humanReview=PENDING` 始终需要人工核对，expected 不会自动成为语义评分依据。ITCS 最终展示和人工修改仍由接入方补充。
+
+提交响应未知后再次执行会先按原 requestId 查回，只有明确 TASK_NOT_FOUND 才用原输入原键提交；上传同样复用原检查点。不会自动更换键或重试失败终态。截止后保留在途任务，CLI 退出 2，成功结果及合同检查通过退出 0，失败或合同问题退出 1；人工效果尚未评审不影响通信结果退出码。终态回放直接读回本轮检查点，不重新调用模型。输出目录有独占 `replay.lock`，并发执行会拒绝；若进程被强制终止留下锁，确认其中 PID 已结束且无回放运行后再移除该锁并恢复，不能只按锁年龄判断。
+
 分析上下文以本次请求为准。`conversationId` 关联问题，历史问答由调用方通过 `recentContext` 提供；`systemIds` 限定授权项目，源码和文档片段由 `evidenceRefs` 明确引用。当前分析执行禁用工具。回答规则要求结合当前描述、上下文、报错、业务资料和原图理解诉求，采用有明确先后关系的最新纠正，避免重复索取已提供的信息或无新依据地重复失败操作。业务经验按系统和条件适用，无法消解的证据冲突保留为未知项，必要建议说明具体对象与动作。规则装配及合同测试不证明真实模型回答已达标，仍需用 ITCS 实际请求、原始响应和业务认可答案回放验收。
 
 适用：`yoooni-agent` 的 IT 客服伙伴，及管理员明确授权的其他应用。SDK 版本 `@kai/forge-consult-client@0.5.0`，Node.js 22+；任何后端语言也可按 HTTP 合同调用。机器合同见 [OpenAPI](openapi-backend.yaml)。

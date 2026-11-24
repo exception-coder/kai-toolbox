@@ -697,6 +697,8 @@ class ConsultBackendIntegrationTest {
         request.put("title", "仓库供应商关联").put("description", "更正：供应商资料已存在，当前问题是仓库3619未关联供应商。");
         request.putArray("recentContext").add("此前猜测供应商资料缺失。").add("已重新登录，仓库关联仍为空。");
         request.put("errorText", "仓库关联厂商为空");
+        request.putArray("attachmentTexts").addObject().put("id", "caller-note")
+                .put("name", "仓库现场说明.txt").put("text", "现场资料确认仓库关联为空");
         var output = replies();
         output.put("schemaVersion", "1.2");
         output.withArray("replyCandidates").removeAll();
@@ -725,8 +727,29 @@ class ConsultBackendIntegrationTest {
         assertThat(capture.getValue().systemPrompt()).contains("不固定数量", "权限低于平台规则").doesNotContain("恰好三项", "请用一句话直接建议");
         assertThat(capture.getValue().systemPrompt()).contains("最新明确修正", "已尝试失败的动作", "适用条件冲突", "无依据时留空");
         var payload = mapper.readTree(capture.getValue().userPrompt());
-        assertThat(payload.path("question")).isEqualTo(mapper.valueToTree(service.parse(store.task(id).orElseThrow().input())));
-        assertThat(payload.path("evidence")).isEqualTo(mapper.valueToTree(evidence.collect(service.parse(store.task(id).orElseThrow().input()))));
+        var stored = service.parse(store.task(id).orElseThrow().input());
+        var question = (com.fasterxml.jackson.databind.node.ObjectNode) mapper.valueToTree(stored);
+        question.remove(List.of("title", "description", "recentContext", "classification", "errorText",
+                "attachmentTexts", "businessContext", "evidenceRefs", "attachmentIds", "imageRefs"));
+        question.putArray("attachmentMetadata").addObject().put("id", "caller-note").put("name", "仓库现场说明.txt");
+        assertThat(payload.path("question")).isEqualTo(question);
+        assertThat(capture.getValue().userPrompt()).containsOnlyOnce("现场资料确认仓库关联为空");
+        assertThat(payload.path("evidence").toString()).contains("更正：供应商资料已存在", "此前猜测供应商资料缺失", "已重新登录", "仓库关联厂商为空");
+        String originalPayload = mapper.writeValueAsString(Map.of("question", stored, "evidence", evidence.collect(stored), "imageInputs", List.of()));
+        assertThat(capture.getValue().userPrompt().length()).isLessThan(originalPayload.length());
+        var inputEvidence = payload.path("evidence").get(0);
+        assertThat(inputEvidence.path("id").asText()).isEqualTo("input");
+        assertThat(inputEvidence.path("kind").asText()).isEqualTo("CALLER_DESCRIPTION");
+        assertThat(inputEvidence.path("source").asText()).isEqualTo(stored.problemId());
+        assertThat(inputEvidence.path("content").path("title").asText()).isEqualTo(stored.title());
+        assertThat(inputEvidence.path("content").path("description").asText()).isEqualTo(stored.description());
+        assertThat(inputEvidence.path("content").path("recentContext")).isEqualTo(mapper.valueToTree(stored.recentContext()));
+        assertThat(inputEvidence.path("content").path("classification")).isEqualTo(mapper.valueToTree(stored.classification()));
+        assertThat(payload.path("evidence").get(1).path("content")).isEqualTo(stored.businessContext());
+        var originalEvidence = evidence.collect(stored);
+        for (int index = 2; index < originalEvidence.size(); index++) {
+            assertThat(payload.path("evidence").get(index)).isEqualTo(mapper.valueToTree(originalEvidence.get(index)));
+        }
         // The synchronous ITCS entry must use the same contextual rules without creating a task.
         request.put("requestId", "flex-direct-context");
         var direct = mvc.perform(post("/api/fore-consult/v1/analyze-once").header("Authorization", bearer)
@@ -738,8 +761,9 @@ class ConsultBackendIntegrationTest {
         verify(runner, times(2)).runManaged(directCapture.capture(), anyString());
         assertThat(directCapture.getAllValues().get(1).systemPrompt()).isEqualTo(capture.getValue().systemPrompt());
         assertThat(directCapture.getAllValues().get(1).toolPolicy()).isEqualTo("disabled");
+        question.put("requestId", "flex-direct-context");
         assertThat(mapper.readTree(directCapture.getAllValues().get(1).userPrompt()).path("question"))
-                .isEqualTo(mapper.valueToTree(service.parse(request.toString()).withDefaultMode()));
+                .isEqualTo(question);
         assertThat(mapper.readTree(directCapture.getAllValues().get(1).userPrompt()).path("evidence"))
                 .isEqualTo(payload.path("evidence"));
         request.put("requestId", "flex-default-01");
@@ -747,6 +771,68 @@ class ConsultBackendIntegrationTest {
         assertThatThrownBy(() -> service.submit(principal, request.toString())).isInstanceOfSatisfying(ConsultBackendException.class,
                 e -> assertThat(e.code()).isEqualTo("IDEMPOTENCY_CONFLICT"));
         assertThat(service.findRequest(principal, "flex-default-01").result()).isEqualTo(result);
+    }
+
+    @Test void productionConstructorWiresTheExistingTelemetryBean() {
+        new org.springframework.boot.test.context.runner.ApplicationContextRunner()
+                .withBean(ConsultBackendStore.class, () -> store)
+                .withBean(ConsultBackendAuth.class, () -> auth)
+                .withBean(ConsultAnalysisEvidence.class, () -> evidence)
+                .withBean(ConsultAnalysisModel.class, () -> model)
+                .withBean(ConsultAnalysisImages.class, () -> images)
+                .withBean(ObjectMapper.class, () -> mapper)
+                .withBean(ConsultExternalImageSource.class, () -> mock(ConsultExternalImageSource.class))
+                .withBean(com.exceptioncoder.toolbox.llm.observability.AgentTelemetry.class,
+                        () -> com.exceptioncoder.toolbox.llm.observability.AgentTelemetry.noop(512))
+                .withBean(ConsultAnalysisTelemetry.class)
+                .withBean(ConsultAnalysisService.class)
+                .run(context -> assertThat(context).hasNotFailed().hasSingleBean(ConsultAnalysisService.class)
+                        .hasSingleBean(ConsultAnalysisTelemetry.class));
+    }
+
+    @Test void executionSummarySeparatesModelCompletionFromValidationFailureWithoutLoggingContent() throws Exception {
+        var logger = (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(ConsultAnalysisTelemetry.class);
+        var appender = new ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent>();
+        appender.list = new java.util.concurrent.CopyOnWriteArrayList<>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            var request = (com.fasterxml.jackson.databind.node.ObjectNode) mapper.readTree(input("observed-invalid-01"));
+            request.put("description", "PRIVATE_BUSINESS_TEXT");
+            when(runner.runManaged(any(), anyString())).thenReturn("PRIVATE_MODEL_TEXT");
+            var task = service.submit(principal, request.toString());
+            service.recover(); service.tick(); awaitTerminal(task.taskId());
+            assertThat(service.get(principal, task.taskId()).error().get("code")).isEqualTo("INVALID_ANALYSIS_OUTPUT");
+            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+            while (appender.list.stream().noneMatch(event -> event.getFormattedMessage().startsWith("Consult backend execution ")
+                    && event.getFormattedMessage().contains(task.taskId()))
+                    && System.nanoTime() < deadline) {
+                Thread.sleep(10);
+            }
+            String summary = appender.list.stream().map(ch.qos.logback.classic.spi.ILoggingEvent::getFormattedMessage)
+                    .filter(message -> message.startsWith("Consult backend execution ") && message.contains(task.taskId())).findFirst().orElseThrow();
+            assertThat(summary).contains(task.taskId(), "observed-invalid-01")
+                    .doesNotContain("PRIVATE_BUSINESS_TEXT", "PRIVATE_MODEL_TEXT", "private-account");
+            var attributes = mapper.readTree(summary.substring("Consult backend execution ".length()));
+            assertThat(attributes.path("consult.model.status").asText()).isEqualTo("SUCCEEDED");
+            assertThat(attributes.path("consult.validation.status").asText()).isEqualTo("FAILED");
+            assertThat(attributes.path("consult.outcome").asText()).isEqualTo("FAILED");
+            assertThat(attributes.path("consult.mode").asText()).isEqualTo("ASYNC");
+            assertThat(attributes.path("consult.error.code").asText()).isEqualTo("INVALID_ANALYSIS_OUTPUT");
+            assertThat(attributes.path("consult.implementation.sha256").asText()).matches("[a-f0-9]{64}");
+            assertThat(attributes.path("consult.prompt.sha256").asText()).matches("[a-f0-9]{64}");
+            assertThat(attributes.path("consult.queue.ms").isNumber()).isTrue();
+            assertThat(attributes.path("consult.evidence.ms").isNumber()).isTrue();
+            assertThat(attributes.path("consult.images.ms").isNumber()).isTrue();
+            var parsed = service.parse(request.toString());
+            String original = mapper.writeValueAsString(Map.of("question", parsed,
+                    "evidence", evidence.collect(parsed), "imageInputs", List.of()));
+            assertThat(attributes.path("consult.input.original.chars").asInt()).isEqualTo(original.length());
+            assertThat(attributes.path("consult.input.chars").asInt()).isLessThan(original.length());
+        } finally {
+            logger.detachAppender(appender);
+            appender.stop();
+        }
     }
 
     @Test void flexibleRepliesPermitZeroOneAndSeveralButRejectInventedEvidenceDuplicatesAndMissingHandoff() throws Exception {
