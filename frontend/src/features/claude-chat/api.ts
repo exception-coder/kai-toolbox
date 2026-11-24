@@ -1,4 +1,5 @@
 import { ApiError, authFetch, http } from '@/lib/api'
+import { localDocumentRequest } from './lib/localDocumentRequest'
 import { reportVibeEntry } from '@/lib/vibeEntryDiagnostics'
 import { ensureFreshToken, getToken } from '@/lib/auth'
 import { listSystemModules, listSystemWorkspaces, saveSystemProjectAlias } from '@/lib/systemCatalog'
@@ -504,22 +505,22 @@ export function readSessionFile(sessionId: string, path: string) {
 
 /** 完整读取消息链接中的 draw.io 文件，沿用会话与已登记项目访问范围。 */
 export function readSessionDiagram(sessionId: string, path: string, signal?: AbortSignal) {
-  return http<FileContent>(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/diagram?path=${encodeURIComponent(path)}`, { signal })
+  return localDocumentRequest(readSignal => http<FileContent>(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/diagram?path=${encodeURIComponent(path)}`, { signal: readSignal }), signal)
 }
 
 /** 完整读取本地 Markdown；取消、会话权限和跨目录精确引用由同一文件链路处理。 */
 export function readSessionMarkdown(sessionId: string, path: string, signal?: AbortSignal) {
-  return http<FileContent>(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/markdown?path=${encodeURIComponent(path)}`, { signal })
+  return localDocumentRequest(readSignal => http<FileContent>(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/markdown?path=${encodeURIComponent(path)}`, { signal: readSignal }), signal)
 }
 
 /** 只读 SQL 文件原文；与数据库执行、待执行 SQL 登记无关。 */
 export function readSessionSql(sessionId: string, path: string, signal?: AbortSignal) {
-  return http<FileContent>(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/sql?path=${encodeURIComponent(path)}`, { signal })
+  return localDocumentRequest(readSignal => http<FileContent>(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/sql?path=${encodeURIComponent(path)}`, { signal: readSignal }), signal)
 }
 
 /** 只读 HTML 原文，前端放入无同源权限的沙箱渲染。 */
 export function readSessionHtml(sessionId: string, path: string, signal?: AbortSignal) {
-  return http<FileContent>(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/html?path=${encodeURIComponent(path)}`, { signal })
+  return localDocumentRequest(readSignal => http<FileContent>(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/html?path=${encodeURIComponent(path)}`, { signal: readSignal }), signal)
 }
 
 /** 本地图片经会话鉴权读取；不把服务器磁盘路径作为浏览器 URL。 */
