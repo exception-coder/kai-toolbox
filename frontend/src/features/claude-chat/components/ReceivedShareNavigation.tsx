@@ -28,7 +28,7 @@ export function ReceivedShareNavigation({ session, mobile = false }: { session: 
   const list = received.isError ? [] : received.data ?? []
   const keyword = search.trim().toLowerCase()
   const sessions = list.filter(item => (!replyOnly || item.collaborate)
-    && (item.title || '共享会话').toLowerCase().includes(keyword))
+    && `${item.title || '未命名会话'} ${item.projectName || ''}`.toLowerCase().includes(keyword))
   const content = <>
     <div className="shrink-0 space-y-2 px-3 pb-3">
       <label className="flex min-w-0 items-center gap-2 rounded-md border bg-background px-2">
@@ -59,9 +59,9 @@ export function ReceivedShareNavigation({ session, mobile = false }: { session: 
               }}
               className={cn('block rounded-md px-2.5 py-2 text-sm hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
                 selected && 'bg-primary/10 text-primary hover:bg-primary/10')}>
-              <span className="block truncate font-medium" title={item.title ?? undefined}>{item.title || '共享会话'}</span>
+              <span className="block truncate font-medium" title={item.title ?? undefined}>{item.title || '未命名会话'}</span>
+              <span className="block truncate text-xs text-muted-foreground" title={item.projectName ?? undefined}>{[item.projectName, item.collaborate ? '可回复' : '只读', item.engine].filter(Boolean).join(' · ')}</span>
               <span className="mt-0.5 flex items-center justify-between gap-2 text-xs text-muted-foreground">
-                <span className="shrink-0">{item.collaborate ? '可回复' : '只读'}</span>
                 {time && <span className="truncate tabular-nums" title={`最近活动 ${time}`}>{time}</span>}
               </span>
             </Link>

@@ -30,20 +30,21 @@ it('opens the original workbench directly for an authorized collaborator', async
 })
 
 it('reads text without executing markup and clears it when access is revoked', async () => {
-  vi.mocked(getSharedSession).mockResolvedValue({ id: 'one', title: '授权会话', engine: 'codex', lastSeenAt: 1 })
+  vi.mocked(getSharedSession).mockResolvedValue({ id: 'one', title: '授权会话', projectName: '主工程甲', engine: 'codex', lastSeenAt: 1 })
   vi.mocked(getSharedMessages).mockResolvedValue({ items: [{ id: 'a', kind: 'assistant', text: '<script>secret()</script>', ts: null }],
     nextCursor: null, transcriptMissing: false, historyGap: null })
   mount()
   expect(await screen.findByText('<script>secret()</script>')).toBeTruthy()
   expect(document.querySelector('script')).toBeNull()
   expect(screen.queryByRole('textbox', { name: '消息输入' })).toBeNull()
-  expect(screen.getByText('共享会话 · 只读')).toBeVisible()
+  expect(screen.getByText('主工程甲 · 只读')).toBeVisible()
   expect(screen.getByRole('button', { name: '复制消息' })).toBeVisible()
   vi.mocked(getSharedMessages).mockRejectedValue(new ApiError(403, null, 'SESSION_FORBIDDEN'))
   fireEvent.click(screen.getByRole('button', { name: '更多共享会话选项' }))
   fireEvent.click(screen.getByRole('button', { name: '刷新' }))
   expect(await screen.findByRole('alert')).toHaveTextContent('请确认登录账号')
   expect(screen.getByText('无访问权限')).toBeVisible()
+  expect(screen.queryByText(/主工程甲/)).not.toBeInTheDocument()
   expect(screen.queryByText(/SESSION_FORBIDDEN/)).not.toBeInTheDocument()
   expect(screen.queryByText('<script>secret()</script>')).toBeNull()
   expect(screen.getByRole('link', { name: '返回 Forge 首页' })).toBeTruthy()

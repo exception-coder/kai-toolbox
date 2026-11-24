@@ -17,6 +17,9 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 import java.time.Duration;
+import java.nio.file.Path;
+import com.exceptioncoder.toolbox.common.project.ProjectCatalog;
+import com.exceptioncoder.toolbox.common.project.ProjectPaths;
 
 /** 具名查看和限时协作共用授权管理，交互权限由会话访问策略检查。 */
 @Service
@@ -27,6 +30,8 @@ public class SessionSharingService {
     private final ObjectProvider<AuthUserRepository> users;
     @org.springframework.beans.factory.annotation.Autowired
     private ApplicationEventPublisher events;
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private ProjectCatalog projectCatalog;
 
     public SessionSharingService(ClaudeChatSessionRepository sessions, SessionSharingRepository shares,
                                  ClaudeChatSessionAccessPolicy access, ObjectProvider<AuthUserRepository> users) {
@@ -123,9 +128,10 @@ public class SessionSharingService {
         List<String> ids = shares.sharedSessions(user.userId());
         var loaded = sessions.findByIds(ids).stream().collect(java.util.stream.Collectors.toMap(
                 ClaudeChatSession::getId, java.util.function.Function.identity()));
+        var projects = sharingProjects();
         return ids.stream().map(loaded::get).filter(Objects::nonNull).filter(this::shareable)
-                .filter(session -> projectAllowed(session)).map(session -> SharedSession.from(session,
-                        shares.canCollaborate(session.getId(), user.userId()))).toList();
+                .filter(session -> projectAllowed(session)).map(session -> sharedView(session,
+                        shares.canCollaborate(session.getId(), user.userId()), projects)).toList();
     }
 
     public ClaudeChatSession requireReader(String sessionId) {
@@ -139,7 +145,9 @@ public class SessionSharingService {
     }
 
     public SharedSession view(String sessionId) {
-        return SharedSession.from(requireReader(sessionId), shares.canCollaborate(sessionId, principal().userId()));
+        var session = requireReader(sessionId);
+        return sharedView(session, shares.canCollaborate(sessionId, principal().userId()),
+                sharingProjects());
     }
 
     private ClaudeChatSession requireManager(String sessionId) {
@@ -186,11 +194,53 @@ public class SessionSharingService {
         return new ResponseStatusException(HttpStatus.NOT_FOUND, "会话不存在或当前账号没有权限");
     }
 
-    public record SharedSession(String id, String title, String engine, long lastSeenAt, boolean collaborate) {
-        static SharedSession from(ClaudeChatSession session, boolean collaborate) {
-            return new SharedSession(session.getId(), session.getTitle(), session.getEngine(), session.getLastSeenAt(), collaborate);
+    private List<ProjectCatalog.Entry> sharingProjects() {
+        if (projectCatalog == null) return List.of();
+        try {
+            return projectCatalog.list(false);
+        } catch (IllegalArgumentException | IllegalStateException error) {
+            org.slf4j.LoggerFactory.getLogger(SessionSharingService.class)
+                    .warn("共享项目显示名暂不可用，保留会话读取", error);
+            return List.of();
         }
     }
+
+    private SharedSession sharedView(ClaudeChatSession session, boolean collaborate, List<ProjectCatalog.Entry> projects) {
+        String title = session.getTitle();
+        if (title == null || title.isBlank()) {
+            // 与原会话的默认名称一致，只投影末级目录名，不返回本机路径。
+            String cwd = session.getCwd() == null ? "" : session.getCwd().replace('\\', '/').replaceAll("/+$", "");
+            title = cwd.substring(cwd.lastIndexOf('/') + 1);
+            if (title.isBlank() || title.matches("[A-Za-z]:") || title.equals(".")) title = "未命名会话";
+        }
+        return new SharedSession(session.getId(), title.trim(), session.getEngine(), session.getLastSeenAt(),
+                collaborate, projectName(session.getCwd(), projects));
+    }
+
+    private String projectName(String cwd, List<ProjectCatalog.Entry> projects) {
+        if (cwd == null || cwd.isBlank()) return null;
+        try {
+            Path directory = ProjectPaths.canonical(Path.of(cwd));
+            int depth = -1;
+            String name = null;
+            for (var project : projects) {
+                if (project.excluded() || !project.available() || project.path() == null) continue;
+                Path root = ProjectPaths.canonical(Path.of(project.path()));
+                if (!directory.startsWith(root)) continue;
+                if (root.getNameCount() > depth) {
+                    depth = root.getNameCount();
+                    name = project.name();
+                } else if (root.getNameCount() == depth && !Objects.equals(name, project.name())) {
+                    name = null;
+                }
+            }
+            return name == null || name.isBlank() ? null : name;
+        } catch (IllegalArgumentException error) {
+            return null;
+        }
+    }
+
+    public record SharedSession(String id, String title, String engine, long lastSeenAt, boolean collaborate, String projectName) {}
 
     public record SharedReader(long id, String username, String realName, Long expiresAt, boolean collaborate) {}
     public record SharedAccessRevoked(String sessionId, long userId) {}

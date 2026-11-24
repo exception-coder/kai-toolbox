@@ -24,14 +24,15 @@ export function SharedConversationHeader({ title, mode, onRefresh, session }: {
       <Link to="/" aria-label="返回 Forge 首页" title="返回 Forge 首页"><ArrowLeft /></Link>
     </Button>
     <div className="min-w-0 flex-1">
-      <h1 className="truncate text-base font-semibold">{title || '共享会话'}</h1>
-      <p className="text-xs text-muted-foreground">{title ? '共享会话 · ' : ''}{mode}</p>
+      <h1 className="truncate text-base font-semibold" title={hasAccess ? title ?? undefined : undefined}>{hasAccess ? title || '未命名会话' : '共享会话'}</h1>
+      <p className="truncate text-xs text-muted-foreground" title={hasAccess ? session?.projectName ?? undefined : undefined}>{hasAccess && session?.projectName ? `${session.projectName} · ` : title && hasAccess ? '共享会话 · ' : ''}{mode}</p>
     </div>
     {hasAccess && session && <Popover>
       <PopoverTrigger asChild><Button type="button" variant="ghost" size="icon" className="size-11 shrink-0" aria-label="会话信息"><Info /></Button></PopoverTrigger>
       <PopoverContent align="end" className="w-60 space-y-2">
         <h2 className="text-sm font-semibold">会话信息</h2>
         <dl className="space-y-1 text-xs text-muted-foreground">
+          {session.projectName && <div><dt>所属项目</dt><dd className="break-words">{session.projectName}</dd></div>}
           <div className="flex justify-between gap-2"><dt>权限</dt><dd>{mode}</dd></div>
           {session.engine && <div className="flex justify-between gap-2"><dt>引擎</dt><dd className="truncate capitalize">{session.engine}</dd></div>}
           {activity && <div className="flex justify-between gap-2"><dt>最近活动</dt><dd>{activity}</dd></div>}

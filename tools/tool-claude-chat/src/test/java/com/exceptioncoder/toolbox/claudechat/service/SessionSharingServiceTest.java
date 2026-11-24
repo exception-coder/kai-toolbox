@@ -43,6 +43,54 @@ class SessionSharingServiceTest {
     @AfterEach
     void cleanup() { AuthContext.clear(); }
 
+    @Test
+    void projectsDistinguishSameTitlesAndOnlyResolveAfterAuthorization() {
+        var catalog = mock(com.exceptioncoder.toolbox.common.project.ProjectCatalog.class);
+        org.springframework.test.util.ReflectionTestUtils.setField(service, "projectCatalog", catalog);
+        var base = java.nio.file.Path.of(".").toAbsolutePath().normalize();
+        session.setCwd(base.resolve("alpha/frontend").toString());
+        var other = ClaudeChatSession.builder().id("two").userId(7L).title("会话")
+                .cwd(base.resolve("beta").toString()).build();
+        when(catalog.list(false)).thenReturn(List.of(
+                new com.exceptioncoder.toolbox.common.project.ProjectCatalog.Entry("a", null, "主工程甲", base.resolve("alpha").toString(), null, true, false, "registered"),
+                new com.exceptioncoder.toolbox.common.project.ProjectCatalog.Entry("b", null, "主工程乙", base.resolve("beta").toString(), null, true, false, "registered")));
+        login(8, "USER");
+        when(shares.contains("one", 8)).thenReturn(true);
+        when(shares.sharedSessions(8)).thenReturn(List.of("one", "two"));
+        when(sessions.findByIds(List.of("one", "two"))).thenReturn(List.of(session, other));
+        assertThat(service.sharedWithMe()).extracting(SessionSharingService.SharedSession::projectName)
+                .containsExactly("主工程甲", "主工程乙");
+        assertThat(service.view("one").projectName()).isEqualTo("主工程甲");
+        clearInvocations(catalog);
+        when(shares.contains("one", 8)).thenReturn(false);
+        assertThatThrownBy(() -> service.view("one")).isInstanceOf(ResponseStatusException.class);
+        verifyNoInteractions(catalog);
+    }
+
+    @Test
+    void defaultTitleMatchesOriginalSessionWithoutExposingItsPath() {
+        login(8, "USER");
+        when(shares.contains("one", 8)).thenReturn(true);
+        session.setTitle("  ");
+        session.setCwd("D:\\private\\yoooni-agent\\");
+        assertThat(service.view("one").title()).isEqualTo("yoooni-agent");
+        assertThat(service.view("one").projectName()).isNull();
+        session.setTitle("新的会话名");
+        assertThat(service.view("one").title()).isEqualTo("新的会话名");
+    }
+
+    @Test
+    void unavailableProjectCatalogDoesNotBlockAnAuthorizedHistoricalSession() {
+        var catalog = mock(com.exceptioncoder.toolbox.common.project.ProjectCatalog.class);
+        org.springframework.test.util.ReflectionTestUtils.setField(service, "projectCatalog", catalog);
+        when(catalog.list(false)).thenThrow(new IllegalStateException("目录暂不可读"));
+        login(8, "USER");
+        when(shares.contains("one", 8)).thenReturn(true);
+        var view = service.view("one");
+        assertThat(view.title()).isEqualTo("会话");
+        assertThat(view.projectName()).isNull();
+    }
+
     private void login(long id, String role) {
         AuthContext.set(new AuthPrincipal(id, "user", List.of(role), List.of(), "jti", Long.MAX_VALUE));
     }
