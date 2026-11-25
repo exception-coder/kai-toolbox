@@ -15,6 +15,7 @@ import java.util.concurrent.FutureTask;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.regex.Pattern;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
@@ -28,6 +29,13 @@ class ConsultScreenshotEvidence {
             优先包含相关控件、报错、页面标题或菜单。不要写单号、用户身份、网址、目录、代码或额外文字。
             返回 JSON 数组，例如 ["净重出货","染整生产单"]。看不清或无法定位时返回 []。
             """;
+    private static final Pattern RULE_QUESTION = Pattern.compile("为什么|为何|原因|灰色|灰显|禁用|选不了|不能|无法|报错|失败|权限|怎么|如何");
+    private static final Pattern VISIBLE_QUESTION = Pattern.compile(
+            "(截图[中里上]|图[中里上]|当前|目前|现在).{0,32}(选中|选了|选的是|勾选|状态|显示)");
+    private static final Pattern QUOTED_LABEL = Pattern.compile("[「『“《]([^」』”》\\r\\n]{3,48})[」』”》]");
+    private static final Pattern LABEL = Pattern.compile("[\\p{L}\\p{N} _（）()·：:-]+");
+    private static final int MAX_LABELS = 5;
+
     private final ConsultScreenshotSourceSearch search;
     private final ObjectMapper mapper;
     private final Set<String> enabledClients;
@@ -51,7 +59,11 @@ class ConsultScreenshotEvidence {
         if (scope.isEmpty() || images.isEmpty() || !input.evidenceRefs().isEmpty()) {
             return List.of();
         }
-        List<String> labels = List.of();
+        String question = input.title() + "\n" + input.description();
+        boolean ruleQuestion = RULE_QUESTION.matcher(question).find();
+        if (!ruleQuestion && VISIBLE_QUESTION.matcher(input.description()).find()) {
+            return List.of();
+        }
         try {
             JsonNode context = input.businessContext();
             var knownLabels = new LinkedHashSet<String>();
@@ -61,21 +73,30 @@ class ConsultScreenshotEvidence {
                 }
             }
             addLabel(knownLabels, input.errorText());
-            if (knownLabels.size() >= 2 && needsRule(input.title() + "\n" + input.description())) {
-                labels = List.copyOf(knownLabels);
-                var matches = search.find(scope, labels);
+            var quoted = QUOTED_LABEL.matcher(question);
+            while (knownLabels.size() < MAX_LABELS && quoted.find()) {
+                addLabel(knownLabels, quoted.group(1));
+            }
+            boolean triedKnownLabels = ruleQuestion && knownLabels.size() >= 2;
+            if (triedKnownLabels) {
+                var matches = search.find(scope, List.copyOf(knownLabels), 2);
                 if (!matches.isEmpty()) {
                     return matches;
                 }
-            }
-            if (!needsRule(input.title() + "\n" + input.description()) && isObservation(input.description())) {
-                return List.of();
             }
             var request = new AgentOneShotRunner.ExecutionRequest(EXTRACT_LABELS,
                     mapper.writeValueAsString(Map.of("title", input.title(), "description", input.description())),
                     null, model, "codex", null, null, null, null, codexHome, AgentOneShotRunner.TOOL_POLICY_DISABLED);
             var visualLabels = extract(taskId, runner, request, images);
-            return visualLabels.isEmpty() || labels.equals(visualLabels) ? List.of() : search.find(scope, visualLabels);
+            if (visualLabels.isEmpty()) {
+                return List.of();
+            }
+            var combined = new LinkedHashSet<>(visualLabels);
+            knownLabels.forEach(label -> addLabel(combined, label));
+            if (triedKnownLabels && combined.equals(knownLabels)) {
+                return List.of();
+            }
+            return search.find(scope, List.copyOf(combined));
         } catch (InterruptedException interrupted) {
             throw interrupted;
         } catch (Exception error) {
@@ -124,7 +145,7 @@ class ConsultScreenshotEvidence {
         }
         var parsed = mapper.reader().with(DeserializationFeature.FAIL_ON_TRAILING_TOKENS).readTree(raw);
         var labels = new LinkedHashSet<String>();
-        if (parsed.isArray() && parsed.size() <= 5) {
+        if (parsed != null && parsed.isArray() && parsed.size() <= MAX_LABELS) {
             for (var candidate : parsed) {
                 if (candidate.isTextual()) {
                     addLabel(labels, candidate.asText());
@@ -146,20 +167,14 @@ class ConsultScreenshotEvidence {
     }
 
     private static void addLabel(Set<String> labels, String value) {
-        if (value != null) {
+        if (value != null && labels.size() < MAX_LABELS) {
             String label = value.strip();
-            if (label.length() >= 3 && label.length() <= 48 && label.matches("[\\p{L}\\p{N} _（）()·：:-]+")
+            if (label.length() >= 3 && label.length() <= 48 && LABEL.matcher(label).matches()
                     && label.codePoints().anyMatch(Character::isLetter)) {
                 labels.add(label);
             }
         }
     }
 
-    private static boolean needsRule(String question) {
-        return question.matches("(?s).*(为什么|为何|原因|灰色|灰显|禁用|选不了|不能|无法|报错|失败|权限|怎么|如何).*");
-    }
 
-    private static boolean isObservation(String question) {
-        return question.matches("(?s).*(当前|现在|图中|截图里).*(选中|选了|状态|显示|选的是).*");
-    }
 }
