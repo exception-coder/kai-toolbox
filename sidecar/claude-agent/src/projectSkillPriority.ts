@@ -4,7 +4,7 @@ import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 
 type SkillConfig = { path: string; enabled: boolean }
-type Selection = { args: string[]; provider?: string; nativeDiscovery?: boolean; skillPath?: string }
+type Selection = { args: string[]; provider?: string; nativeDiscovery?: boolean; skillPath?: string; skillConfig?: SkillConfig[] }
 type Adapter = {
   codexConfig(project: string, plugin: string, config: SkillConfig[], paths: string[]): Selection
   prepareClaude(project: string, plugin: string, output: string): Selection
@@ -33,7 +33,8 @@ async function adapter(plugin: string): Promise<Adapter> {
 }
 
 export async function codexProjectSkillArgs(project: string, rpc: SkillRpc,
-  onInstruction?: (instruction: string, effectiveInstructions: string) => void): Promise<string[]> {
+  onInstruction?: (instruction: string, effectiveInstructions: string) => void,
+  onConfig?: (config: SkillConfig[]) => void): Promise<string[]> {
   if (!hasProjectTaskSkill(project)) return []
   const requests = [
     { method: 'skills/list', params: { cwds: [project], forceReload: false } },
@@ -63,6 +64,13 @@ export async function codexProjectSkillArgs(project: string, rpc: SkillRpc,
   const config = effective.config as { skills?: { config?: SkillConfig[] }; developer_instructions?: string } | undefined
   if (!config) throw new Error('SKILL_PRIORITY_CONFIG: 未取得有效 Codex 配置，不能覆盖未知启停项')
   const selection = (await adapter(plugin)).codexConfig(project, plugin, config.skills?.config ?? [], paths)
+  if (onConfig && selection.args.length) {
+    if (!Array.isArray(selection.skillConfig) || selection.skillConfig.some(item => !item
+      || typeof item.path !== 'string' || typeof item.enabled !== 'boolean')) {
+      throw new Error('SKILL_PRIORITY_CONFIG: 项目优先适配器未返回有效结构化配置，请更新 Team Standards')
+    }
+    onConfig(selection.skillConfig)
+  }
   onInstruction?.(projectInstruction(selection), config.developer_instructions ?? '')
   return selection.args
 }

@@ -1,3 +1,4 @@
+import { SessionSharedBadge } from './SessionSharedBadge'
 import { useRecentSessionsExpanded } from '../lib/workspacePreferences'
 import { useEffect, useId, useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
@@ -261,6 +262,7 @@ export function RecentSessions({ currentSessionId, onSwitch, onDuplicate, onShar
                     <span className="shrink-0 rounded bg-[var(--color-muted)] px-1 py-0.5 text-[10px]">{engineLabel}</span>
                     <span className="max-w-32 truncate" title={session.cwd}>{sessionWorkspaceLabel(session.cwd || '')}</span>
                     <SessionImportBadge session={session} />
+                    <SessionSharedBadge shared={session.shared} />
                     {session.planExpired && (
                       <span className="inline-flex shrink-0 items-center gap-0.5 rounded bg-amber-100 px-1 py-0.5 text-[10px] font-medium text-amber-700 opacity-100 dark:bg-amber-950 dark:text-amber-300">
                         <LockKeyhole className="size-2.5" />规划已过期

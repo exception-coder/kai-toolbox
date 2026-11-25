@@ -25,7 +25,9 @@ describe('服务商订阅额度', () => {
     const bars = within(current).getAllByRole('progressbar')
     expect(bars.map(bar => bar.getAttribute('aria-label'))).toEqual(['5 小时剩余额度', '本周剩余额度'])
     expect(within(current).getByText(/共享额度 · 更新于/)).toBeInTheDocument()
-    expect(within(current).getByText('重置时间未返回')).toBeInTheDocument()
+    expect(within(current).getByText('已获取')).toBeVisible()
+    fireEvent.click(within(current).getByText('账号额度详情'))
+    expect(within(current).getByText('重置时间未返回')).toBeVisible()
   })
 
   it('未知时长的窗口按服务商时长命名，不包装成 5 小时或本周', async () => {
@@ -41,6 +43,8 @@ describe('服务商订阅额度', () => {
     mount([session({}), session({ id: 'claude-official', engine: 'claude', codexHome: null })])
     await screen.findAllByText('63.5%')
     expect(fetchSubscriptionQuota).toHaveBeenCalledExactlyOnceWith('a')
+    expect(screen.queryByRole('button', { name: /Claude Code/ })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /其他引擎/ }))
     const toggle = screen.getByRole('button', { name: /Claude Code/ })
     expect(toggle).toHaveAttribute('aria-expanded', 'false')
     expect(toggle).toHaveTextContent('展开查看')
@@ -62,8 +66,8 @@ describe('服务商订阅额度', () => {
     vi.mocked(fetchSubscriptionQuota).mockRejectedValueOnce(new Error('令牌已失效')).mockResolvedValueOnce(quota)
     mount()
     expect(await screen.findByText('获取失败')).toBeInTheDocument()
-    expect(screen.getByText('查看失败原因')).toBeInTheDocument()
-    expect(screen.getByRole('alert')).toHaveTextContent('令牌已失效')
+    fireEvent.click(screen.getByText('查看失败原因'))
+    expect(screen.getByText('令牌已失效')).toBeVisible()
     fireEvent.click(screen.getByRole('button', { name: '刷新 Codex home-a 额度' }))
     expect(await screen.findByText('63.5%')).toBeInTheDocument()
     expect(screen.queryByText('获取失败')).not.toBeInTheDocument()
@@ -88,9 +92,28 @@ describe('服务商订阅额度', () => {
     vi.mocked(fetchCodexHomes).mockResolvedValue(['home-a', 'C:/Users/u/.codex'])
     vi.mocked(fetchSubscriptionQuota).mockResolvedValue(quota)
     mount([session({}), session({ id: 'same-account', lastSeenAt: 2 }), session({ id: 'removed', codexHome: 'C:/Users/u/.codex-account-pro' })])
-    expect(await screen.findByText(/2 会话/)).toBeInTheDocument()
+    expect(await screen.findByText('63.5%')).toBeInTheDocument()
     await waitFor(() => expect(screen.queryByRole('article', { name: /codex-account-pro/ })).not.toBeInTheDocument())
     expect(fetchSubscriptionQuota).toHaveBeenCalledExactlyOnceWith('a')
+  })
+
+  it('将原生 API key 账号标为按量计费', async () => {
+    vi.mocked(fetchSubscriptionQuota).mockResolvedValue({ available: false, billing: 'metered', fetchedAt: null, shared: true, windows: [] })
+    mount()
+    expect(await screen.findByText('按量计费')).toBeVisible()
+    expect(screen.queryByRole('progressbar')).not.toBeInTheDocument()
+    expect(screen.queryByText('查看失败原因')).not.toBeInTheDocument()
+  })
+
+  it('多个账号并发读取时只提示一次，11 个引擎不自动展开', async () => {
+    vi.mocked(fetchSubscriptionQuota).mockImplementation(() => new Promise(() => {}))
+    mount([session({}), session({ id: 'b', codexHome: 'home-b' }), session({ id: 'c', engine: 'claude' })])
+    await waitFor(() => expect(fetchSubscriptionQuota).toHaveBeenCalledTimes(1))
+    fireEvent.click(screen.getByRole('button', { name: /同引擎其他账号/ }))
+    await waitFor(() => expect(fetchSubscriptionQuota).toHaveBeenCalledTimes(2))
+    expect(screen.getAllByRole('status')).toHaveLength(1)
+    expect(screen.getByText('额度说明 · 9 个引擎无订阅额度')).toBeVisible()
+    expect(screen.queryByRole('button', { name: /Claude Code/ })).not.toBeInTheDocument()
   })
 
   it('授权目录核验失败时保留历史账号并在说明中提示', async () => {

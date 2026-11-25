@@ -3,8 +3,11 @@ package com.exceptioncoder.toolbox.browserrequest.preview;
 import com.exceptioncoder.toolbox.common.auth.AuthException;
 import com.exceptioncoder.toolbox.common.auth.web.AuthPrincipal;
 import jakarta.annotation.PreDestroy;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.web.server.ResponseStatusException;
 import java.time.Clock;
+import java.util.Comparator;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -15,6 +18,8 @@ import java.util.concurrent.TimeUnit;
 /** 有界、按用户隔离的预览生命周期；认证信息仅在短期内存中使用。 */
 @Service
 public class PagePreviewService {
+    private static final int MAX_ACTIVE = 4;
+    private static final int MAX_TRACKED = 64;
     private static final long IDLE_TIMEOUT_MS = TimeUnit.MINUTES.toMillis(15);
     private static final Set<String> DISPLAYABLE = Set.of("READY", "WAITING_LOGIN", "FAILED");
     private final Clock clock;
@@ -22,6 +27,7 @@ public class PagePreviewService {
     private final PreviewBrowser browser;
     private final Map<String, Run> runs = new ConcurrentHashMap<>();
     private final Map<String, String> requests = new ConcurrentHashMap<>();
+    private long creationSequence;
 
     @org.springframework.beans.factory.annotation.Autowired
     PagePreviewService(PreviewTargets targets, PreviewBrowser browser) {
@@ -34,7 +40,12 @@ public class PagePreviewService {
         this.clock = clock;
     }
 
-    public synchronized View create(PreviewRequest request, AuthPrincipal user, String token) {
+    public View create(PreviewRequest request, AuthPrincipal user, String token) {
+        return create(request, user, token, false);
+    }
+
+    public synchronized View create(PreviewRequest request, AuthPrincipal user, String token, boolean replaceOldest) {
+        if (user.expiresAt() <= clock.millis()) throw AuthException.tokenInvalid();
         runs.values().forEach(run -> {
             synchronized (run) {
                 if (run.expiresAt <= clock.millis()) {
@@ -51,19 +62,45 @@ public class PagePreviewService {
             }
             return view(existing);
         }
-        long active = runs.values().stream().filter(run -> !terminal(run.status)).count();
-        if (active >= 4 || runs.size() >= 64) {
-            throw new IllegalArgumentException("预览会话已达上限，请关闭不用的预览后重试");
+        Run replacement = null;
+        if (runs.values().stream().filter(run -> !terminal(run.status)).count() >= MAX_ACTIVE) {
+            if (!replaceOldest) throw capacity("预览会话已达上限，请关闭不用的预览后重试");
+            replacement = runs.values().stream()
+                    .filter(run -> run.owner == user.userId() && !terminal(run.status))
+                    .min(Comparator.comparingLong(run -> run.sequence))
+                    .orElse(null);
+            if (replacement == null
+                    && runs.values().stream().filter(run -> !terminal(run.status)).count() >= MAX_ACTIVE) {
+                throw capacity("当前账号没有可关闭的预览，请等空出名额后重试");
+            }
         }
+        // Validate the new destination before closing any of the user's previews.
         PreviewPlan plan = targets.resolve(request, user, token);
+        if (user.expiresAt() <= clock.millis()) throw AuthException.tokenInvalid();
+        if (replacement != null
+                && runs.values().stream().filter(run -> !terminal(run.status)).count() >= MAX_ACTIVE) {
+            finish(replacement, "CLOSED");
+        }
+        if (runs.size() >= MAX_TRACKED) {
+            runs.values().stream().filter(run -> terminal(run.status))
+                    .min(Comparator.comparingLong(run -> run.sequence)).ifPresent(run -> {
+                        runs.remove(run.id);
+                        requests.remove(run.key);
+                    });
+        }
         long expires = Math.min(clock.millis() + IDLE_TIMEOUT_MS, user.expiresAt());
-        Run run = new Run(UUID.randomUUID().toString(), key, request, user.userId(), expires, plan, user.username());
+        Run run = new Run(UUID.randomUUID().toString(), key, request, user.userId(), expires, plan, user.username(),
+                ++creationSequence);
         runs.put(run.id, run);
         requests.put(key, run.id);
         Thread.startVirtualThread(() -> start(run));
         armTimeout(run);
         armExpiry(run);
         return view(run);
+    }
+
+    private static ResponseStatusException capacity(String message) {
+        return new ResponseStatusException(HttpStatus.CONFLICT, message);
     }
 
     private void start(Run run) {
@@ -201,6 +238,7 @@ public class PagePreviewService {
         final String key;
         final PreviewRequest request;
         final long owner;
+        final long sequence;
         volatile long expiresAt;
         final String origin;
         final String account;
@@ -209,7 +247,8 @@ public class PagePreviewService {
         volatile PreviewPlan plan;
         long attempt;
         volatile String status = "STARTING";
-        Run(String id, String key, PreviewRequest request, long owner, long expiresAt, PreviewPlan plan, String username) {
+        Run(String id, String key, PreviewRequest request, long owner, long expiresAt, PreviewPlan plan, String username, long sequence) {
+            this.sequence = sequence;
             this.id = id; this.key = key; this.request = request; this.owner = owner;
             this.expiresAt = expiresAt; this.plan = plan; this.origin = plan.origin();
             this.destination = new PreviewPlan(plan.origin(), plan.route(), null, plan.readySelector(), plan.scene(), plan.phone(), null, null);

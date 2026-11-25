@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { useRef, useState, type ReactNode } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Coins, Database, Loader2, RefreshCw, X } from 'lucide-react'
 import { fetchUsage, type EngineUsage, type SessionUsage, type UsageWindow } from '../api'
@@ -6,6 +6,7 @@ import { SubscriptionQuotaSection, type QuotaContext } from './SubscriptionQuota
 import type { ClaudeChatSessionView, EngineCatalogView } from '../types'
 import { abbr } from '../lib/metrics'
 import { cn } from '@/lib/utils'
+import { Sheet, SheetClose, SheetContent, SheetTitle } from '@/components/ui/sheet'
 
 const ENGINE_LABEL: Record<string, string> = { claude: 'Claude Code', codex: 'Codex', antigravity: 'Antigravity' }
 const WINDOWS = [
@@ -14,50 +15,50 @@ const WINDOWS = [
 type WindowKey = typeof WINDOWS[number]['key']
 
 export function UsagePanel({ onClose, session, quotaContext, quotaSessions, engineCatalog }: { onClose: () => void; session?: SessionUsage | null; quotaContext?: QuotaContext; quotaSessions?: readonly ClaudeChatSessionView[]; engineCatalog?: EngineCatalogView }) {
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose() }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
-  // 手机为底部抽屉，桌面为居中弹层；两者都只有正文一个滚动区。
-  return <div className="fixed inset-0 z-[70] flex items-end justify-center bg-black/40 sm:items-start sm:p-4 sm:pt-[8vh]" onClick={onClose}><UsageContent session={session} quotaContext={quotaContext} quotaSessions={quotaSessions} engineCatalog={engineCatalog} onClose={onClose} /></div>
+  const returnFocus = useRef(document.activeElement)
+  return <Sheet open onOpenChange={open => { if (!open) onClose() }}>
+    <SheetContent side="bottom" hideCloseButton aria-describedby={undefined}
+      onCloseAutoFocus={event => { event.preventDefault(); if (returnFocus.current instanceof HTMLElement) returnFocus.current.focus() }}
+      className="z-[70] mx-auto flex max-h-[min(74dvh,48rem)] max-w-xl flex-col overflow-hidden rounded-t-2xl border bg-card">
+      <UsageContent session={session} quotaContext={quotaContext} quotaSessions={quotaSessions} engineCatalog={engineCatalog} />
+    </SheetContent>
+  </Sheet>
 }
 
 export function UsageWorkspace({ session, quotaContext, quotaSessions, engineCatalog }: { session?: SessionUsage | null; quotaContext?: QuotaContext; quotaSessions?: readonly ClaudeChatSessionView[]; engineCatalog?: EngineCatalogView }) {
   return <UsageContent session={session} quotaContext={quotaContext} quotaSessions={quotaSessions} engineCatalog={engineCatalog} embedded />
 }
 
-function UsageContent({ session, quotaContext, quotaSessions, engineCatalog, embedded = false, onClose }: { session?: SessionUsage | null; quotaContext?: QuotaContext; quotaSessions?: readonly ClaudeChatSessionView[]; engineCatalog?: EngineCatalogView; embedded?: boolean; onClose?: () => void }) {
+function UsageContent({ session, quotaContext, quotaSessions, engineCatalog, embedded = false }: { session?: SessionUsage | null; quotaContext?: QuotaContext; quotaSessions?: readonly ClaudeChatSessionView[]; engineCatalog?: EngineCatalogView; embedded?: boolean }) {
   const usageQuery = useQuery({ queryKey: ['claude-chat-usage'], queryFn: fetchUsage, staleTime: 30_000 })
   const [win, setWin] = useState<WindowKey>('today')
   return (
-    <section role={embedded ? 'region' : 'dialog'} aria-label={embedded ? '会话用量' : '用量与额度'}
-      className={embedded ? 'flex min-h-0 flex-1 flex-col overflow-hidden bg-[var(--color-background)]'
-        : 'flex max-h-[85dvh] w-full flex-col overflow-hidden rounded-t-2xl border border-[var(--color-border)] bg-[var(--color-card)] shadow-xl sm:max-h-[80vh] sm:max-w-xl sm:rounded-xl'}
-      onClick={event => event.stopPropagation()}>
+    <section role={embedded ? 'region' : undefined} aria-label={embedded ? '会话用量' : undefined}
+      className="flex min-h-0 flex-1 flex-col overflow-hidden">
       <header className="relative flex min-h-12 shrink-0 items-center gap-2 border-b border-[var(--color-border)] px-4">
         {!embedded && <span aria-hidden="true" className="absolute left-1/2 top-1.5 h-1 w-10 -translate-x-1/2 rounded-full bg-[var(--color-border)] sm:hidden" />}
-        <h2 className="text-sm font-semibold">用量与额度</h2>
-        {onClose && <button type="button" onClick={onClose} aria-label="关闭" className="ml-auto grid size-9 place-items-center rounded-md text-[var(--color-muted-foreground)] hover:bg-[var(--color-muted)] hover:text-[var(--color-foreground)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-ring)]"><X className="size-4" /></button>}
+        {embedded ? <h2 className="text-sm font-semibold">用量与额度</h2> : <SheetTitle>用量与额度</SheetTitle>}
+        {!embedded && <SheetClose aria-label="关闭" className="ml-auto grid size-11 place-items-center rounded-md text-muted-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"><X className="size-4" /></SheetClose>}
       </header>
-      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain"><div className={cn('mx-auto w-full px-4 py-4', embedded ? 'max-w-5xl' : '')}>
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain"><div className={cn('mx-auto w-full min-w-0 px-4 pt-3 pb-[max(1rem,env(safe-area-inset-bottom))]', embedded && 'max-w-5xl')}>
         <SubscriptionQuotaSection context={quotaContext} sessions={quotaSessions} catalog={engineCatalog} />
         <section className="pt-4" aria-labelledby="usage-range-heading">
           <div className="flex min-w-0 items-center gap-2">
             <h3 id="usage-range-heading" className="text-sm font-semibold">本地用量统计</h3>
             <span className="truncate text-[11px] text-[var(--color-muted-foreground)]">本机 CLI 日志</span>
           </div>
-          <div role="group" aria-label="统计时间范围" className="mt-2 grid grid-cols-3 gap-1 rounded-lg bg-[var(--color-muted)]/60 p-1">
+          <div role="group" aria-label="统计时间范围" className="mt-2 inline-grid w-full max-w-xs grid-cols-3 gap-1 rounded-lg bg-muted/60 p-1">
             {WINDOWS.map(item => <button key={item.key} type="button" onClick={() => setWin(item.key)} aria-pressed={win === item.key}
               className={`min-h-8 whitespace-nowrap rounded-md px-2 text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-ring)] ${win === item.key ? 'bg-[var(--color-background)] font-medium text-[var(--color-foreground)] shadow-sm' : 'text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]'}`}>{item.label}</button>)}
           </div>
           {usageQuery.isLoading && <div role="status" className="flex items-center gap-2 py-4 text-xs text-[var(--color-muted-foreground)]"><Loader2 className="size-3.5 animate-spin" />正在读取本地会话日志…</div>}
           {usageQuery.error && <div role="alert" className="py-4"><p className="text-sm font-medium">用量汇总暂时不可用</p><p className="mt-1 text-xs leading-relaxed text-[var(--color-muted-foreground)]">请检查本地日志访问状态后重试。</p><button type="button" onClick={() => void usageQuery.refetch()} className="mt-2 inline-flex min-h-9 items-center gap-1.5 rounded-md border border-[var(--color-border)] px-3 text-xs font-medium hover:bg-[var(--color-muted)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-ring)]"><RefreshCw className="size-3.5" />重新读取</button></div>}
-          {usageQuery.data && usageQuery.data.length > 0 && <div className="mt-2 divide-y divide-[var(--color-border)]">{usageQuery.data.map(engine => <EngineUsageRow key={engine.engine} usage={engine} win={win} />)}</div>}
-          {usageQuery.data?.length === 0 && <div className="py-4"><p className="text-sm font-medium">尚无本地汇总数据</p><p className="mt-1 text-xs text-[var(--color-muted-foreground)]">完成一次模型调用后，此处会按引擎显示 Token 和会话数量。</p></div>}
+          {usageQuery.data?.some(engine => engine.available) ? <div className="mt-1 divide-y">
+            {usageQuery.data.filter(engine => engine.available).map(engine => <EngineUsageRow key={engine.engine} usage={engine} win={win} />)}
+          </div> : usageQuery.data && <p className="py-3 text-xs text-muted-foreground">尚无本地汇总数据</p>}
         </section>
-        {session && session.turns > 0 ? <SessionUsageSection usage={session} engine={quotaContext?.engine} model={quotaContext?.model} />
-          : <p className="mt-4 border-t border-[var(--color-border)] pt-4 text-xs text-[var(--color-muted-foreground)]">当前会话尚未产生可统计的模型用量。</p>}
+        {session && session.turns > 0 && (embedded ? <SessionUsageSection usage={session} engine={quotaContext?.engine} model={quotaContext?.model} />
+          : <details className="mt-3 border-t pt-2"><summary className="cursor-pointer text-xs">本会话用量</summary><SessionUsageSection usage={session} engine={quotaContext?.engine} model={quotaContext?.model} /></details>)}
         <details className="mt-4 text-[11px] text-[var(--color-muted-foreground)]"><summary className="w-fit cursor-pointer select-none hover:text-[var(--color-foreground)]">统计口径</summary><p className="mt-1.5 leading-relaxed">Token 来自本机 CLI 会话日志，只读统计实际模型调用；缓存读仍属于吞吐，但以较低价格计费。本地汇总扫描本机默认日志目录，不代表当前订阅账号，也不受订阅额度影响。订阅额度单独从各会话账号的服务商接口读取；费用只按 GPT-6 Sol 标准 API 单价估算。</p></details>
       </div></div>
     </section>
@@ -87,9 +88,8 @@ function Metric({ label, value, hint, primary = false }: { label: string; value:
 
 function EngineUsageRow({ usage, win }: { usage: EngineUsage; win: WindowKey }) {
   const window: UsageWindow = usage[win]
-  return <article className="py-4"><div className="flex flex-wrap items-start gap-x-4 gap-y-2"><div className="min-w-32"><h4 className="text-sm font-semibold">{ENGINE_LABEL[usage.engine] ?? usage.engine}</h4><p className="mt-0.5 text-xs text-[var(--color-muted-foreground)]">{usage.available ? `${window.sessions} 会话 · ${window.turns} 轮` : '没有可读取的本地数据'}</p></div>
-    {usage.hasTokens ? <div className="grid flex-1 grid-cols-2 gap-x-6 gap-y-2 sm:grid-cols-4"><CompactMetric label="Token" value={abbr(window.total)} icon={<Coins className="size-3.5" />} /><CompactMetric label="输入 / 输出" value={`${abbr(window.input)} / ${abbr(window.output)}`} /><CompactMetric label="缓存命中" value={window.cacheHitRate == null ? '—' : `${Math.floor(window.cacheHitRate * 100)}%`} icon={<Database className="size-3.5" />} /><CompactMetric label="活跃" value={`${window.sessions} 会话`} /></div> : <p className="flex-1 text-xs leading-relaxed text-[var(--color-muted-foreground)]">{usage.note ?? '日志中没有 Token 明细。'}</p>}
-    </div>
+  return <article className="py-2"><div className="flex min-w-0 items-center justify-between gap-2"><h4 className="min-w-0 truncate text-xs font-semibold">{ENGINE_LABEL[usage.engine] ?? usage.engine}</h4><p className="shrink-0 whitespace-nowrap text-xs text-muted-foreground">{usage.hasTokens && `${abbr(window.total)} Token · `}{window.sessions} 会话 · {window.turns} 轮</p></div>
+    {usage.hasTokens && <details className="mt-1 text-xs text-muted-foreground"><summary className="cursor-pointer">用量明细</summary><div className="mt-2 grid grid-cols-3 gap-2"><CompactMetric label="Token" value={abbr(window.total)} icon={<Coins className="size-3.5" />} /><CompactMetric label="输入 / 输出" value={`${abbr(window.input)} / ${abbr(window.output)}`} /><CompactMetric label="缓存命中" value={window.cacheHitRate == null ? '—' : `${Math.floor(window.cacheHitRate * 100)}%`} icon={<Database className="size-3.5" />} /></div></details>}
 
   </article>
 }

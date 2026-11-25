@@ -21,6 +21,13 @@ vi.mock('react-virtuoso', async () => {
 })
 afterEach(() => { cleanup(); localStorage.clear(); vi.unstubAllGlobals(); vi.mocked(copyTextToClipboard).mockReset() })
 
+it('renders native browser completion as an honest status in existing assistant history', () => {
+  const text = '::browser-complete{title="Could not connect to browser"}'
+  render(<MemoryRouter><MessageList items={[{ kind: 'assistant', id: 'native-status', text }]} running={false} /></MemoryRouter>)
+  expect(screen.getByText('浏览器操作状态：Could not connect to browser')).toBeVisible()
+  expect(screen.queryByText(text)).not.toBeInTheDocument()
+})
+
 it('keeps copying available without workspace actions for shared replies', () => {
   const reply: ChatItem = { kind: 'assistant', id: 'shared-reply', text: '共享历史', forkAnchor: 'anchor' }
   render(<MemoryRouter><MessageList items={[reply]} running={false} copyOnly mobileWorkspace /></MemoryRouter>)

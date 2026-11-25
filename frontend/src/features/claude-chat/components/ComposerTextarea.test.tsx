@@ -44,13 +44,15 @@ it('persists the original text through the shared draft store and restores it af
   } finally { cleanup(); saveDrafts(original) }
 })
 
-it('folds long pasted text without changing the raw draft and permits appended instructions', () => {
+it.each(['', '\n', '\n\n'])('appends instructions as a new paragraph when the pasted text ends in %j', ending => {
   const input = mountPaste()
-  paste(input)
+  const document = longMarkdown.trimEnd() + ending
+  paste(input, document)
   expect(input).toHaveValue('')
-  expect(screen.getByTestId('raw-draft').textContent).toBe(longMarkdown)
+  expect(screen.getByTestId('raw-draft').textContent).toBe(document)
   expect(screen.getByRole('button', { name: '在文本框中显示粘贴的长文本' })).toHaveTextContent('设计说明')
-  fireEvent.change(input, { target: { value: '\n请总结' } })
+  fireEvent.change(input, { target: { value: '请总结' } })
+  expect(input).toHaveValue('请总结')
   expect(screen.getByTestId('raw-draft').textContent).toBe(longMarkdown + '\n请总结')
   fireEvent.click(screen.getByRole('button', { name: '在文本框中显示粘贴的长文本' }))
   expect(input).toHaveValue(longMarkdown + '\n请总结')
@@ -61,7 +63,7 @@ it('preserves selected insertion order, surrounding text and deletes only the fo
   input.setSelectionRange(2, 4)
   paste(input)
   expect(input).toHaveValue('前文后文')
-  expect(screen.getByTestId('raw-draft').textContent).toBe('前文' + longMarkdown + '后文')
+  expect(screen.getByTestId('raw-draft').textContent).toBe('前文' + longMarkdown + '\n后文')
   fireEvent.click(screen.getByRole('button', { name: '删除粘贴的长文本' }))
   expect(input).toHaveValue('前文后文')
   expect(screen.getByTestId('raw-draft').textContent).toBe('前文后文')
@@ -75,9 +77,9 @@ it('keeps collapsed text when replacing all visible instructions and preserves r
   expect(screen.getByTestId('raw-draft').textContent).toBe('新说明' + longMarkdown)
   input.setSelectionRange(3, 3)
   paste(input)
-  expect(screen.getByTestId('raw-draft').textContent).toBe('新说明' + longMarkdown + longMarkdown)
+  expect(screen.getByTestId('raw-draft').textContent).toBe('新说明' + longMarkdown + '\n' + longMarkdown)
   fireEvent.click(screen.getByRole('button', { name: '在文本框中显示粘贴的长文本' }))
-  expect(input).toHaveValue('新说明' + longMarkdown + longMarkdown)
+  expect(input).toHaveValue('新说明' + longMarkdown + '\n' + longMarkdown)
 })
 
 it('clears projection on send or session change and leaves file/short pastes to the native handler', () => {

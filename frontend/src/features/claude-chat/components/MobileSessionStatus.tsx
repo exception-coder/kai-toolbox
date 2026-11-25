@@ -1,3 +1,4 @@
+import { SessionSharedBadge } from './SessionSharedBadge'
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import {
@@ -273,6 +274,7 @@ function SessionShortcuts({ title, sessions, currentId, onSelect }: {
           <EngineIcon engine={session.engine || 'claude'} thirdParty={session.providerKind === 'thirdParty'} className="size-3.5"
             title={engineDisplayName(session.engine ?? 'claude', session.providerKind)} />
           <span className="min-w-0 flex-1 truncate font-medium">{sessionDisplayName(session)}</span>
+          <SessionSharedBadge shared={session.shared} />
           {session.id === currentId && <span className="shrink-0 text-xs text-[var(--color-muted-foreground)]">当前</span>}
           <span className="max-w-24 shrink-0 truncate text-xs text-[var(--color-muted-foreground)]" title={session.cwd}>{sessionWorkspaceLabel(session.cwd)}</span>
         </button>

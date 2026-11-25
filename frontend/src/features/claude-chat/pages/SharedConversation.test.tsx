@@ -9,7 +9,7 @@ const runtime = vi.hoisted(() => ({ activate: vi.fn(), chat: null as unknown }))
 vi.mock('../runtime/ChatRuntimeContext', () => ({ useChatRuntime: () => runtime }))
 vi.mock('../sessionSharingApi', async importOriginal => ({
   ...(await importOriginal<typeof import('../sessionSharingApi')>()),
-  getSharedSession: async (id: string) => ({ id, title: '共享测试会话', collaborate: true }),
+  getSharedSession: async (id: string) => ({ id, title: '共享测试会话', projectName: '协作主工程', collaborate: true }),
 }))
 
 afterEach(() => { cleanup(); runtime.chat = null; localStorage.clear(); vi.unstubAllGlobals() })
@@ -92,7 +92,7 @@ async function renderComposer(running: boolean, background = false) {
   </QueryClientProvider></MemoryRouter>)
   expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
   const input = await screen.findByRole('textbox', { name: '消息输入' })
-  expect(screen.getByText('共享会话 · 可回复')).toBeVisible()
+  expect(screen.getByText('协作主工程 · 可回复')).toBeVisible()
   expect(input).toHaveAttribute('rows', '1')
   fireEvent.change(input, { target: { value: '继续检查' } })
   return { input, send, enqueue }

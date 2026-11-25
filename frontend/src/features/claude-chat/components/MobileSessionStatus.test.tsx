@@ -460,7 +460,7 @@ describe('MobileSessionStatus', () => {
       id, cwd: `D:/work/${id}`, title: id, sdkSessionId: null, status,
       startedAt: lastSeenAt, lastSeenAt, live: status === 'RUNNING',
     })
-    listSessions.mockResolvedValue([session('current', 'IDLE', 3), { ...session('active', 'RUNNING', 2), engine: 'codex' }, session('recent', 'IDLE', 1), session('older', 'IDLE', 0),
+    listSessions.mockResolvedValue([session('current', 'IDLE', 3), { ...session('active', 'RUNNING', 2), engine: 'codex', shared: true }, session('recent', 'IDLE', 1), session('older', 'IDLE', 0),
       session('fifth', 'IDLE', -1), session('sixth', 'IDLE', -2),
       { ...session('locked', 'IDLE', 5), planExpired: true },
       { ...session('locked-active', 'RUNNING', 6), planExpired: true }])
@@ -481,6 +481,8 @@ describe('MobileSessionStatus', () => {
     expect(screen.getByRole('button', { name: /current/ })).toHaveAttribute('aria-current', 'page')
     expect(within(screen.getByRole('button', { name: /active/ })).getByRole('img', { name: 'Codex' })).toBeInTheDocument()
     expect(within(screen.getByRole('button', { name: /current/ })).getByRole('img', { name: 'Claude' })).toBeInTheDocument()
+    expect(within(screen.getByRole('button', { name: /active/ })).getByText('已共享')).toBeInTheDocument()
+    expect(within(screen.getByRole('button', { name: /current/ })).queryByText('已共享')).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /active/ }))
     expect(onSwitchSession).toHaveBeenCalledWith('active', true)
   })

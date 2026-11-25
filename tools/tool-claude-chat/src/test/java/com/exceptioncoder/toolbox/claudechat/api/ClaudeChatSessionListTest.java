@@ -23,11 +23,12 @@ class ClaudeChatSessionListTest {
     private final SessionPlanStateService plans = mock(SessionPlanStateService.class);
     private final ClaudeChatSessionAccessPolicy access = mock(ClaudeChatSessionAccessPolicy.class);
     private final ClaudeChatSettingRepository settings = mock(ClaudeChatSettingRepository.class);
+    private final SessionSharingService sharing = mock(SessionSharingService.class);
     private final ClaudeChatSessionController controller = new ClaudeChatSessionController(repository,
             mock(ClaudeChatService.class), history, plans, mock(SessionProjectService.class),
             mock(SessionDeletionService.class), mock(SessionRuntimeStateService.class),
             mock(EngineCatalogService.class), access, mock(CodexDesktopSyncService.class),
-            new SessionPinService(settings, new ObjectMapper()));
+            new SessionPinService(settings, new ObjectMapper()), sharing);
 
     @Test
     void listsNewSessionsWithoutSdkIdentityWithAnImmutableEmptyMissingSet() throws Exception {
@@ -64,7 +65,9 @@ class ClaudeChatSessionListTest {
     @Test
     void marksOnlyKnownMissingTranscriptsAndStillFiltersInaccessibleSessions() throws Exception {
         var forbidden = session("codex", "forbidden");
-        when(repository.findAll()).thenReturn(List.of(session("codex", " missing "),
+        var shared = session("codex", " missing ");
+        when(sharing.activeSharesForManagers(any())).thenReturn(Set.of(shared.getId(), forbidden.getId()));
+        when(repository.findAll()).thenReturn(List.of(shared,
                 session("claude", "present"), session("pi", "missing"), forbidden));
         when(access.canAccessCurrentUser(any(ClaudeChatSession.class))).thenReturn(true);
         when(access.canAccessCurrentUser(forbidden)).thenReturn(false);
@@ -75,6 +78,8 @@ class ClaudeChatSessionListTest {
         mvc.perform(get("/api/claude-chat/sessions")).andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(3))
                 .andExpect(jsonPath("$[0].transcriptMissing").value(true))
+                .andExpect(jsonPath("$[0].shared").value(true))
+                .andExpect(jsonPath("$[1].shared").value(false))
                 .andExpect(jsonPath("$[1].transcriptMissing").value(false))
                 .andExpect(jsonPath("$[2].transcriptMissing").value(false));
     }

@@ -6,6 +6,8 @@
 - 使用 Forge 独立 Harness Home，避免升级改写用户已有 web profile。凭据优先继承明确环境，其次复用后端唯一的全局官方 DeepSeek 档案，再只读解析本机 `.dsh/.credentials.yaml` 的 `version=1`、`refs.DEEPSEEK_API_KEY`。不扫描私人档案；多个全局官方档案不自动猜选。后端传入的专用 Key 在 Sidecar 模块初始化时移出 ambient environment，只向 Harness 子进程注入，防止其他引擎继承；不复制凭据文件、不回传 Key、不在错误中输出配置正文。
 - 每个 Adapter 固定 cwd 与根会话身份。持久恢复读取同一 Home 的既有原生会话，失败不新建替代；恢复后核对有效工作目录，不静默切换项目。中断关闭并回收 SDK 子进程，后续对话恢复原会话，不重放中断输入。
 - SDK 审批/提问转接现有 Permissions；缺少处理器、未知请求或取消一律拒绝。保留 consult/review/demo 限制，不能以新增引擎绕过。只有真实终止成功才发完成；失败和超时保留明确原因，无自动重试写操作。
+- 新建沿用原有 `open → ready/error` 协议（CTX-01、FEED-01、IDEM-01）。表单保留选择并等待确认。浏览器在发出请求后断线或超时时停止等待，提示先检查会话列表，重连仅可重试尚未发出的创建请求。这里的创建就绪表示会话已接入 Forge，不代表首条模型请求已通过。
+- 目录缓存读取保持只读。管理员主动重新检测时通过 `POST /api/claude-chat/sessions/engine-catalog/refresh` 按需启动 Forge 管理的 Sidecar，再由 SDK 拉起并回收同版本 `dsh` 探测进程；不依赖全局 CLI 或独立常驻服务。旧 GET 路由保留原有目录读取与现存 Sidecar 刷新语义。默认 SDK 握手 90 秒，完整目录最多等待 100 秒，DeepSeek 新建界面最多等待 120 秒，覆盖 Windows 高负载时的冷启动、子进程收尾及目录回传；成功即返回。
 - 内容和工具事件继续映射既有消息流，原生调试数据不越过 Sidecar。关闭界面不取消任务；没有新增自动发送动作。
 
 验证版本为 SDK/dsh `0.2.2-alpha.2`（实验选项），Runtime wire identity 另为 `0.0.1`，不能把包版本与协议版本误作同一字段。原 SDK `0.1.0-rc.6` 无宿主审批入口，`0.2.1-rc.5` 仍缺少此入口，故选择实际可处理审批和提问的精确 alpha 版本；未使用 `--force` 或 `--legacy-peer-deps`。从原 lock 增量解析以保留其他依赖，新 dsh 引入完整原生工具及其依赖，根 ws 因依赖收敛从 8.21.0 到 8.22.1。官方 SDK 仅推送原生落盘步骤消息，不保证逐 Token；图片、非默认权限与咨询/评审/演示仍明确拒绝，不以 native workspace-write 冒充这些安全模式。

@@ -8,6 +8,7 @@ import { useAuth } from '@/lib/auth'
 import { MessageList } from '../components/MessageList'
 import { PermissionDialog } from '../components/PermissionDialog'
 import { QuestionDialog } from '../components/QuestionDialog'
+import { ReceivedShareNavigation } from '../components/ReceivedShareNavigation'
 import { SharedConversationHeader } from '../components/SharedConversationHeader'
 import { useComposerFileUpload } from '../hooks/useComposerFileUpload'
 import { useDraftAttachments, useDraftAttachmentUploads } from '../lib/attachmentDraftPref'
@@ -52,8 +53,9 @@ export function SharedConversation({ sessionId }: { sessionId: string }) {
     event.preventDefault()
     if (!current || !ready || uploading || (!draft.trim() && !attachments.length)) return
     const files = attachments.map(({ name, path, mime, previewUrl }) => ({ name, path, mime, url: previewUrl }))
-    if (current.running || current.backgroundTasks.length > 0 || pending) current.enqueue(draft, files)
-    else current.send(draft, files)
+    if (current.running || current.backgroundTasks.length > 0 || pending) {
+      if (current.enqueue(draft, files) === false) return
+    } else if (current.send(draft, files) === false) return
     setDraft('')
     setAttachments([])
   }
@@ -70,17 +72,19 @@ export function SharedConversation({ sessionId }: { sessionId: string }) {
     </div>
   </section>
 
-  return <section className="cc-mobile-coding-workspace cc-shared-conversation mx-auto flex h-full min-h-0 w-full min-w-0 max-w-4xl flex-col overflow-hidden bg-background">
-    <SharedConversationHeader title={canReply ? session.title : null} mode={canReply ? '可回复' : '正在核验'} />
-    {canReply && current ? <MessageList sessionKey={sessionId} items={items} running={current.running}
+  return <div className="flex h-full min-h-0 w-full min-w-0 overflow-hidden bg-background">
+    {canReply && <ReceivedShareNavigation session={session} />}
+    <section className="cc-mobile-coding-workspace cc-shared-conversation flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background">
+    <SharedConversationHeader title={canReply ? session.title : null} mode={canReply ? '可回复' : '正在核验'} session={canReply ? session : null} />
+    {canReply && current ? <div className="mx-auto flex min-h-0 w-full max-w-5xl flex-1 flex-col"><MessageList sessionKey={sessionId} items={items} running={current.running}
       engineLabel={session?.engine ?? undefined} connState={current.state} copyOnly mobileWorkspace showExecutionDetails={false}
       onLoadEarlier={() => void current.loadHistory(false)} onLoadLatest={() => current.loadHistory(true)}
       loadingEarlier={current.historyLoading} exhausted={current.historyExhausted}
-      loadEarlierError={current.historyError ? '历史读取失败，点此重试' : null} />
+      loadEarlierError={current.historyError ? '历史读取失败，点此重试' : null} /></div>
       : <p role="status" className="flex-1 p-4 text-sm text-muted-foreground">正在连接共享会话…</p>}
     {canReply && current?.errorMessage && <p role="alert" className="shrink-0 border-t px-4 py-2 text-sm text-muted-foreground">{current.errorMessage}</p>}
     {canReply && !ready && <p role="status" className="shrink-0 border-t px-4 py-2 text-sm text-muted-foreground">连接就绪后可以回复。</p>}
-    {ready && <form onSubmit={submit} className="cc-focus-composer shrink-0 border-t bg-background px-3 py-2 pb-[max(20px,env(safe-area-inset-bottom))]">
+    {ready && <form onSubmit={submit} className="cc-focus-composer mx-auto w-full max-w-5xl shrink-0 border-t bg-background px-3 py-2 pb-[max(20px,env(safe-area-inset-bottom))]">
       {current?.queued.length ? <p role="status" className="mb-2 text-xs text-muted-foreground">
         待发送 {current.queued.length} 条{current.queuePausedReason ? ' · 排队已暂停，请联系分享人确认后继续' : ''}
       </p> : null}
@@ -125,5 +129,6 @@ export function SharedConversation({ sessionId }: { sessionId: string }) {
     {ready && pending?.kind === 'question' && <QuestionDialog questions={pending.questions}
       onCancel={() => current?.decide({ type: 'decision', reqId: pending.reqId, behavior: 'deny' })}
       onSubmit={answers => current?.decide({ type: 'decision', reqId: pending.reqId, behavior: 'allow', answers })} />}
-  </section>
+    </section>
+  </div>
 }

@@ -260,6 +260,13 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
     [engineCatalogQuery.data],
   )
   const [engineCatalogRefreshing, setEngineCatalogRefreshing] = useState(false)
+  const refreshEngineCatalog = () => {
+    if (engineCatalogRefreshing) return
+    setEngineCatalogRefreshing(true)
+    void listEngineCatalog(true).then(catalog => qc.setQueryData(['claude-chat-engine-catalog'], catalog))
+      .catch(() => qc.invalidateQueries({ queryKey: ['claude-chat-engine-catalog'] }))
+      .finally(() => setEngineCatalogRefreshing(false))
+  }
 
   // 新建/续接会话后，sessionId 变化即刷新会话列表缓存，让左侧常驻导航与「会话」面板立刻出现该会话。
   // 否则新会话只在缓存过期(staleTime)、窗口重新聚焦或手动开一次「会话」面板(重挂 SessionList 触发拉取)后才显示
@@ -437,7 +444,7 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
     seed: string
   } | null>(null)
   const pendingSendIntentRef = useRef<{
-    intentId: string
+    intentId?: string
     previousSessionId: string | null
     seed: string
     prdSessionId?: string
@@ -600,16 +607,19 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
     if (!pendingIntent || !chat || !isChatLaunchTargetReady(pendingIntent.previousSessionId, targetSessionId)) return
 
     pendingSendIntentRef.current = null
-    chat.send(pendingIntent.seed)
+    const accepted = chat.send(pendingIntent.seed)
+    if (accepted === false) setDraft(current => current.trim() ? `${current}\n\n${pendingIntent.seed}` : pendingIntent.seed)
 
     const search = new URLSearchParams({ sessionId: targetSessionId })
     if (pendingIntent.prdSessionId) search.set('prdSessionId', pendingIntent.prdSessionId)
     navigate(`/tools/claude-chat?${search.toString()}`, { replace: true })
 
-    void acknowledgeLaunchIntent(pendingIntent.intentId).catch(error => {
-      setLaunchIntentError(error instanceof Error ? error.message : String(error))
-    })
-  }, [chat?.sessionId, chat?.send, navigate])
+    if (accepted !== false && pendingIntent.intentId) {
+      void acknowledgeLaunchIntent(pendingIntent.intentId).catch(error => {
+        setLaunchIntentError(error instanceof Error ? error.message : String(error))
+      })
+    }
+  }, [chat?.sessionId, chat?.send, navigate, setDraft])
 
   useEffect(() => {
     const pendingIntent = pendingDraftIntentRef.current
@@ -735,11 +745,13 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
   }, [panel])
   useEffect(() => {
     if (!newSessionCreating) return
-    if (chat?.sessionId && chat.sessionId !== newSessionPreviousId.current && chat.state === 'ready' || chat?.state === 'error') {
-      newSessionCreateLock.current = false
-      setNewSessionCreating(false)
-    }
-  }, [chat?.sessionId, chat?.state, newSessionCreating])
+    const created = chat?.sessionId && chat.sessionId !== newSessionPreviousId.current && chat.state === 'ready'
+    if (!created && chat?.state !== 'error') return
+    newSessionCreateLock.current = false
+    setNewSessionCreating(false)
+    if (created) setPanel(previous => previous === 'new' ? 'none' : previous)
+    else setNewSessionCreateError(chat?.errorMessage || '尚未确认创建结果，请先查看会话列表。')
+  }, [chat?.sessionId, chat?.state, chat?.errorMessage, newSessionCreating])
   const adoptNewWorkspace = async (path: string) => {
     try {
       const existing = visibleNewRoots.find(root => workspacePathKey(root.root) === workspacePathKey(path)
@@ -962,7 +974,6 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
       chat.open(directory.cwd, model, undefined, choice.engine, provider, undefined)
       newSessionPreferences.remember(root!.root, { ...choice, cwd: directory.cwd })
       setNewSessionCreateError(null)
-      setPanel('none')
     } catch (error) {
       newSessionCreateLock.current = false
       setNewSessionCreating(false)
@@ -1006,13 +1017,13 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
     const atts = attachments.map(a => ({ name: a.name, path: a.path, mime: a.mime, url: a.previewUrl }))
     if (shouldQueueMessage) {
       if (runningAction === 'steer' && canInsertRunningMessage) {
-        chat.steer(draft)
+        if (chat.steer(draft) === false) return
       } else {
-        chat.enqueue(draft, atts)
+        if (chat.enqueue(draft, atts) === false) return
       }
     } else {
       // 图片把本地 previewUrl 一并带上 → 气泡里显示缩略图（object URL 不在此 revoke，已被消息引用）
-      chat.send(draft, atts)
+      if (chat.send(draft, atts) === false) return
     }
     setDraft('')
     setComposerExpanded(false)
@@ -1220,15 +1231,15 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
                         <button
                           key={eng}
                           type="button"
-                          onClick={() => void engineCatalogQuery.refetch()}
-                          disabled={engineCatalogQuery.isFetching}
+                          onClick={refreshEngineCatalog}
+                          disabled={engineCatalogQuery.isFetching || engineCatalogRefreshing}
                           title={engineCatalogQuery.data?.engines.find(entry => entry.id === eng)?.probe.detail
                             ?? `重新检测 ${engineName(eng)} 是否可用`}
                           className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-xs text-[var(--color-muted-foreground)] hover:bg-[var(--color-accent)] disabled:cursor-wait"
                         >
                           <EngineIcon engine={eng} className="size-3.5" />
                           <span className="min-w-0 flex-1 truncate text-left">{engineName(eng)}</span>
-                          <span className="shrink-0 text-[10px]">{engineCatalogQuery.isFetching ? '检测中' : '重新检测'}</span>
+                          <span className="shrink-0 text-[10px]">{engineCatalogQuery.isFetching || engineCatalogRefreshing ? '检测中' : '重新检测'}</span>
                         </button>
                       ))}
                     </div>
@@ -1472,20 +1483,15 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
           setPanel('none')
           requestAnimationFrame(() => { const target = newSessionReturnFocus.current; if (target?.isConnected) target.focus(); else taRef.current?.focus() })
         }}
-        onReload={() => { void workspacesQuery.refetch(); void engineCatalogQuery.refetch(); void refreshProviders() }}
-        onEngines={() => { void engineCatalogQuery.refetch() }}>
+        onReload={() => { void workspacesQuery.refetch(); refreshEngineCatalog(); void refreshProviders() }}
+        onEngines={refreshEngineCatalog}>
         <NewSessionEngineSettings engine={newEngine} providerId={newProviderId} providers={providers}
           providersLoading={providersLoading} providersError={providersError?.message} model={newModel} models={providerModels}
           modelsLoading={providerModelsLoading} modelsError={providerModelsError} codexHome={newCodexHome}
           catalog={engineCatalogQuery.data} refreshing={engineCatalogQuery.isFetching || engineCatalogRefreshing}
           onCodexHome={setNewCodexHome} onProvider={providerId => selectNewSessionPreference({ providerId })} onModel={setNewModel}
           onManage={() => setPanel('providers')} onRetryProviders={() => void refreshProviders()}
-          onRefresh={() => {
-            setEngineCatalogRefreshing(true)
-            void listEngineCatalog(true).then(catalog => qc.setQueryData(['claude-chat-engine-catalog'], catalog))
-              .catch(() => qc.invalidateQueries({ queryKey: ['claude-chat-engine-catalog'] }))
-              .finally(() => setEngineCatalogRefreshing(false))
-          }} />
+          onRefresh={refreshEngineCatalog} />
       </NewSessionPanel>}
       {panel === 'clone' && (
         <CloneProjectPanel
@@ -1502,10 +1508,9 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
       {panel === 'onboard' && (
         <OnboardPipelinePanel
           onLaunch={(seed, cwd) => {
-            // 开一个 Claude 会话（skill 依赖 Claude 端团队插件 + Bash）并投喂触发语，
-            // 让 yoooni-onboard-pipeline 接管：open 先于 send 到达（已验证），真正一键。
+            // 等新会话身份确认后复用首条消息投递，确保原文能按目标会话保存。
+            pendingSendIntentRef.current = { previousSessionId: chat.sessionId, seed }
             chat.open(cwd.trim(), undefined, undefined, 'claude')
-            chat.send(seed)
             setPanel('none')
           }}
           onClose={() => setPanel('none')}
@@ -1690,6 +1695,7 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
         <SessionSharingPanel key={sharingPanel === 'inbox' ? 'inbox' : sharingPanel.id}
           sessionId={sharingPanel === 'inbox' ? undefined : sharingPanel.id}
           sessionTitle={sharingPanel === 'inbox' ? undefined : sharingPanel.title}
+          onSharingChange={() => void qc.invalidateQueries({ queryKey: ['claude-chat-sessions'] })}
           onClose={() => setSharingPanel(null)} returnFocus={() => {
             const trigger = sharingPanel === 'inbox' ? null : sharingPanel.trigger
             const target = trigger?.isConnected ? trigger : sessionToolsTriggerRef.current
@@ -1977,7 +1983,8 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
                 )
               ) : (
                 <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center text-[var(--color-muted-foreground)]">
-                  <p>选一个历史会话，或新建一个开始对话</p>
+                  {newSessionCreateError && panel !== 'new' ? <p role="alert">{newSessionCreateError}</p>
+                    : <p>{newSessionCreating ? '正在等待会话创建确认…' : '选一个历史会话，或新建一个开始对话'}</p>}
                   <Button size="lg" className="shadow-md" onClick={() => setPanel('new')}>
                     <Plus className="size-4" /> 新建会话
                   </Button>

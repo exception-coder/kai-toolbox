@@ -477,9 +477,10 @@ export function FloatingChatWindow({ initialCompact = true }: { initialCompact?:
     // 不在此 revoke object URL：它已被消息气泡引用，revoke 会让缩略图失效。
     const atts = hasAtt ? attachments.map(a => ({ name: a.name, path: a.path, mime: a.mime, url: a.previewUrl })) : undefined
     if (chat.running) {
-      if (runningAction === 'steer' && canSteerRunningMessage(chat.currentEngine, chat.currentProviderBaseUrl, attachments.length)) chat.steer(t)
-      else chat.enqueue(t, atts)
-    } else chat.send(t, atts)
+      if (runningAction === 'steer' && canSteerRunningMessage(chat.currentEngine, chat.currentProviderBaseUrl, attachments.length)) {
+        if (chat.steer(t) === false) return
+      } else if (chat.enqueue(t, atts) === false) return
+    } else if (chat.send(t, atts) === false) return
     setDraft('')
     setAttachments([])
     // 发送后收回输入框高度：等 DOM 清空（下一帧）再按内容重算

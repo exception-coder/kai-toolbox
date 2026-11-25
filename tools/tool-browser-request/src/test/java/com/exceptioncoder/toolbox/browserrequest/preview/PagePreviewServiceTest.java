@@ -131,4 +131,55 @@ class PagePreviewServiceTest {
         } finally { service.shutdown(); }
     }
 
+
+    @Test void fullCapacityReplacesOnlyOldestOwnedPreviewAfterExplicitRetry() {
+        PreviewTargets targets = mock(PreviewTargets.class);
+        PreviewBrowser browser = mock(PreviewBrowser.class);
+        when(targets.resolve(any(), any(), any())).thenReturn(
+                new PreviewPlan("https://localhost:5173", "/", null, null, "page", true, null, null));
+        PagePreviewService service = new PagePreviewService(targets, browser);
+        try {
+            var first = service.create(requestWithKey("other-oldest"), other, "token");
+            var oldestOwned = service.create(requestWithKey("oldest-owned"), owner, "token");
+            var newerOwned = service.create(requestWithKey("newer-owned"), owner, "token");
+            var newerOther = service.create(requestWithKey("other-newer"), other, "token");
+            var next = requestWithKey("replacement");
+            assertThrows(org.springframework.web.server.ResponseStatusException.class,
+                    () -> service.create(next, owner, "token"));
+            var stranger = new AuthPrincipal(3, "three", List.of("ADMIN"), List.of(), "jti", owner.expiresAt());
+            assertThrows(org.springframework.web.server.ResponseStatusException.class,
+                    () -> service.create(next, stranger, "token", true));
+            verify(browser, never()).close(any());
+            var invalidTarget = requestWithKey("invalid-target");
+            when(targets.resolve(eq(invalidTarget), any(), any())).thenThrow(new IllegalArgumentException("invalid"));
+            assertThrows(IllegalArgumentException.class, () -> service.create(invalidTarget, owner, "token", true));
+            verify(browser, never()).close(any());
+
+            var replacement = service.create(next, owner, "token", true);
+            assertEquals("CLOSED", service.get(oldestOwned.id(), owner).status());
+            verify(browser, timeout(2000).times(1)).close(oldestOwned.id());
+            assertEquals(replacement.id(), service.create(next, owner, "token", true).id());
+            assertNotEquals("CLOSED", service.get(first.id(), other).status());
+            assertNotEquals("CLOSED", service.get(newerOther.id(), other).status());
+            assertNotEquals("CLOSED", service.get(newerOwned.id(), owner).status());
+        } finally { service.shutdown(); }
+    }
+
+    @Test void closedPreviewRecordsDoNotBlockNewPreviewsAtRetentionLimit() {
+        PreviewTargets targets = mock(PreviewTargets.class);
+        PreviewBrowser browser = mock(PreviewBrowser.class);
+        when(targets.resolve(any(), any(), any())).thenReturn(
+                new PreviewPlan("https://localhost:5173", "/", null, null, "page", true, null, null));
+        PagePreviewService service = new PagePreviewService(targets, browser);
+        try {
+            for (int i = 0; i < 66; i++) {
+                var next = service.create(requestWithKey("repeat-" + i), owner, "token");
+                service.close(next.id(), owner);
+            }
+        } finally { service.shutdown(); }
+    }
+
+    private PreviewRequest requestWithKey(String key) {
+        return new PreviewRequest(key, request.origin(), request.route(), null, null, null, "phone", "page", null);
+    }
 }

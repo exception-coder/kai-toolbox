@@ -2,13 +2,25 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, expect, it, vi } from 'vitest'
 import { SessionSharingPanel } from './SessionSharingPanel'
-import { grantSessionReader, listSessionReaders, revokeSessionReader, searchSessionRecipients } from '../sessionSharingApi'
+import { grantSessionReader, listSessionReaders, listSharedSessions, revokeSessionReader, searchSessionRecipients } from '../sessionSharingApi'
 
 vi.mock('../sessionSharingApi', () => ({ grantSessionReader: vi.fn(), listSessionReaders: vi.fn(),
   listSharedSessions: vi.fn(), revokeSessionReader: vi.fn(), searchSessionRecipients: vi.fn(),
   collaborationPath: (id: string) => `/tools/claude-chat?sessionId=${id}&collaboration=1`,
   sharedSessionPath: (id: string) => `/tools/claude-chat/shared/${id}` }))
 afterEach(() => { cleanup(); vi.resetAllMocks() })
+
+it('distinguishes same-name sessions by project and supports legacy missing projects', async () => {
+  vi.mocked(listSharedSessions).mockResolvedValue([
+    { id: 'a', title: '发布', projectName: '工程甲', engine: 'codex', lastSeenAt: 1 },
+    { id: 'b', title: '发布', projectName: '工程乙', engine: 'claude', lastSeenAt: 1, collaborate: true },
+    { id: 'c', title: '旧会话', engine: 'codex', lastSeenAt: 1 },
+  ])
+  render(<MemoryRouter><SessionSharingPanel onClose={vi.fn()} /></MemoryRouter>)
+  expect(await screen.findByRole('link', { name: '发布 工程甲 · 只读 · codex' })).toHaveAttribute('href', '/tools/claude-chat/shared/a')
+  expect(screen.getByRole('link', { name: '发布 工程乙 · 可继续会话 · claude' })).toHaveAttribute('href', '/tools/claude-chat?sessionId=b&collaboration=1')
+  expect(screen.getByRole('link', { name: '旧会话 只读 · codex' })).toBeVisible()
+})
 
 it('selects an exact account, grants read access then allows revocation', async () => {
   const recipient = { id: 8, username: 'yanwei', realName: '严伟' }

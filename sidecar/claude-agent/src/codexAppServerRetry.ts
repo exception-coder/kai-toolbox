@@ -1,14 +1,34 @@
 import { CodexAppServerTurnError } from './codexAppServer.js'
 
 const MCP_INITIALIZATION_FAILURE = /required MCP servers failed to initialize|handshaking with MCP server failed|failed to initialize session[^\n]*MCP|initialize response|MCP[^\n]*(?:initialize|初始化)[^\n]*(?:failed|失败)/i
-const NON_TRANSIENT_INITIALIZATION_FAILURE = /not found|不存在|unauthorized|forbidden|permission denied|protocol version|配置无效/i
+const NON_TRANSIENT_INITIALIZATION_FAILURE = /not found|cannot find (?:module|package)|ERR_MODULE_NOT_FOUND|ENOENT|SyntaxError|ERR_UNKNOWN_FILE_EXTENSION|不存在|unauthorized|forbidden|permission denied|protocol version|配置无效/i
 const THREAD_WRITER_CONFLICT = /already has an active writer|thread-store conflict:[^\n]*\bactive writer\b/i
+
+/** Classify without echoing raw errors, paths, headers or credentials into the transcript. */
+export function mcpInitializationFailureReason(message: string): 'configuration' | 'timeout' | 'closed' | 'unknown' {
+  if (NON_TRANSIENT_INITIALIZATION_FAILURE.test(message)) return 'configuration'
+  if (/timed?\s*out|timeout|deadline.*elapsed|超时/i.test(message)) return 'timeout'
+  if (/connection closed|channel closed|broken pipe|\bEOF\b|连接.*关闭/i.test(message)) return 'closed'
+  return 'unknown'
+}
+
+export function mcpInitializationRetryMessage(message: string): string {
+  const reason = mcpInitializationFailureReason(message)
+  const detail = reason === 'timeout' ? 'MCP 初始化握手超时'
+    : reason === 'closed' ? 'MCP 初始化连接关闭' : 'MCP 初始化失败'
+  return `Codex App Server ${detail}，已确认旧进程退出，正在重试（1/1）；尚未发送开发任务。`
+}
 
 export function isRetryableMcpInitializationFailure(error: unknown): error is CodexAppServerTurnError {
   return error instanceof CodexAppServerTurnError
     && error.retrySafe
     && MCP_INITIALIZATION_FAILURE.test(error.message)
     && !NON_TRANSIENT_INITIALIZATION_FAILURE.test(error.message)
+}
+
+export function isPermanentMcpInitializationFailure(error: unknown): boolean {
+  return error instanceof CodexAppServerTurnError && MCP_INITIALIZATION_FAILURE.test(error.message)
+    && NON_TRANSIENT_INITIALIZATION_FAILURE.test(error.message)
 }
 
 export function isRetryableThreadWriterConflict(error: unknown): error is CodexAppServerTurnError {

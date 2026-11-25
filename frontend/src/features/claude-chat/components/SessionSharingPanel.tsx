@@ -7,8 +7,8 @@ import {
   collaborationPath, searchSessionRecipients, sharedSessionPath, type SessionReader, type SessionReaderGrant, type SharedSession,
 } from '../sessionSharingApi'
 
-export function SessionSharingPanel({ sessionId, sessionTitle, onClose, returnFocus }: {
-  sessionId?: string; sessionTitle?: string; onClose: () => void; returnFocus?: () => void
+export function SessionSharingPanel({ sessionId, sessionTitle, onClose, returnFocus, onSharingChange }: {
+  sessionId?: string; sessionTitle?: string; onClose: () => void; returnFocus?: () => void; onSharingChange?: () => void
 }) {
   const [readers, setReaders] = useState<SessionReaderGrant[]>([])
   const [hours, setHours] = useState(24)
@@ -58,7 +58,7 @@ export function SessionSharingPanel({ sessionId, sessionTitle, onClose, returnFo
       await reload()
       setError(`${e instanceof Error ? e.message : '保存结果未确认'}。请核对当前授权后再试。`)
     }
-    finally { setBusy(false) }
+    finally { onSharingChange?.(); setBusy(false) }
   }
 
   return <Sheet open onOpenChange={open => { if (!open && !busy) onClose() }}>
@@ -109,7 +109,7 @@ export function SessionSharingPanel({ sessionId, sessionTitle, onClose, returnFo
         </> : <ul className="divide-y">
           {!sessions.length && <li className="py-4 text-sm text-muted-foreground">暂无共享给你的会话。</li>}
           {sessions.map(session => <li key={session.id}><Link to={session.collaborate ? collaborationPath(session.id) : sharedSessionPath(session.id)} onClick={onClose}
-            className="block min-h-12 py-3 text-sm hover:underline">{session.title || '未命名会话'}<span className="ml-2 text-muted-foreground">{session.collaborate ? '可继续会话' : '只读'} · {session.engine}</span></Link></li>)}
+            className="block min-h-12 min-w-0 py-3 text-sm hover:underline"><span className="block truncate font-medium" title={session.title ?? undefined}>{session.title || '未命名会话'}</span><span className="block truncate text-xs text-muted-foreground" title={session.projectName ?? undefined}>{[session.projectName, session.collaborate ? '可继续会话' : '只读', session.engine].filter(Boolean).join(' · ')}</span></Link></li>)}
         </ul>}
       </div>
     </SheetContent>

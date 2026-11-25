@@ -68,7 +68,7 @@ public class ClaudeChatProperties {
         private String provider = "deepseek-official";
         private String model = "deepseek-flash";
         private Integer maxTokens;
-        private long handshakeTimeoutMs = 15_000L;
+        private long handshakeTimeoutMs = 90_000L;
         private long turnTimeoutMs = 30 * 60_000L;
     }
 }

@@ -12,7 +12,7 @@ import { CONSULT_READONLY_PROMPT } from './codexSecurity.js'
 import { buildCodexConfig } from './codexEngine.js'
 
 // Real pipes and EOF, with a local JSON-RPC peer: no account, tools or model calls.
-function fixture(mode: 'browserDenied' | 'consultPlugins' | 'managedConsult' | 'consultConfigMissing' | 'nativeStatus' | 'nativeFailure' | 'complete' | 'warnings' | 'hold' | 'holdError' | 'holdCancel' | 'cancel' | 'rpcError' | 'resumeError' | 'slowResume' | 'lostTerminal' | 'crash' | 'steer' | 'transport' = 'complete', rolloutPath?: string) {
+function fixture(mode: 'skillPriority' | 'browserDenied' | 'consultPlugins' | 'managedConsult' | 'consultConfigMissing' | 'nativeStatus' | 'nativeFailure' | 'complete' | 'warnings' | 'hold' | 'holdError' | 'holdCancel' | 'cancel' | 'rpcError' | 'resumeError' | 'slowResume' | 'lostTerminal' | 'crash' | 'steer' | 'transport' = 'complete', rolloutPath?: string) {
   const child = spawn(process.execPath, ['-e', `
     const mode = ${JSON.stringify(mode)};
     const rolloutPath = ${JSON.stringify(rolloutPath)};
@@ -49,11 +49,16 @@ function fixture(mode: 'browserDenied' | 'consultPlugins' | 'managedConsult' | '
         send({method:'warning',params:{message:'Ignored setting. user: node_repl.type'}});
         send({method:'warning',params:{message:'Independent warning'}});
         send({id:m.id,result:{}});
+      } else if (m.method === 'skills/list' && mode === 'skillPriority') {
+        send({id:m.id,result:{data:[{skills:[{name:'openspec-auto',path:rolloutPath}]}]}});
       } else if (m.method === 'config/read') {
         send({id:m.id,result:mode === 'consultConfigMissing' ? {} : {config:{model_provider:'openai',plugins:{'writer@example':{enabled:true},'unified-computer-use@openai-bundled':{enabled:true}}}}});
       } else if (m.method === 'thread/read' && rolloutPath) {
         send({id:m.id,result:{thread:{path:rolloutPath,modelProvider:'openai'}}});
       } else if (m.method === 'thread/start' || m.method === 'thread/resume') {
+        if (mode === 'skillPriority' && m.params.config['skills.config']?.[0]?.enabled !== false) {
+          send({id:m.id,error:{message:'Project priority missing before thread startup'}}); return;
+        }
         if (mode === 'consultPlugins' && (m.params.config.features?.plugins !== true
           || m.params.config.plugins?.['writer@example']?.enabled !== false
           || m.params.config.plugins?.['unified-computer-use@openai-bundled']?.enabled !== true
@@ -153,6 +158,32 @@ const turnOptions = (sessionId: string, events: Record<string, unknown>[] = [], 
   sandbox: 'read-only' as const, approvalPolicy: 'never' as const,
   input: [{ type: 'text', text: 'fixture only' }], signal, emit: (event: Record<string, unknown>) => { events.push(event) },
   setThreadId: () => {},
+})
+
+test('project skill selection and execution share one initialized process for new and resumed threads', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'forge-single-start-'))
+  const project = join(root, 'project'), plugin = join(root, 'plugin')
+  const globalSkill = join(plugin, 'skills/openspec-auto/SKILL.md')
+  try {
+    await mkdir(join(project, '.agents/skills/openspec-auto'), { recursive: true })
+    await writeFile(join(project, '.agents/skills/openspec-auto/SKILL.md'), 'project skill')
+    await mkdir(join(plugin, 'skills/openspec-auto'), { recursive: true })
+    await writeFile(globalSkill, 'global skill')
+    await mkdir(join(plugin, '.claude-plugin'))
+    await writeFile(join(plugin, '.claude-plugin/plugin.json'), '{"name":"team-standards"}')
+    await mkdir(join(plugin, 'scripts'))
+    await writeFile(join(plugin, 'scripts/openspec-auto.mjs'), `
+      export function codexConfig(project,plugin,config,paths) {
+        return {args:['-c','skills.config=[]'],skillConfig:paths.map(path=>({path,enabled:false}))};
+      }`)
+    for (const threadId of [undefined, 'lifecycle-thread']) {
+      const peer = fixture('skillPriority', globalSkill)
+      try {
+        await runCodexAppServerTurn({ ...turnOptions('single-start'), cwd: project, threadId }, peer.runtime)
+        assert.equal(peer.opens, 1, 'preflight must not launch a second native process')
+      } finally { await peer.release() }
+    }
+  } finally { await rm(root, { recursive: true, force: true }) }
 })
 
 test('new and resumed consultations send the current account routing instructions and plugin policy', async () => {

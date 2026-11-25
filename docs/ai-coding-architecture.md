@@ -188,7 +188,7 @@ flowchart TD
     LOCAL -->|"是"| PROJECT["只采用项目版本"]
     LOCAL -->|"否且已安装套件"| GLOBAL["套件补充"]
     LOCAL -->|"否且无套件"| EXISTING["遵循已有项目规则，不虚构 Skill"]
-    PROJECT --> ADAPTER["启动适配：共享元数据初始化 / 项目入口优先"]
+    PROJECT --> ADAPTER["App Server 单进程初始化、读取元数据并应用线程配置 / 项目入口优先"]
     ADAPTER --> LEVEL["AI 按范围、业务规则、兼容性与风险分级"]
     GLOBAL --> LEVEL
     LEVEL --> L1["L1 直接开发与验证"]
@@ -201,7 +201,7 @@ flowchart TD
 
 权限边界、数据安全/完整性、破坏性变更等高风险强制 L3；等级决定规格深度，实际风险决定验证范围。项目明确采用的更严格流程仍适用。change-readiness 复用分级判断并补实施依据，不重复分类、初始化或建规格。升级保留原会话、writer、任务和已取得证据，不自动完成任务或归档。Forge 独立执行策略继续负责真实状态与门禁，不能用 L1/L2 绕过已采用的要求。
 
-物理去重由宿主注册/启动适配落实：套件适配器对 Codex 合并有效技能配置并禁用全局重复路径；对 Claude 生成去掉重复 Skill 的会话插件，保留其他能力。AGENTS.md 声明本身不会停用外部入口。组织策略、宿主版本和原生发现路径需核实；Forge 已在 Codex app-server 与 Claude SDK 轮次启动接入套件适配器，不另建分类器：Codex 在同一只读进程内读取实际 skills/list（forceReload=false）与有效配置，仅在本次开发进程停用重复路径；初始化与请求分别计时，不跨账号或跨轮次缓存配置。元数据超时仅在上一进程确认退出后重试一次，取消、配置校验或清理失败不重试；该恢复发生在正式 turn/start 之前，不能用于重放开发任务或跳过项目优先规则；Claude 尊重项目禁用配置，使用临时插件并在轮次结束清理。非原生项目 Skill 路径附加明确读取提示，保留原提示与会话。只读咨询不额外注入插件。源码编译、宿主原生清单及定向回归已通过，**Forge 服务尚未重启加载**；Plan S 发布及业务 OpenSpec 行为验收由接收方实施。普通全局安装不等于已完成物理去重，也不自动恢复既有监督运行。
+物理去重由宿主注册/启动适配落实：套件适配器对 Codex 合并有效技能配置并禁用全局重复路径；对 Claude 生成去掉重复 Skill 的会话插件，保留其他能力。AGENTS.md 声明本身不会停用外部入口。组织策略、宿主版本和原生发现路径需核实；Forge 已在 Codex app-server 与 Claude SDK 轮次启动接入套件适配器，不另建分类器。App Server 模式在本轮同一进程初始化后读取实际 skills/list（forceReload=false）与有效配置，将适配器返回的结构化 skills.config 传入 thread/start 或 thread/resume，不再为 Skill 检查单独冷启动进程。缺少有效结构化配置时停止，不解析 CLI 字符串猜测配置。SDK/Exec 继续使用独立元数据进程和 CLI 参数；该路径超时仅在上一进程确认退出后重试一次，取消、配置校验或清理失败不重试。两种路径都在正式任务发送前完成检查，不能重放已发送任务或跳过项目优先规则；初始化与请求分别计时，不跨账号或跨轮次缓存配置。Claude 尊重项目禁用配置，使用临时插件并在轮次结束清理。非原生项目 Skill 路径附加明确读取提示，保留原提示与会话。只读咨询不额外注入插件。源码编译与定向回归的证据见[初始化故障记录](bug/codex-initialize-timeout.md)，**Forge 服务尚未重启加载本次修改**。普通全局安装不等于已完成物理去重，也不自动恢复既有监督运行。
 
 ## 四层工程职责与维护入口
 
@@ -1037,6 +1037,31 @@ flowchart LR
 
 ### Vibe Coding 消息队列的可靠续发
 
+普通开发的 Codex App Server 使用原生工具装配；执行通道、工具目录、浏览器宿主和桌面窗口是不同层次的证据。`cua.getState` 的浏览器错误不否定同次返回的桌面库存：没有权限拒绝且目标窗口可用时，可沿原生 getApp 继续已授权开发操作。明确拒绝仍停止，咨询与评审沿原策略。Sidecar 记录原生错误白名单和库存布尔值，不记录页面/窗口内容或宿主凭据；工具可见不等于已点击。Vibe 回复的 browser-complete 只显示中性状态，咨询仍隐藏协议标记，原生历史不改写。实际宿主连通与模型选路验收见 [Vibe 浏览器任务](../openspec/changes/vibe-isolated-browser/tasks.md)。
+
+```mermaid
+flowchart LR
+  Native[App Server 原生工具] --> Inventory[本轮 CUA 库存与错误]
+  Inventory --> Browser[浏览器通道可用 按原生文档操作]
+  Inventory --> Desktop[仅浏览器宿主不可用且桌面可用 原生 getApp]
+  Inventory --> Denied[权限拒绝 停止对应访问]
+  Browser --> Evidence[实际操作结果与未完成项]
+  Desktop --> Evidence
+```
+
+普通开发消息另由同一聊天模块的 `ChatSubmissionRepository` 保存接单原文与派发状态。客户端向固定 sessionId 的 `/submissions` 提交；服务端先写 SQLite，再返回 202 并独立派发，浏览器切换只改变观察对象。唯一键 `(session_id,id)` 防止重复执行；失败保留原文，重启将未收口记录标为 UNKNOWN，不自动重放。最近 100 条通过原会话访问策略查询，本机备份只兜底未确认提交。该接单账本不替代引擎 transcript、不扩大咨询/公开评审权限，也不增加完成追问。源码已实现，目标版本及浏览器验收待重启后核对。
+
+```mermaid
+flowchart LR
+    Input[固定会话提交] --> Receipt[SQLite 接单原文与幂等键]
+    Receipt --> Accepted[202 已保存]
+    Receipt --> Dispatch[服务端独立派发]
+    Dispatch --> Engine[既有引擎与权限门禁]
+    Engine --> Outcome[记录实际轮次结果]
+    Receipt --> Recover[切回或刷新后查询与恢复]
+    Outcome --> Recover
+```
+
 消息队列属于聊天会话的持久执行输入，不是浏览器定时任务，也不等同于 OpenSpec 自动监督。`QueuedChatMessageService` 保存原文，`QueueDeliveryStore` 在同一 SQLite 维护轮次准入、单会话派发认领与完成追问次数；`ClaudeChatService` 复用已有会话锁、权限、项目排除、运行态门禁和更新排空门禁。入队唤醒与有界服务端巡检共同驱动，关闭浏览器不停止续发。单次巡检至多处理 16 个会话，间隔 5 秒；这不是所有队列都在 5 秒内完成派发的 SLA。
 
 Sidecar 在执行前持久保存轮次接收回执，整轮收口后先保存终态再通知 Java。接收只表示已接收，正常终态也不等于功能验收。Java 保留原队列项直到正常终态、明确中断或人工明确确认完成，通过同一事务更新完成准入并删除已完成项。手动发送同样由服务端认领，不再由浏览器先删队列再发送。回执按轮次去重；裁剪已完成回执时更换证据代际，不能把旧代际查无记录当作从未执行。
@@ -1292,14 +1317,21 @@ flowchart LR
     AUTH --> DIRECT["ITCS 即时分析<br/>结果直接返回，ITCS 保存"]
     IMAGE --> TASK["持久分析任务<br/>提交 查询 请求取消"]
     AUTH --> TASK
-    TASK --> DATA["有界文字 原图 人工资料 授权源码片段<br/>业务规则不授予工具权限"]
+    TASK --> DATA["完整快照转为去重证据载荷<br/>原图与来源保持对应"]
+    DIRECT --> DATA
     DATA --> AGENT["现有 AgentOneShotRunner<br/>业务默认账号 工具禁用"]
     AGENT --> CHECK["分析 图片回执 候选校验<br/>明确未知和信息缺口"]
     CHECK --> APP
     APP --> HUMAN["FLEX按需回复与业务结果<br/>调用方保存 人工确认发送"]
+    REPLAY["SDK 私有案例回放<br/>原请求恢复 人工核对"] --> AUTH
+    TASK -.-> OBS["阶段观测与低敏摘要<br/>模型完成和结果通过分别记录"]
+    AGENT -.-> OBS
+    CHECK -.-> OBS
 ```
 
 一个任务独立运行，调用方 conversationId 只用于关联，不作为原生线程身份。平台账号在实际执行前确定并记录配置版本，输入资料永远不提升为系统指令。依据是调用方文字、应用身份上传的原图及显式授权源码引用；没有自主查库或 Web 登录，缺少证据时明确说明。输出不包含 AI 凭据或本机绝对路径；结构合法不等于因果结论已由人工核验。新任务缺省 FORGE_FLEX，Forge 返回 1.2 结果、0–8 条实际有用的通俗候选及调用方规则指导的 businessResult。businessInstructions 只在数据层约束表达和结果形状，businessContext 作为 CALLER_BUSINESS_CONTEXT 人工资料证据，不提升为已核验事实或执行权限。旧任务及显式 FORGE/CALLER 保留原合同，既有凭据不变；选择来源、人工修改和飞书发送由 yoooni-agent 负责，Forge 没有消息发送或业务修改端口。
+
+分析模型的内部 question 保留身份、业务输出规则及附件名称，描述、历史上下文、分类、报错、附件文字和业务资料由 evidence 单次承载；完整调用方输入仍用于快照和幂等。准备、模型、校验和保存分别生成观测，模型 span 成功不代表分析合同通过。实现 class 摘要、实际提示词与调用方规则摘要、配置版本、字符量及阶段耗时以 taskId/requestId/clientId 关联；实现摘要只标识分析实现，不能冒充完整发布提交。OTel 沿用既有开关与异步导出，关闭时低敏 JSON 汇总日志仍可用于基线统计，新增诊断不保存业务原文、原图或凭据。SDK 私有案例回放复用应用认证和异步任务，不经页面咨询的只读工具流程；冻结输入及上传检查点支持原键恢复，原始报告与人工参考独立保存。观测导出、真实图文效果和目标版本加载须分别验收，状态见[优化任务](../openspec/changes/optimize-consult-backend-execution/tasks.md)。
 
 clientId + requestId 唯一绑定完整规范化调用方输入，重复登记先返回原任务，同键异内容拒绝；只为新任务固化缺省模式，原任务输入与摘要不改写。新版合同和实际加载状态见[新版分析任务](../openspec/changes/consult-flexible-backend/tasks.md)。取消与超时先进入 CANCEL_REQUESTED，新增 runManaged/cancelManaged 端口复用原执行器并等待引擎终态，不通过直接中断 Java 等待线程伪造已停止；终态及线程退出后才释放名额，旧 runOnce 调用不变。进程重启将执行中任务标为 INTERRUPTED，不自动重放问题。首版单实例、全局 2 个受管模型调用，队列和调用频率有界。管理员轮换使旧票据失效，续期保留任务归属；撤销不删除问题与结果。合同、专项回归及待启动验收见 [本次设计和任务](../openspec/changes/consult-backend-analysis/design.md)。代码与包交付不代表已加载服务或跨应用流程已验收。
 

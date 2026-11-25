@@ -2,6 +2,7 @@ const REQUEST_TIMEOUT_MS = 20_000
 const INITIALIZE_TIMEOUT_MS = 60_000
 const THREAD_RESTORE_TIMEOUT_MS = 120_000
 const RESTORE_METHODS = new Set(['thread/start', 'thread/resume', 'thread/fork'])
+const STARTUP_METHODS = new Set(['initialize', 'config/read', 'skills/list', 'mcpServerStatus/list'])
 
 export class CodexRpcTimeoutError extends Error {
   constructor(method: string, timeoutMs: number, readonly phase: 'initialize' | 'request' = 'request') {
@@ -23,6 +24,9 @@ export async function observeCodexRpc<T>(
   context: { sessionId: string; threadId?: string },
 ): Promise<T> {
   const started = Date.now()
+  const traceSuccess = RESTORE_METHODS.has(method) || STARTUP_METHODS.has(method)
+  if (traceSuccess) console.info(JSON.stringify({ event: 'codex_rpc_started', ...context, method,
+    timeoutMs: codexRpcTimeoutMs(method) }))
   let succeeded = false
   let timedOut = false
   try {
@@ -33,7 +37,7 @@ export async function observeCodexRpc<T>(
     timedOut = error instanceof CodexRpcTimeoutError
     throw error
   } finally {
-    if (RESTORE_METHODS.has(method) || !succeeded) {
+    if (traceSuccess || !succeeded) {
       const entry = JSON.stringify({ event: 'codex_rpc_finished', ...context, method,
         elapsedMs: Date.now() - started, timeoutMs: codexRpcTimeoutMs(method),
         outcome: succeeded ? 'completed' : timedOut ? 'timeout' : 'failed' })

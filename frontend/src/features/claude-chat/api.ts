@@ -1,4 +1,5 @@
-import { authFetch, http } from '@/lib/api'
+import { ApiError, authFetch, http } from '@/lib/api'
+import { localDocumentRequest } from './lib/localDocumentRequest'
 import { reportVibeEntry } from '@/lib/vibeEntryDiagnostics'
 import { ensureFreshToken, getToken } from '@/lib/auth'
 import { listSystemModules, listSystemWorkspaces, saveSystemProjectAlias } from '@/lib/systemCatalog'
@@ -288,8 +289,16 @@ export function pullSessionCommits(sessionId: string, token: string, repo?: stri
 }
 
 /** Sidecar 权威引擎目录；refresh=true 会跳过短缓存并重新执行实验引擎握手。 */
-export function listEngineCatalog(refresh = false) {
-  return http<EngineCatalogView>(`/claude-chat/sessions/engine-catalog${refresh ? '?refresh=true' : ''}`)
+export async function listEngineCatalog(refresh = false) {
+  const path = '/claude-chat/sessions/engine-catalog'
+  if (!refresh) return http<EngineCatalogView>(path)
+  try {
+    return await http<EngineCatalogView>(`${path}/refresh`, { method: 'POST' })
+  } catch (error) {
+    // Static frontend can publish before the matching backend is restarted.
+    if (!(error instanceof ApiError) || (error.status !== 404 && error.status !== 405)) throw error
+    return http<EngineCatalogView>(`${path}?refresh=true`)
+  }
 }
 
 /** 实时核对浏览器、Java、Sidecar与Agent的全链路会话状态。 */
@@ -496,22 +505,22 @@ export function readSessionFile(sessionId: string, path: string) {
 
 /** 完整读取消息链接中的 draw.io 文件，沿用会话与已登记项目访问范围。 */
 export function readSessionDiagram(sessionId: string, path: string, signal?: AbortSignal) {
-  return http<FileContent>(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/diagram?path=${encodeURIComponent(path)}`, { signal })
+  return localDocumentRequest(readSignal => http<FileContent>(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/diagram?path=${encodeURIComponent(path)}`, { signal: readSignal }), signal)
 }
 
 /** 完整读取本地 Markdown；取消、会话权限和跨目录精确引用由同一文件链路处理。 */
 export function readSessionMarkdown(sessionId: string, path: string, signal?: AbortSignal) {
-  return http<FileContent>(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/markdown?path=${encodeURIComponent(path)}`, { signal })
+  return localDocumentRequest(readSignal => http<FileContent>(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/markdown?path=${encodeURIComponent(path)}`, { signal: readSignal }), signal)
 }
 
 /** 只读 SQL 文件原文；与数据库执行、待执行 SQL 登记无关。 */
 export function readSessionSql(sessionId: string, path: string, signal?: AbortSignal) {
-  return http<FileContent>(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/sql?path=${encodeURIComponent(path)}`, { signal })
+  return localDocumentRequest(readSignal => http<FileContent>(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/sql?path=${encodeURIComponent(path)}`, { signal: readSignal }), signal)
 }
 
 /** 只读 HTML 原文，前端放入无同源权限的沙箱渲染。 */
 export function readSessionHtml(sessionId: string, path: string, signal?: AbortSignal) {
-  return http<FileContent>(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/html?path=${encodeURIComponent(path)}`, { signal })
+  return localDocumentRequest(readSignal => http<FileContent>(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/html?path=${encodeURIComponent(path)}`, { signal: readSignal }), signal)
 }
 
 /** 本地图片经会话鉴权读取；不把服务器磁盘路径作为浏览器 URL。 */
@@ -979,6 +988,7 @@ export function fetchUsage(): Promise<EngineUsage[]> {
 
 export interface SubscriptionQuota {
   available: boolean
+  billing?: 'metered'
   message?: string
   fetchedAt: number | null
   planType?: string
@@ -1366,4 +1376,20 @@ export function applyEngineNativeConfig(input: EngineNativeConfigApplyInput) {
     method: 'PUT',
     body: JSON.stringify(input),
   })
+}
+export interface ChatSubmission {
+  id: string
+  sessionId: string
+  text: string
+  attachments: import('./types').SendAttachment[]
+  status: 'RECEIVED' | 'DISPATCHED' | 'COMPLETED' | 'FAILED' | 'UNKNOWN'
+  note?: string
+  createdAt: number
+}
+export function listChatSubmissions(sessionId: string) {
+  return http<ChatSubmission[]>(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/submissions`)
+}
+export function submitChatMessage(sessionId: string, message: Extract<import('./types').ClientMessage, { type: 'send' }>) {
+  return http<void>(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/submissions`,
+    { method: 'POST', body: JSON.stringify(message) }, 'empty')
 }

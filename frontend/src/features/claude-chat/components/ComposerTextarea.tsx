@@ -1,6 +1,6 @@
 import { forwardRef, useId, useLayoutEffect, useRef, useState, type ComponentPropsWithoutRef } from 'react'
 import { FileText, X } from 'lucide-react'
-import { changedRange, editVisibleDraft, shouldFoldPaste, visibleDraft, type FoldedPaste } from '../lib/foldedPaste'
+import { changedRange, editVisibleDraft, foldPaste, rawFoldedCaret, shouldFoldPaste, visibleDraft, type FoldedPaste } from '../lib/foldedPaste'
 
 interface Props extends ComponentPropsWithoutRef<'textarea'> {
   compact?: boolean
@@ -56,6 +56,7 @@ export const ComposerTextarea = forwardRef<HTMLTextAreaElement, Props>(function 
         value={onValueChange ? displayed : props.value}
         data-fold-start={fold?.start}
         data-fold-end={fold?.end}
+        data-fold-separator-length={fold?.separatorLength}
         ref={node => { inputRef.current = node; if (typeof ref === 'function') ref(node); else if (ref) ref.current = node }}
         placeholder={visible ? suggestion! : props.placeholder}
         aria-describedby={visible ? hintId : props['aria-describedby']}
@@ -66,7 +67,7 @@ export const ComposerTextarea = forwardRef<HTMLTextAreaElement, Props>(function 
             const next = editVisibleDraft(raw, fold, change.start, change.end, change.text)
             setFold(next.fold ? { ...next.fold, scope: draftScope } : null)
             const caret = event.target.selectionStart
-            onValueChange(next.raw, next.fold && caret >= next.fold.start ? caret + next.fold.end - next.fold.start : caret)
+            onValueChange(next.raw, rawFoldedCaret(caret, next.fold))
           } else onChange?.(event)
           if (event.target.value && suggestion) onDismissSuggestion()
         }}
@@ -78,8 +79,9 @@ export const ComposerTextarea = forwardRef<HTMLTextAreaElement, Props>(function 
           event.preventDefault()
           const next = editVisibleDraft(raw, fold, event.currentTarget.selectionStart, event.currentTarget.selectionEnd, text)
           // Keep the old block as normal text when a new long paste is collapsed.
-          setFold({ raw: next.raw, start: next.insertion, end: next.insertion + text.length, scope: draftScope })
-          onValueChange(next.raw, next.caret)
+          const pasted = foldPaste(next.raw, next.insertion, next.insertion + text.length)
+          setFold({ ...pasted, scope: draftScope })
+          onValueChange(pasted.raw, rawFoldedCaret(pasted.start, pasted))
           onDismissSuggestion()
           requestAnimationFrame(() => inputRef.current?.setSelectionRange(next.insertion, next.insertion))
         }}

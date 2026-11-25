@@ -3,7 +3,7 @@ import { matchPath } from 'react-router-dom'
 
 export interface SessionReader { id: number; username: string; realName: string | null }
 export interface SessionReaderGrant extends SessionReader { expiresAt: number | null; collaborate?: boolean }
-export interface SharedSession { id: string; title: string | null; engine: string | null; lastSeenAt: number; collaborate?: boolean }
+export interface SharedSession { id: string; title: string | null; engine: string | null; lastSeenAt: number; collaborate?: boolean; projectName?: string | null }
 export interface SharedMessage { id: string; kind: string; text: string | null; ts: number | null }
 export interface SharedMessages {
   items: SharedMessage[]; nextCursor: string | null; transcriptMissing: boolean; historyGap: string | null

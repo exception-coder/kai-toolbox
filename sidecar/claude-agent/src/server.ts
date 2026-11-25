@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import { createServer } from 'node:http'
 import os from 'node:os'
 import path from 'node:path'
-import { SessionManager } from './sessionManager.js'
+import { SessionManager, type HandoffActivation, type HandoffSource } from './sessionManager.js'
 import { createPlanReviewSession } from './planReviewSession.js'
 import { PlanReviewJobs } from './planReview.js'
 import { HANDOFF_ENGINES } from './engineHandoff.js'
@@ -187,11 +187,13 @@ wss.on('connection', (ws) => {
           msg.apiBaseUrl as string | undefined,
           msg.authToken as string | undefined,
           msg.handoffConfirmed === true,
+          msg.activation as HandoffActivation | undefined,
         )
         break
       case 'prepareEngineHandoff':
         void manager.prepareEngineHandoff(sessionId, String(msg.requestId), String(msg.engine),
-          (msg.sdkSessionId as string | undefined) || undefined, String(msg.prompt))
+          (msg.sdkSessionId as string | undefined) || undefined, String(msg.prompt),
+          msg.source as HandoffSource | undefined)
         break
       case 'switchProvider':
         manager.switchProvider(

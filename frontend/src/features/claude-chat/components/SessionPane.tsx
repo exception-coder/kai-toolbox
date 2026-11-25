@@ -142,9 +142,10 @@ export function SessionPane({ sessionId, accent, onStatus, onClose }: Props) {
     // 不在此 revoke object URL：它已被消息气泡引用（revoke 会让缩略图失效）。
     const atts = attachments.map(a => ({ name: a.name, path: a.path, mime: a.mime, url: a.previewUrl }))
     if (chat.running) {
-      if (runningAction === 'steer' && canSteerRunningMessage(chat.currentEngine, chat.currentProviderBaseUrl, atts.length)) chat.steer(draft)
-      else chat.enqueue(draft, atts)
-    } else chat.send(draft, atts)
+      if (runningAction === 'steer' && canSteerRunningMessage(chat.currentEngine, chat.currentProviderBaseUrl, atts.length)) {
+        if (chat.steer(draft) === false) return
+      } else if (chat.enqueue(draft, atts) === false) return
+    } else if (chat.send(draft, atts) === false) return
     setDraft('')
     setAttachments([])
     const el = taRef.current

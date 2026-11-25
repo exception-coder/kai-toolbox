@@ -24,6 +24,11 @@ public class QueuedChatMessageRepository {
         this.objectMapper = objectMapper;
     }
 
+    /** 在事务首次读取前取得 SQLite 写锁，避免 WAL 读快照升级失败；不改变任何队列行。 */
+    public void acquireWriteIntent() {
+        jdbc.update("UPDATE claude_chat_queued_message SET id = id WHERE 0");
+    }
+
     public List<QueuedChatMessage> findBySessionId(String sessionId) {
         return jdbc.query("""
                 SELECT id, session_id, text, display_text, developer_instructions, attachments_json, created_at,

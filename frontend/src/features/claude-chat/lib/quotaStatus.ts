@@ -1,5 +1,6 @@
 import type { SubscriptionQuota } from '../api'
 import type { QuotaAccountRow } from './subscriptionQuotaRows'
+import { ApiError } from '@/lib/api'
 
 /** 超过该时长的成功结果标记为过期，提示可刷新；不自动丢弃数据。 */
 export const QUOTA_STALE_MS = 10 * 60_000
@@ -7,7 +8,7 @@ export const QUOTA_STALE_MS = 10 * 60_000
 export type QuotaState =
   | { kind: 'idle' }
   | { kind: 'loading' }
-  | { kind: 'ok' | 'stale'; quota: SubscriptionQuota; refreshing: boolean }
+  | { kind: 'ok' | 'stale'; quota: SubscriptionQuota; refreshing: boolean; refreshError?: string }
   | { kind: 'failed'; reason: string }
   | { kind: 'empty'; reason: string }
   | { kind: 'metered' }
@@ -25,9 +26,14 @@ export function quotaState(row: QuotaAccountRow, query: QuotaQueryLike | undefin
   if (row.billing === 'metered') return { kind: 'metered' }
   if (row.billing !== 'subscription') return { kind: 'unsupported', reason: row.reason ?? '此引擎不提供订阅额度' }
   if (!query) return { kind: 'idle' }
+  if (query.error instanceof ApiError && [401, 403, 404].includes(query.error.status)) {
+    return { kind: 'failed', reason: '当前账号或会话无法访问额度，请核对登录状态与会话权限' }
+  }
   const data = query.data
+  if (data?.billing === 'metered') return { kind: 'metered' }
   if (data?.available && data.fetchedAt != null && data.windows.length > 0) {
-    return { kind: now - data.fetchedAt > QUOTA_STALE_MS ? 'stale' : 'ok', quota: data, refreshing: query.isFetching }
+    return { kind: now - data.fetchedAt > QUOTA_STALE_MS ? 'stale' : 'ok', quota: data, refreshing: query.isFetching,
+      refreshError: query.error instanceof Error ? query.error.message : undefined }
   }
   if (query.isFetching) return { kind: 'loading' }
   if (query.error) return { kind: 'failed', reason: query.error instanceof Error && query.error.message ? query.error.message : '请求失败，或服务尚未加载额度接口' }

@@ -54,7 +54,8 @@ export function InlineLocalFile({ sessionId, reference, onExpand }: {
     </header>
     {notice && <p role="status" className="px-3 py-2 text-xs">{notice}</p>}
     <div className={kind === 'diagram' || kind === 'html' ? 'h-96 min-w-0 overflow-hidden' : 'h-72 min-w-0 overflow-auto overscroll-contain [&_.cm-editor]:h-full [&_.cm-scroller]:overflow-auto'}>
-      {!visible || file.isPending ? <p role="status" className="p-3 text-xs text-[var(--color-muted-foreground)]">{visible ? '正在读取文件…' : '进入阅读区域后自动显示…'}</p>
+      {visible && file.fetchStatus === 'paused' ? <p role="status" className="p-3 text-xs text-[var(--color-muted-foreground)]">当前处于离线状态，恢复连接后自动读取文件。</p>
+        : !visible || file.isPending ? <p role="status" className="p-3 text-xs text-[var(--color-muted-foreground)]">{visible ? '正在读取文件…' : '进入阅读区域后自动显示…'}</p>
         : file.isError ? <div role="alert" className="space-y-2 p-3 text-sm"><p>{file.error.message}</p><Button variant="outline" disabled={file.isFetching} onClick={() => void file.refetch()}>重试读取</Button></div>
           : !file.data.content.trim() ? <p className="p-3 text-sm text-[var(--color-muted-foreground)]">文件为空。</p>
             : <Suspense fallback={<p role="status" className="p-3 text-xs">正在渲染文件…</p>}>

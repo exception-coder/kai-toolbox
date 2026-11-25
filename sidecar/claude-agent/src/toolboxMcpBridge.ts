@@ -147,4 +147,11 @@ if (serverName === 'forge') {
   ))
 }
 
+// Diagnostics stay on stderr: stdout is exclusively MCP JSON-RPC.
+process.on('uncaughtExceptionMonitor', error => {
+  console.error(JSON.stringify({ event: 'forge_mcp_bridge_fault', server: serverName, sessionId,
+    pid: process.pid, errorName: error.name, uptimeMs: Math.round(process.uptime() * 1000) }))
+})
 await server.connect(new StdioServerTransport())
+console.error(JSON.stringify({ event: 'forge_mcp_bridge_ready', server: serverName, sessionId,
+  pid: process.pid, uptimeMs: Math.round(process.uptime() * 1000) }))

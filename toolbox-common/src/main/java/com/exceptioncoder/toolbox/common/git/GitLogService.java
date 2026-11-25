@@ -350,10 +350,11 @@ public class GitLogService {
             throw new IllegalStateException("启动 git 失败（确认 git 在 PATH 或配置 toolbox.git.binary）：" + e.getMessage(), e);
         }
         StringBuilder errBuf = new StringBuilder();
-        Thread errReader = Thread.startVirtualThread(() -> drain(p.getErrorStream(), errBuf, 64 * 1024));
+        // JDK 21 的进程管道阻塞可能占住虚拟线程 carrier；三个方向必须独立取得执行机会。
+        Thread errReader = Thread.ofPlatform().daemon().name("git-stderr").start(() -> drain(p.getErrorStream(), errBuf, 64 * 1024));
         ByteArrayOutputStream outBuf = new ByteArrayOutputStream();
         boolean[] truncated = {false};
-        Thread outReader = Thread.startVirtualThread(() -> truncated[0] = drainBytes(p.getInputStream(), outBuf, props.getDiffMaxBytes()));
+        Thread outReader = Thread.ofPlatform().daemon().name("git-stdout").start(() -> truncated[0] = drainBytes(p.getInputStream(), outBuf, props.getDiffMaxBytes()));
         AtomicReference<IOException> inputFailure = new AtomicReference<>();
         Thread inputWriter = writeInput(p, input, inputFailure);
         try {
@@ -364,6 +365,9 @@ public class GitLogService {
             outReader.join(1000);
             errReader.join(1000);
             inputWriter.join(1000);
+            if (outReader.isAlive() || errReader.isAlive() || inputWriter.isAlive()) {
+                throw new IllegalStateException("Git 输出读取未完成，请重试；未返回不完整查询结果");
+            }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             p.destroyForcibly();
@@ -379,7 +383,7 @@ public class GitLogService {
     }
 
     private Thread writeInput(Process process, byte[] input, AtomicReference<IOException> failure) {
-        return Thread.startVirtualThread(() -> {
+        return Thread.ofPlatform().daemon().name("git-stdin").start(() -> {
             try (var stream = process.getOutputStream()) {
                 if (input != null) {
                     stream.write(input);
@@ -415,8 +419,12 @@ public class GitLogService {
         byte[] buf = new byte[4096];
         try {
             int n;
-            while ((n = in.read(buf)) >= 0 && sb.length() < max) {
-                sb.append(new String(buf, 0, n, StandardCharsets.UTF_8));
+            while ((n = in.read(buf)) >= 0) {
+                // 限制保留量而非消费量，避免 stderr 管道写满后让 Git 永远无法退出。
+                if (sb.length() < max) {
+                    String chunk = new String(buf, 0, n, StandardCharsets.UTF_8);
+                    sb.append(chunk, 0, Math.min(chunk.length(), max - sb.length()));
+                }
             }
         } catch (IOException e) {
             log.debug("读取 git stderr 失败", e);
