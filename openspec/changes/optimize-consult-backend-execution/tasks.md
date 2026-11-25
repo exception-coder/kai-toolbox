@@ -19,3 +19,12 @@
 - Forge CLI verify all 退出 0，JSON PASSED，executedCheckers 为空，仅执行 API-RUNTIME-001 既有服务 HTTP 200。不能证明新版本已加载或新观测已导出。
 - OpenSpec strict、受影响文档及 diff 检查通过。架构沿用现有 Mermaid 源码同步，解析验证与实际渲染分别记录。
 - OTel 实际导出、真实模型回放、人工认可率及新流量 P50/P95 尚待目标实例和业务案例。未重启、未部署、未发布 SDK、未改运行配置。
+
+## 外部截图查证
+
+- [x] 3.1 接入应用授权下的定向检索和结论优先回复，验证无授权项目泄露、同分降级及内部证据投影。
+- [ ] 3.2 [MANUAL_CONFIRMATION] 在已确认的目标实例启用 ITCS Client ID，使用真实截图回放核对命中、结论准确率、无必要追问和延迟。
+
+- 2026-11-25 本地宿主 reactor 定向验证及咨询模块复验通过，共 37 项。新增集成用例使用原图和模型替身，覆盖应用授权、同分降级、证据投影及内部路径拒绝。
+- OpenSpec strict、架构 Mermaid 解析、Git diff 检查通过。Forge 质量门禁 JSON 为 PASSED，退出 0，无静态检查器执行，仅对既有实例执行 API-RUNTIME-001 并返回 200。
+- 真实 ITCS 案例、查证速度与回复准确率待部署后回放。未修改运行配置、未重启后端。
