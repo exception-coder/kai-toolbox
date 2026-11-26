@@ -1,4 +1,5 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { createRequire } from 'node:module'
 import { codexSessionStatus, classifyTurnFailure, retryCounts, type TurnFailure } from './engine/nativeSessionStatus.js'
 import { createInterface } from 'node:readline'
@@ -23,7 +24,7 @@ import {
 } from './codexTurnCompletion.js'
 import { configuredMcpServerNames, type RequiredMcpTool } from './codexSecurity.js'
 import { CodexMcpStartupWarnings } from './codexMcpStartupWarnings.js'
-import { CodexAppServerWarnings, codexWarningMessage } from './codexAppServerWarnings.js'
+import { CodexAppServerWarnings, codexAppServerWarning, codexWarningMessage } from './codexAppServerWarnings.js'
 import { codexSpeedTiers, speedFields, type CodexSpeedTier } from './codexSpeedTiers.js'
 import {
   buildCodexCapabilitySnapshot,
@@ -466,6 +467,15 @@ function codexCliEntrypoint(): string {
   return join(dirname(packageJson), 'bin', 'codex.js')
 }
 
+/** Keep Windows Forge diagnostics separate from desktop Codex, with one directory per auth profile. */
+export function codexAppServerLogArgs(codexHome?: string, platform = process.platform): string[] {
+  if (platform !== 'win32') return []
+  const home = normalizeCodexHome(codexHome) ?? join(homedir(), '.codex')
+  const profile = createHash('sha256').update(home.toLowerCase()).digest('hex').slice(0, 24)
+  const logDirectory = join(homedir(), '.kai-toolbox', 'codex-app-server-logs', profile)
+  return ['-c', `log_dir=${JSON.stringify(logDirectory)}`]
+}
+
 function closeInput(child: ChildProcessWithoutNullStreams): void {
   if (!child.stdin.destroyed) child.stdin.end()
 }
@@ -492,10 +502,11 @@ function forceStop(child: ChildProcessWithoutNullStreams): void {
 }
 
 const appServerRuntime = {
-  open: (codexHome?: string, args: string[] = []): ChildProcessWithoutNullStreams => spawn(
-    process.execPath, [codexCliEntrypoint(), ...args, 'app-server', '--stdio'],
-    { env: appServerEnv(codexHome), stdio: 'pipe', windowsHide: true },
-  ),
+  open: (codexHome?: string, args: string[] = []): ChildProcessWithoutNullStreams => {
+    const env = appServerEnv(codexHome)
+    return spawn(process.execPath, [codexCliEntrypoint(), ...codexAppServerLogArgs(env.CODEX_HOME), ...args, 'app-server', '--stdio'],
+      { env, stdio: 'pipe', windowsHide: true })
+  },
   stop: forceStop,
   closeTimeoutMs: PROCESS_CLOSE_TIMEOUT_MS,
 }
@@ -1301,7 +1312,7 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions, runti
             break
           }
           const uniqueMessage = appServerWarnings.accept(params)
-          if (uniqueMessage) options.emit({ type: 'warning', code: 'CODEX_APP_SERVER_WARNING', message: uniqueMessage })
+          if (uniqueMessage) options.emit({ type: 'warning', ...codexAppServerWarning(uniqueMessage) })
           break
         }
         case 'error': {

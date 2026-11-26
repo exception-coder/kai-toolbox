@@ -1,6 +1,13 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { CodexAppServerWarnings, codexWarningMessage } from './codexAppServerWarnings.js'
+import { CodexAppServerWarnings, codexAppServerWarning, codexWarningMessage } from './codexAppServerWarnings.js'
+
+test('reports diagnostic persistence failures separately from turn errors', () => {
+  const diagnostic = codexAppServerWarning("Codex couldn't save diagnostic logs to its local database. Use /feedback with logs included before closing Codex.")
+  assert.equal(diagnostic.code, 'CODEX_DIAGNOSTIC_LOG_WRITE_FAILED')
+  assert.match(diagnostic.message, /诊断日志/)
+  assert.deepEqual(codexAppServerWarning('unrelated warning'), { code: 'CODEX_APP_SERVER_WARNING', message: 'unrelated warning' })
+})
 
 test('renders native configWarning summary rather than its raw JSON envelope', () => {
   assert.equal(codexWarningMessage({ summary: 'Unknown setting: mcp_servers.node_repl.type', details: null }),
