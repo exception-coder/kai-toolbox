@@ -118,20 +118,28 @@ export function createCodexAppServerConnection(child: ChildProcessWithoutNullStr
       if (disposed || failure) throw failure ?? new Error('Codex App Server 连接已关闭')
       if (routing === 'exclusive' && routes.size) throw new Error('Codex App Server 独占连接已有轮次')
       routes.add(route)
+      const startRequest = (method: string, params: Message, timeoutMs: number) => {
+        const id = nextId++
+        const result = new Promise<Message>((resolve, reject) => {
+          if (!routes.has(route) || failure) {
+            reject(failure ?? new Error('Codex App Server 轮次已结束'))
+            return
+          }
+          const timer = setTimeout(() => {
+            pending.delete(id)
+            reject(new CodexRpcTimeoutError(method, timeoutMs, method === 'initialize' ? 'initialize' : 'request'))
+          }, timeoutMs)
+          timer.unref?.()
+          pending.set(id, { route, resolve, reject, timer })
+          send({ method, id, params })
+        })
+        return { id, result }
+      }
       return {
         send(message: Message) { if (routes.has(route)) send(message) },
+        startRequest,
         request(method: string, params: Message, timeoutMs: number): Promise<Message> {
-          if (!routes.has(route) || failure) return Promise.reject(failure ?? new Error('Codex App Server 轮次已结束'))
-          const id = nextId++
-          return new Promise((resolve, reject) => {
-            const timer = setTimeout(() => {
-              pending.delete(id)
-              reject(new CodexRpcTimeoutError(method, timeoutMs, method === 'initialize' ? 'initialize' : 'request'))
-            }, timeoutMs)
-            timer.unref?.()
-            pending.set(id, { route, resolve, reject, timer })
-            send({ method, id, params })
-          })
+          return startRequest(method, params, timeoutMs).result
         },
         detach(error = new Error('Codex App Server 轮次已结束')) {
           routes.delete(route)

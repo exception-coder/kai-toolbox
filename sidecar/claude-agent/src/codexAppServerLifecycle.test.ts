@@ -72,9 +72,21 @@ function fixture(mode: 'resident' | 'skillPriority' | 'browserDenied' | 'consult
           send({id:m.id,result:{thread:{id:m.params.threadId || 'new-thread'}}});
           return;
         }
-        if (m.method === 'thread/prediction/request') {
+        if (m.method === 'thread/sample') {
+          if (m.params.expectedTurnId === 'cancel-sample') {
+            process.send({sampleRequestId:m.id});
+            return;
+          }
+          if (m.params.expectedTurnId !== turns.get(m.params.threadId) || !m.params.disableMcp) {
+            send({id:m.id,error:{message:'Unexpected sample scope'}});
+            return;
+          }
+          send({id:m.id,result:{sourceTurnId:m.params.expectedTurnId,text:'resident suggestion'}});
+          return;
+        }
+        if (m.method === 'thread/sample/cancel') {
+          process.send({sampleCancelled:m.params.requestId});
           send({id:m.id,result:{}});
-          send({method:'thread/prediction/updated',params:{...m.params,result:{type:'completed',text:'resident suggestion'}}});
           return;
         }
       }
@@ -220,6 +232,15 @@ test('ordinary resident turns and prediction share a process with separate threa
   const prediction = await readCodexPrediction({ ...a, sourceTurnId: first.message.id }, a.signal,
     { timeoutMs: 2000, open: () => { throw new Error('Must not start an auxiliary process') } })
   assert.equal(prediction, 'resident suggestion')
+  const sampled = once(peer.child, 'message')
+  const controller = new AbortController()
+  const pendingPrediction = readCodexPrediction({ ...a, sourceTurnId: 'cancel-sample' }, controller.signal)
+  const [sample] = await sampled
+  const sampleCancellation = once(peer.child, 'message')
+  controller.abort()
+  assert.equal(await pendingPrediction, null)
+  const [cancelled] = await sampleCancellation
+  assert.equal(cancelled.sampleCancelled, sample.sampleRequestId)
   const continued = await start(a)
   assert.equal(continued.message.calls.filter((method: string) => method === 'initialize').length, 1)
   assert.equal(continued.message.calls.filter((method: string) => method === 'thread/resume').length, 2)
