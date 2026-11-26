@@ -45,8 +45,16 @@ public class ChatSubmissionRepository {
         }, sessionId);
     }
     public void dispatched(String sessionId, String id, String turnId) {
-        jdbc.update("UPDATE claude_chat_submission SET status='DISPATCHED',turn_id=? WHERE session_id=? AND id=? AND status='RECEIVED'",
-                turnId, sessionId, id);
+        jdbc.update("""
+                UPDATE claude_chat_submission SET status='DISPATCHED',turn_id=?,note=NULL
+                WHERE session_id=? AND id=? AND (status IN ('RECEIVED','QUEUED') OR (status='FAILED' AND turn_id=?))
+                """, turnId, sessionId, id, turnId);
+    }
+    public void queued(String sessionId, String id) {
+        jdbc.update("UPDATE claude_chat_submission SET status='QUEUED',note=NULL WHERE session_id=? AND id=? AND status='RECEIVED'", sessionId, id);
+    }
+    public void cancelQueued(String sessionId, String id, String note) {
+        jdbc.update("UPDATE claude_chat_submission SET status='FAILED',note=? WHERE session_id=? AND id=? AND status='QUEUED'", note, sessionId, id);
     }
     public void failed(String sessionId, String id, String note) {
         jdbc.update("UPDATE claude_chat_submission SET status='FAILED',note=? WHERE session_id=? AND id=? AND status='RECEIVED'",

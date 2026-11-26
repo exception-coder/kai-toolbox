@@ -1,6 +1,8 @@
 package com.exceptioncoder.toolbox.claudechat.service;
 
 import com.exceptioncoder.toolbox.claudechat.domain.QueuedChatMessage;
+import com.exceptioncoder.toolbox.claudechat.api.dto.ClientMessage;
+import com.exceptioncoder.toolbox.claudechat.repository.ChatSubmissionRepository;
 import com.exceptioncoder.toolbox.claudechat.repository.ClaudeChatSessionRepository;
 import com.exceptioncoder.toolbox.claudechat.repository.QueuedChatMessageRepository;
 import com.exceptioncoder.toolbox.claudechat.repository.QueueDeliveryStore;
@@ -21,15 +23,23 @@ public class QueuedChatMessageService {
     private final ClaudeChatSessionRepository sessionRepository;
     private final ApplicationEventPublisher eventPublisher;
     private final QueueDeliveryStore deliveryStore;
+    private final ChatSubmissionRepository submissions;
 
     @Autowired
     public QueuedChatMessageService(QueuedChatMessageRepository repository,
                                     ClaudeChatSessionRepository sessionRepository,
-                                    ApplicationEventPublisher eventPublisher, QueueDeliveryStore deliveryStore) {
+                                    ApplicationEventPublisher eventPublisher, QueueDeliveryStore deliveryStore,
+                                    ChatSubmissionRepository submissions) {
         this.repository = repository;
         this.sessionRepository = sessionRepository;
         this.eventPublisher = eventPublisher;
         this.deliveryStore = deliveryStore;
+        this.submissions = submissions;
+    }
+
+    QueuedChatMessageService(QueuedChatMessageRepository repository, ClaudeChatSessionRepository sessionRepository,
+                             ApplicationEventPublisher eventPublisher, QueueDeliveryStore deliveryStore) {
+        this(repository, sessionRepository, eventPublisher, deliveryStore, null);
     }
 
     QueuedChatMessageService(QueuedChatMessageRepository repository,
@@ -49,7 +59,9 @@ public class QueuedChatMessageService {
                 : delivery.filter(d -> d.messageId().equals(m.id()))
                 .map(d -> {
                     if (runtime != null && runtime.checking()) {
-                        String note = runtime.checkAttempts() >= 3 && runtime.stopReason() != null
+                        String note = "admission_rejected".equals(runtime.stopReason())
+                                ? "本次核对未被引擎接收，请核对上一项任务后继续。"
+                                : runtime.checkAttempts() >= 3 && runtime.stopReason() != null
                                 ? "连续三次追问仍未确认完成，队列已挂起；请核对后继续。"
                                 : "正在核对当前任务是否完成（" + runtime.checkAttempts() + "/3）";
                         return m.withDelivery(d.status(), note);
@@ -59,6 +71,9 @@ public class QueuedChatMessageService {
                     if (runtime == null || runtime.ready() || messages.isEmpty() || !messages.getFirst().id().equals(m.id())) return m;
                     if ("user_cancelled".equals(runtime.stopReason())) return m.withDelivery("CANCELLED",
                             "已终止自动追问，其余消息暂停；可手动发送或删除");
+                    if (runtime.checking() && "admission_rejected".equals(runtime.stopReason())) {
+                        return m.withDelivery("BLOCKED", "本次核对未被引擎接收，请核对上一项任务后继续。");
+                    }
                     if (runtime.checkAttempts() >= 3 && runtime.stopReason() != null) return m.withDelivery("BLOCKED",
                             "当前任务连续三次追问仍未确认完成；请核对后继续队列。");
                     if (runtime.checking()) return m.withDelivery("CHECKING", "正在追问上一项任务是否完成（" + runtime.checkAttempts() + "/3）");
@@ -67,6 +82,16 @@ public class QueuedChatMessageService {
     }
 
     public boolean hasPendingMessages() { return repository.hasPendingMessages(); }
+
+    /** 在同一事务保存队列和接单状态，保留原始消息身份与附件。 */
+    @Transactional
+    public void saveSubmission(String sessionId, ClientMessage.Send message) {
+        var attachments = message.attachments() == null ? List.<QueuedChatMessage.Attachment>of()
+                : message.attachments().stream()
+                    .map(a -> new QueuedChatMessage.Attachment(a.id(), a.name(), a.path(), a.mime())).toList();
+        save(sessionId, message.messageId(), message.text(), null, null, attachments, null);
+        submissions.queued(sessionId, message.messageId());
+    }
 
     @Transactional
     public QueuedChatMessage save(String sessionId, String id, String text, String displayText,

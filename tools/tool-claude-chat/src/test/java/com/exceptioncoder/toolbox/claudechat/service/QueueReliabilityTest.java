@@ -4,6 +4,8 @@ import com.exceptioncoder.toolbox.claudechat.domain.ClaudeChatSession;
 import com.exceptioncoder.toolbox.claudechat.domain.QueuedChatMessage;
 import com.exceptioncoder.toolbox.claudechat.domain.SessionStatus;
 import com.exceptioncoder.toolbox.claudechat.api.dto.ServerMessage;
+import com.exceptioncoder.toolbox.claudechat.api.dto.ClientMessage;
+import com.exceptioncoder.toolbox.claudechat.repository.ChatSubmissionRepository;
 import com.exceptioncoder.toolbox.claudechat.config.ClaudeChatProperties;
 import com.exceptioncoder.toolbox.claudechat.repository.ClaudeChatSessionRepository;
 import com.exceptioncoder.toolbox.claudechat.repository.QueueDeliveryStore;
@@ -40,6 +42,7 @@ class QueueReliabilityTest {
     private JdbcTemplate jdbc;
     private QueueDeliveryStore store;
     private QueuedChatMessageRepository queue;
+    private ChatSubmissionRepository submissions;
     private ClaudeChatService chat;
 
     @BeforeEach
@@ -47,6 +50,7 @@ class QueueReliabilityTest {
         source = new SingleConnectionDataSource("jdbc:sqlite:" + root.resolve("queue.db"), true);
         jdbc = new JdbcTemplate(source);
         new ResourceDatabasePopulator(new ClassPathResource("db/claude-chat-schema.sql"),
+                new ClassPathResource("db/claude-chat-submission-schema.sql"),
                 new ClassPathResource("db/claude-chat-queue-reliability-schema.sql")).execute(source);
         new com.exceptioncoder.toolbox.claudechat.config.ClaudeChatSchemaMigration(jdbc).addQueueServerContextColumn();
         ProxyFactory factory = new ProxyFactory(new QueueDeliveryStore(jdbc));
@@ -60,7 +64,11 @@ class QueueReliabilityTest {
         when(repo.findById("s")).thenReturn(Optional.of(session));
         deps.put(ClaudeChatSessionRepository.class, repo);
         deps.put(QueueDeliveryStore.class, store);
-        deps.put(QueuedChatMessageService.class, new QueuedChatMessageService(queue, repo, event -> {}, store));
+        submissions = new ChatSubmissionRepository(jdbc, mapper);
+        ProxyFactory queueProxy = new ProxyFactory(new QueuedChatMessageService(queue, repo, event -> {}, store, submissions));
+        queueProxy.setProxyTargetClass(true);
+        queueProxy.addAdvice(new TransactionInterceptor(new DataSourceTransactionManager(source), new AnnotationTransactionAttributeSource()));
+        deps.put(QueuedChatMessageService.class, queueProxy.getProxy());
         deps.put(AgentWorkAdmissionGate.class, new AgentWorkAdmissionGate());
         deps.put(ObjectMapper.class, mapper);
         createChat();
@@ -77,6 +85,7 @@ class QueueReliabilityTest {
         Object[] args = Arrays.stream(constructor.getParameterTypes()).map(type -> deps.computeIfAbsent(type,
                 key -> key == List.class ? List.of() : mock(key))).toArray();
         chat = (ClaudeChatService) constructor.newInstance(args);
+        ReflectionTestUtils.setField(chat, "submissions", submissions);
     }
     @AfterEach void close() { chat.stopRecovery(); source.destroy(); }
     private <T> T dep(Class<T> type) { return type.cast(deps.get(type)); }
@@ -313,6 +322,76 @@ class QueueReliabilityTest {
         assertThat(queue.findBySessionId("s")).hasSize(2);
         verify(dep(SessionRuntimeStateService.class), never()).observeSidecarTerminal(anyString(), anyInt());
         assertThat(sends()).isZero();
+    }
+
+    @Test void rejectedHeadWaitsForIdleAndRetriesItsOwnIdInsteadOfRunningAnInquiry() throws Exception {
+        store.begin("s", "rejected", "q1", "epoch");
+        store.settle("s", "rejected", "admission_rejected", false);
+        jdbc.update("UPDATE claude_chat_queue_delivery SET retry_at=0 WHERE session_id='s'");
+        var active = (com.fasterxml.jackson.databind.node.ObjectNode) snapshot("null");
+        state(active.put("active", true).put("activeTurnId", "previous"));
+        chat.reconcileQueue("s");
+        assertThat(sends()).isZero();
+        assertThatThrownBy(() -> store.confirmByUser("s")).isInstanceOf(IllegalStateException.class);
+        state(((com.fasterxml.jackson.databind.node.ObjectNode) snapshot("null")).put("queueReceiptStoreId", "other"));
+        chat.reconcileQueue("s");
+        assertThat(sends()).isZero();
+        state(snapshot("null"));
+        chat.reconcileQueue("s");
+        assertThat(sends()).isEqualTo(1);
+        var runtime = store.runtime("s").orElseThrow();
+        assertThat(runtime.turnId()).isEqualTo("rejected");
+        assertThat(runtime.stopReason()).isNull();
+        assertThat(runtime.checking()).isFalse();
+        assertThat(store.delivery("s").orElseThrow().attempts()).isEqualTo(2);
+        assertThat(queue.findBySessionId("s")).extracting(QueuedChatMessage::id).containsExactly("q1", "q2");
+    }
+
+    @Test void lateResultSettlesOnlyItsOwnSubmissionWhileAnotherTurnIsActive() throws Exception {
+        var message = new ClientMessage.Send("first", List.of(), null, null, "message-1");
+        submissions.accept("s", message);
+        submissions.dispatched("s", message.messageId(), "previous");
+        store.begin("s", "current", "q1", "epoch");
+        Object ctx = ReflectionTestUtils.invokeMethod(chat, "restoreQueueContext", "s");
+        chat.onSidecarEvent("s", mapper.readTree("""
+                {"type":"result","turnId":"previous","stopReason":"end_turn","queueReleaseSafe":true}
+                """));
+        assertThat(submissions.list("s").getFirst().status()).isEqualTo("COMPLETED");
+        assertThat(store.runtime("s").orElseThrow().turnId()).isEqualTo("current");
+        assertThat(ReflectionTestUtils.getField(ctx, "status")).isEqualTo(SessionStatus.RUNNING);
+        assertThat(sends()).isZero();
+    }
+
+    @Test void busyHttpSubmissionKeepsTheMessageInTheDurableQueueWithItsOriginalId() {
+        store.begin("s", "current", null, "epoch");
+        Object ctx = ReflectionTestUtils.invokeMethod(chat, "restoreQueueContext", "s");
+        var message = new ClientMessage.Send("next", List.of(), null, null, "message-next");
+        submissions.accept("s", message);
+        ReflectionTestUtils.invokeMethod(chat, "sendUserMessage", ctx, null, message, null);
+        assertThat(submissions.list("s").getFirst().status()).isEqualTo("QUEUED");
+        assertThat(queue.findBySessionId("s")).extracting(QueuedChatMessage::id).containsExactly("q1", "q2", "message-next");
+        assertThat(store.runtime("s").orElseThrow().turnId()).isEqualTo("current");
+        assertThat(sends()).isZero();
+    }
+
+    @Test void queueInspectionWaitsUntilDispatchReleasesItsSessionLock() throws Exception {
+        priorSuccess();
+        state(snapshot("null"));
+        Object ctx = ReflectionTestUtils.invokeMethod(chat, "restoreQueueContext", "s");
+        Thread inspection = Thread.ofPlatform().unstarted(() -> chat.reconcileQueue("s"));
+        synchronized (ctx) {
+            inspection.start();
+            long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(5);
+            while (inspection.isAlive() && inspection.getState() != Thread.State.BLOCKED
+                    && System.nanoTime() < deadline) {
+                Thread.sleep(5);
+            }
+            assertThat(inspection.getState()).isEqualTo(Thread.State.BLOCKED);
+            verify(dep(SidecarClient.class), never()).querySessionState(anyString(), nullable(String.class), anyLong());
+        }
+        inspection.join(5000);
+        assertThat(inspection.isAlive()).isFalse();
+        verify(dep(SidecarClient.class)).querySessionState(eq("s"), eq("previous"), anyLong());
     }
 
     @Test void explicitStopRestoresNativeOwnershipAfterRejectedDispatch() throws Exception {

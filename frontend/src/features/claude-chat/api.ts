@@ -1382,7 +1382,7 @@ export interface ChatSubmission {
   sessionId: string
   text: string
   attachments: import('./types').SendAttachment[]
-  status: 'RECEIVED' | 'DISPATCHED' | 'COMPLETED' | 'FAILED' | 'UNKNOWN'
+  status: 'RECEIVED' | 'QUEUED' | 'DISPATCHED' | 'COMPLETED' | 'FAILED' | 'UNKNOWN'
   note?: string
   createdAt: number
 }
