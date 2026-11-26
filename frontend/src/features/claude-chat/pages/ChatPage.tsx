@@ -2139,10 +2139,6 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
                       }} className="flex min-h-11 w-full items-center gap-2 rounded-lg px-2 text-left text-sm hover:bg-[var(--color-accent)] disabled:opacity-50">
                         <Maximize2 aria-hidden="true" className="size-4" />{composerExpanded ? '收起输入' : '展开输入'}
                       </button>
-                      {!draft && composerSuggestion && <button type="button" disabled={planLocked} onClick={() => {
-                        setDraft(composerSuggestion); chat.dismissFollowUpPrediction(); setMoreOpen(false)
-                        requestAnimationFrame(() => taRef.current?.focus({ preventScroll: true }))
-                      }} className="flex min-h-11 w-full items-center gap-2 rounded-lg px-2 text-left text-sm hover:bg-[var(--color-accent)] disabled:opacity-50">采纳续问建议</button>}
                       <div ref={setSessionConfigTarget} />
                       <button type="button" disabled={planLocked} onClick={() => {
                         setMoreOpen(false); setCmdMenuOpen(false); projectMention.togglePicker()

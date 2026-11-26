@@ -98,24 +98,14 @@ it('clears projection on send or session change and leaves file/short pastes to 
   expect(handler).toHaveBeenCalledTimes(3)
 })
 
-it('compact suggestions keep one empty row and remain keyboard accessible without an extra toolbar', () => {
-  const accept = vi.fn()
-  render(<ComposerTextarea compact aria-label="消息输入" rows={1} value="" onChange={vi.fn()}
-    suggestion="一段很长的续问建议" onAcceptSuggestion={accept} onDismissSuggestion={vi.fn()} />)
-  const input = screen.getByRole('textbox')
-  expect(input).toHaveAttribute('rows', '1')
-  expect(input).toHaveValue('')
-  expect(screen.queryByRole('button', { name: '采纳续问建议' })).not.toBeInTheDocument()
-  fireEvent.keyDown(input, { key: 'Tab' })
-  expect(accept).toHaveBeenCalledExactlyOnceWith('一段很长的续问建议')
-})
-function mount(onSend = vi.fn(), onKeyDown?: React.KeyboardEventHandler<HTMLTextAreaElement>) {
+function mount(onSend = vi.fn(), onKeyDown?: React.KeyboardEventHandler<HTMLTextAreaElement>, compact = false,
+               initialSuggestion = '请检查本轮修改并说明验证结果') {
   const accept = vi.fn()
   function Form() {
     const [draft, setDraft] = useState('')
-    const [suggestion, setSuggestion] = useState<string | null>('请检查本轮修改并说明验证结果')
+    const [suggestion, setSuggestion] = useState<string | null>(initialSuggestion)
     return <form onSubmit={event => { event.preventDefault(); onSend() }}>
-      <ComposerTextarea aria-label="消息输入" placeholder="输入消息…" rows={1} value={draft}
+      <ComposerTextarea compact={compact} aria-label="消息输入" placeholder="输入消息…" rows={1} value={draft}
         suggestion={suggestion} onChange={event => setDraft(event.target.value)}
         onAcceptSuggestion={text => { accept(text); setDraft(text); setSuggestion(null) }}
         onDismissSuggestion={() => setSuggestion(null)}
@@ -125,6 +115,30 @@ function mount(onSend = vi.fn(), onKeyDown?: React.KeyboardEventHandler<HTMLText
   render(<Form />)
   return { input: screen.getByRole('textbox'), accept, onSend }
 }
+
+it('shows the complete multiline mobile suggestion and lets a tap fill the draft without sending', () => {
+  const suggestion = '请先核对状态。\n再说明剩余问题及下一步。'.repeat(20)
+  const { input, accept, onSend } = mount(undefined, undefined, true, suggestion)
+  const preview = screen.getByRole('group', { name: '续问建议' })
+  expect(preview.querySelector('.cc-composer-suggestion-text')?.textContent).toBe(suggestion)
+  expect(input).toHaveValue('')
+  expect(input).toHaveAttribute('placeholder', '输入消息…')
+  expect(input).toHaveAttribute('rows', '1')
+  fireEvent.click(screen.getByRole('button', { name: '采纳续问建议' }))
+  expect(input).toHaveValue(suggestion)
+  expect(accept).toHaveBeenCalledExactlyOnceWith(suggestion)
+  expect(onSend).not.toHaveBeenCalled()
+  expect(preview).not.toBeInTheDocument()
+})
+
+it('lets mobile users dismiss a suggestion while keeping their draft empty', () => {
+  const { input, accept, onSend } = mount(undefined, undefined, true)
+  fireEvent.click(screen.getByRole('button', { name: '关闭续问建议' }))
+  expect(input).toHaveValue('')
+  expect(screen.queryByRole('group', { name: '续问建议' })).not.toBeInTheDocument()
+  expect(accept).not.toHaveBeenCalled()
+  expect(onSend).not.toHaveBeenCalled()
+})
 
 it('shows preview in gray placeholder and Tab fills an editable draft without sending', () => {
   const { input, accept, onSend } = mount()
