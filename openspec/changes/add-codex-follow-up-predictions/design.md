@@ -6,6 +6,10 @@
 
 ## 协议及进程
 
+### 常驻 App Server（Codex 0.171.0）
+
+当前原生二进制的 `thread/prediction/request` 返回 `-32601`（方法仍未实现）。常驻路径使用同一进程的 `thread/sample`，限定到刚完成的 `expectedTurnId`，请求禁用 MCP，响应必须携带匹配的 `sourceTurnId`。上游实现使用临时分叉取一次文本，遇到工具请求返回空值，不执行工具调用。Forge 等待有界，新轮发送前按 RPC ID 请求取消，空结果和失败保持普通输入提示，只记录状态和耗时。既有隔离路径保留原生命周期。参见 [Codex 0.171.0 原生实现](https://raw.githubusercontent.com/openai/codex/rust-v0.171.0/codex-rs/app-server/src/thread_sample.rs)。
+
 以固定 0.162.1 CLI 导出的实验 TypeScript schema 为代码契约：请求参数为 `{ threadId, sourceTurnId }`，请求响应仅表示接受；随后通知携带同一身份以及 `completed`（text 可为 null）或 `failed`。公开文档暂未解释账号开放范围，不能把 schema 存在当作真实账号已验收。
 
 主轮次完成、原进程关闭后启动可取消的预测进程，恢复同一原生 thread，仅调用预测请求，不调用 turn/start 或工具。复用当前模型/配置，但禁用 MCP 并使用只读沙箱。最多等待 15 秒，失败仅记录有限诊断，不修改主任务终态和队列。

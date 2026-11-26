@@ -75,17 +75,17 @@ public class QueuedChatMessageRepository {
                 SELECT ?, ?, ?, ?, ?, ?, ?, ?
                 WHERE NOT EXISTS (SELECT 1 FROM claude_chat_queue_retirement WHERE session_id=? AND message_id=?)
                 ON CONFLICT(id) DO UPDATE SET
-                    session_id = excluded.session_id,
                     text = excluded.text,
                     display_text = excluded.display_text,
                     developer_instructions = excluded.developer_instructions,
                     attachments_json = excluded.attachments_json,
                     server_context = excluded.server_context
+                WHERE claude_chat_queued_message.session_id = excluded.session_id
                 """,
                 message.id(), message.sessionId(), message.text(), message.displayText(),
                 message.developerInstructions(), writeAttachments(message.attachments()), message.createdAt(),
                 message.serverContext(), message.sessionId(), message.id());
-        if (changed == 0) throw new IllegalStateException("此队列消息已撤回，不能恢复；请使用新消息重新登记");
+        if (changed == 0) throw new IllegalStateException("此队列消息已撤回或标识不可用，请使用新消息重新登记");
     }
 
     @org.springframework.transaction.annotation.Transactional

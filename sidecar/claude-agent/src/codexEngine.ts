@@ -1,6 +1,7 @@
 import { PAGE_PREVIEW_STEER } from './pagePreviewTools.js'
 import { assemblyAllows, filterCodexAssembly, type ConsultToolAssembly } from './consultToolAssembly.js'
 import { codexPredictions } from './codexPrediction.js'
+import { codexResidentAppServers } from './codexResidentAppServer.js'
 import { readCodexSdkTurnEvents, withCodexSdkLifecycle } from './engine/codexSdkLifecycle.js'
 import { logCodexSdkTransport, logCodexTransportError } from './engine/codexTransportDiagnostics.js'
 import { createCodexSdkFallbackClient } from './engine/codexSdkTransport.js'
@@ -498,7 +499,10 @@ export async function runCodexTurn(ctx: CodexTurnCtx, runNative = runCodexAppSer
         .filter(item => assemblyAllows(ctx.consultToolAssembly, item.server, item.tool))
       : []
     if (browser) requiredMcpTools.push({ server: VIBE_BROWSER_SERVER, tool: VIBE_BROWSER_TOOL })
+    const resident = Boolean(ctx.sessionId && !ctx.sessionId.startsWith('ephemeral:') && !voice && !browser
+      && !ctx.sessionId.startsWith('plan-review:') && (!ctx.toolPolicy || ctx.toolPolicy === 'default'))
     const appServerOptions: Parameters<typeof runCodexAppServerTurn>[0] = {
+      resident,
       voice,
       sessionId: ctx.sessionId ?? `ephemeral:${Date.now()}:${Math.random()}`,
       threadId: turnContext.sdkSessionId,
@@ -554,9 +558,15 @@ export async function runCodexTurn(ctx: CodexTurnCtx, runNative = runCodexAppSer
       && (!ctx.toolPolicy || ctx.toolPolicy === 'default') && predictionEligible && predictionThreadId && predictionTurnId) {
       codexPredictions.start({ sessionId: ctx.sessionId, threadId: predictionThreadId,
         sourceTurnId: predictionTurnId, codexHome: home, cwd: safeCwd,
-        model: ctx.model || undefined, config: baseConfig, emit: ctx.emit })
+        model: ctx.model || undefined, config: baseConfig, resident, emit: ctx.emit })
     }
   } catch (error) {
+    if (error instanceof CodexAppServerTurnError && error.outcomeUnknown) {
+      ctx.emit({ type: 'error', code: 'CODEX_TURN_OUTCOME_UNKNOWN',
+        message: 'Codex 连接在收到本轮终态前中断。已保留发送记录，请核对会话与任务结果。' })
+      ctx.emit({ type: 'result', usage: {}, stopReason: 'outcome_unknown', queueReleaseSafe: false })
+      return
+    }
     if (ctx.signal.aborted) {
       if (isMcpToolTimeoutAbort(ctx.signal.reason) || isToolExecutionTimeoutAbort(ctx.signal.reason)) return
       ctx.emit({ type: 'result', usage: {}, stopReason: 'interrupted' })
@@ -649,11 +659,12 @@ async function runCodexSdkTurn(ctx: CodexTurnCtx, transport: CodexTransport, sel
     codexHome: normalizeCodexHome(ctx.codexHome),
     signal: ctx.signal,
   }
-  await withCodexSdkLifecycle(sdkTurn, () => executeCodexSdkTurn({ ...ctx, emit: event => {
+  await codexResidentAppServers.withIsolatedThread(sdkTurn, () => withCodexSdkLifecycle(sdkTurn,
+    () => executeCodexSdkTurn({ ...ctx, emit: event => {
     if (event.type === 'init' && typeof event.sdkSessionId === 'string') sdkTurn.threadId = event.sdkSessionId
     if (event.type === 'result') result = event
     else ctx.emit(event)
-  } }, transport, selection))
+  } }, transport, selection)))
   ctx.emit(result
     ? { ...result, ...(ctx.signal.aborted ? { stopReason: 'interrupted' } : {}),
       queueReleaseSafe: result.stopReason === 'end_turn' && !ctx.signal.aborted }

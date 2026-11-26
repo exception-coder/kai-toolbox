@@ -203,6 +203,21 @@ flowchart TD
 
 物理去重由宿主注册/启动适配落实：套件适配器对 Codex 合并有效技能配置并禁用全局重复路径；对 Claude 生成去掉重复 Skill 的会话插件，保留其他能力。AGENTS.md 声明本身不会停用外部入口。组织策略、宿主版本和原生发现路径需核实；Forge 已在 Codex app-server 与 Claude SDK 轮次启动接入套件适配器，不另建分类器。App Server 模式在本轮同一进程初始化后读取实际 skills/list（forceReload=false）与有效配置，将适配器返回的结构化 skills.config 传入 thread/start 或 thread/resume，不再为 Skill 检查单独冷启动进程。缺少有效结构化配置时停止，不解析 CLI 字符串猜测配置。SDK/Exec 继续使用独立元数据进程和 CLI 参数；该路径超时仅在上一进程确认退出后重试一次，取消、配置校验或清理失败不重试。两种路径都在正式任务发送前完成检查，不能重放已发送任务或跳过项目优先规则；初始化与请求分别计时，不跨账号或跨轮次缓存配置。Claude 尊重项目禁用配置，使用临时插件并在轮次结束清理。非原生项目 Skill 路径附加明确读取提示，保留原提示与会话。只读咨询不额外注入插件。源码编译与定向回归的证据见[初始化故障记录](bug/codex-initialize-timeout.md)，**Forge 服务尚未重启加载本次修改**。普通全局安装不等于已完成物理去重，也不自动恢复既有监督运行。
 
+### Codex App Server 连接与轮次
+
+Sidecar 按规范化授权目录及账号配置代际保有普通开发会话的 Codex App Server。不同线程可并行，同一线程的执行、追加和预测沿用现有会话身份与单轮约束。连接统一处理 RPC 请求编号，并按原生线程与轮次身份路由审批和事件。正常结束保留进程及线程。空闲十分钟回收，配置变动或转入独立执行通道时先等待该进程内的活动轮次结束，再确认退出。语音、专用浏览器、咨询与评审沿用隔离入口。
+
+新进程按会话恢复原生线程。任务发送后失去终态时，Java 将原消息和队列标为待核对并保留原文。自动派发暂停，用户仍可按既有控制确认后继续；迟到回执只处理原轮次。源码和独立原生验证见[常驻 App Server 变更](../openspec/changes/share-resident-codex-app-server/tasks.md)，目标 Forge 服务尚未重启验收。
+
+```mermaid
+flowchart LR
+    Scope["授权目录与配置代际"] --> Native["常驻原生 App Server"]
+    Native <-->|"stdio JSON-RPC"| Wire["连接 · 请求编号和身份路由"]
+    Wire <-->|"threadId + turnId"| A["会话 A · 独立权限与回执"]
+    Wire <-->|"threadId + turnId"| B["会话 B · 独立权限与回执"]
+    Native -->|"终态未确认时退出"| Review["对应消息待核对 · 暂停自动派发"]
+```
+
 ## 四层工程职责与维护入口
 
 Constitution 管 Agent 如何思考；Skill 管任务如何操作；Forge 管上下文候选、状态、策略和确定性约束；Hook/MCP 连接具体宿主。全局认知原则保持简短，仓库入口仍保留项目命令和约束。Agent 提交语义判断与证据，Forge 不把结构检查当成业务理解或人工批准。
@@ -627,8 +642,19 @@ flowchart LR
     CONTEXT --> NATIVE["原生 Harness 上下文与工具"]
     NATIVE --> EXEC["原生执行与错误恢复"]
     NATIVE --> WEB["获准且可用的原生检索<br/>证据充分即停止；离线明确限制"]
+    WEB --> DESIGN["方案判定<br/>实践依据、项目适用性与推荐"]
     EXEC --> RESULT["原始结果 / 既有事件映射"]
 ```
+
+#### 方案设计的联网核验
+
+架构设计、技术选型、重要性能或稳定性方案、新版本或 API 接入，以及复用还是自建的决策，必须先查项目现状，再用获准的联网工具核对当前事实与成熟实践，然后给出推荐。用户明确要求最新方案或最佳实践时同样适用。优先打开官方协议、版本文档、维护中的参考实现和发布记录，核对资料日期、适用版本及关键限制。根据目标环境、兼容性、运维成本和迁移风险判断是否适合。资料新或采用者多，只能作为线索。
+
+结论写进现有设计稿或会话方案。先给推荐，再交代项目现状和约束、关键外部事实的来源链接及适用版本、可行方案的取舍、本期最小落地范围及验证方式。明确区分官方推荐、已核实的项目现状和本项目推断。若保留现状或选择折中方案，写清原因以及哪些条件变化后应复核。决策记录保留上下文、选项和后果，沿用现有 OpenSpec 设计载体。 [Microsoft 架构决策记录指南](https://learn.microsoft.com/en-us/azure/well-architected/architect-role/architecture-decision-record) · [AWS 架构决策记录指南](https://docs.aws.amazon.com/prescriptive-guidance/latest/architectural-decision-records/adr-process.html)
+
+简单局部修复和已核验方案的继续实施按现有范围验证。用户要求离线、工具无权限或查询失败时，标明未联网核验的假设和待证实事项，基于本地证据给出可复核的暂定结论。此条款是项目设计规范，沿用 `research-first` 和现有权限边界，由方案撰写者负责落实。
+
+#### 引擎契约与适配
 
 Forge 把 Claude Code、Codex、Qwen Code、TraeCode CLI、Antigravity 与 OpenCode 视为独立 Agent 引擎。Sidecar 的统一引擎契约只承载会话、轮次、权限、中断、运行态、模型目录和公开事件；供应商 SDK/CLI 的请求、消息与错误必须停留在各自适配器内，不能泄漏到 Java 或浏览器。Codex 使用官方 `@openai/codex-sdk`，Qwen Code 使用官方 `@qwen-code/sdk` 并从当前认证的 SDK 控制请求读取模型目录；TraeCode CLI 2.0 通过 `exec --json` 适配，不以二进制版本号 `2.x` 判断产品代际（本机官方安装包报告 `0.206.1`），而按 CLI 命令能力和登录状态探测后开放选择；后续轮次仅通过 `exec resume <SESSION_ID>` 显式恢复所属 Forge 会话。CLI 已安装但尚未登录，JSONL 实流和工具事件仍待登录后的运行验收。QwenWork 桌面端不属于 Qwen Code SDK 的可控制范围，其登录与模型列表不能代替 Qwen Code 的认证和可用模型。切换引擎时清理旧引擎模型 ID；DashScope 模型 API 也不能被描述成完整 Agent 引擎。
 

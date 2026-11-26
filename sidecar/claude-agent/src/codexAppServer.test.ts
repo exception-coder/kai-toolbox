@@ -4,6 +4,7 @@ import {
   closeOpenCodexAppServerActivities,
   classifyCodexAppServerMessage,
   classifyCodexAppServerError,
+  codexAppServerLogArgs,
   codexReconnectDeadlineMs,
   findCodexTerminalTurn,
   findDefaultCodexModel,
@@ -20,6 +21,16 @@ import {
   startVoiceWithLegacyThreadRecovery,
   withRealtimeConversationConfig,
 } from './codexAppServer.js'
+
+test('isolates Windows App Server logs by account without redirecting SQLite state', () => {
+  const args = codexAppServerLogArgs('D:/Codex Profile', 'win32')
+  assert.equal(args.length, 2)
+  assert.equal(args[0], '-c')
+  assert.match(JSON.parse(args[1].slice('log_dir='.length)), /[\\/]codex-app-server-logs[\\/][a-f0-9]{24}$/)
+  assert.deepEqual(codexAppServerLogArgs('d:/codex profile', 'win32'), args)
+  assert.notDeepEqual(codexAppServerLogArgs('D:/other-account', 'win32'), args)
+  assert.deepEqual(codexAppServerLogArgs('D:/Codex Profile', 'linux'), [])
+})
 
 test('enables realtime capability before an ordinary Codex thread is created', () => {
   assert.deepEqual(withRealtimeConversationConfig({ existing: 'kept' }), {

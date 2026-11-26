@@ -37,9 +37,9 @@ export function MessageSendRecords({ sessionId }: { sessionId?: string }) {
     return () => { disposed = true; if (timer) clearInterval(timer) }
   }, [open, sessionId, scope])
   const serverIds = new Set(serverRecords.map(record => record.id))
-  const statusMap = { RECEIVED: 'accepted', DISPATCHED: 'accepted', COMPLETED: 'settled', FAILED: 'failed', UNKNOWN: 'waiting' } as const
+  const statusMap = { RECEIVED: 'accepted', QUEUED: 'queued', DISPATCHED: 'accepted', COMPLETED: 'settled', FAILED: 'failed', UNKNOWN: 'waiting' } as const
   const records = [...localRecords.filter(record => !serverIds.has(record.id)), ...serverRecords.map(record => ({
-    ...record, status: statusMap[record.status], note: `${record.status === 'DISPATCHED' ? '已派发引擎' : record.status === 'RECEIVED' ? '服务端已接单，准备派发' : '服务端记录'}${record.note ? `：${record.note}` : ''}`,
+    ...record, status: statusMap[record.status], note: `${record.status === 'DISPATCHED' ? '已派发引擎' : record.status === 'RECEIVED' ? '服务端已接单，准备派发' : record.status === 'QUEUED' ? '等待上一轮收尾' : '服务端记录'}${record.note ? `：${record.note}` : ''}`,
   }))].sort((a, b) => a.createdAt - b.createdAt)
   if (!sessionId) return null
   const attention = records.filter(item => item.status === 'waiting' || item.status === 'failed').length

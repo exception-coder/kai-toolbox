@@ -41,7 +41,8 @@ try {
     ].join('\n'))
   }
   const realtimeContracts = {
-    'ClientRequest.ts': ['thread/fork', 'thread/realtime/start', 'thread/realtime/stop', 'thread/realtime/appendText', 'thread/prediction/request'],
+    'ClientRequest.ts': ['thread/fork', 'thread/realtime/start', 'thread/realtime/stop', 'thread/realtime/appendText', 'thread/prediction/request',
+      '"thread/sample"', '"thread/sample/cancel"'],
     'v2/ThreadForkParams.ts': ['threadId: string', 'config?:', 'excludeTurns?: boolean'],
     'v2/ThreadResumeParams.ts': ['threadId: string', 'excludeTurns?: boolean'],
     'v2/ThreadTurnsListParams.ts': ['threadId: string', 'limit?: number', 'sortDirection?:', 'itemsView?:'],
@@ -50,6 +51,9 @@ try {
     'v2/ThreadPredictionRequestParams.ts': ['threadId: string', 'sourceTurnId: string'],
     'v2/ThreadPredictionUpdatedNotification.ts': ['threadId: string', 'sourceTurnId: string', 'result: ThreadPredictionResult'],
     'v2/ThreadPredictionResult.ts': ['"completed"', 'text: string | null', '"failed"'],
+    'v2/ThreadSampleParams.ts': ['threadId: string', 'expectedTurnId: string', 'prompt: string', 'disableMcp?: boolean'],
+    'v2/ThreadSampleResponse.ts': ['sourceTurnId: string', 'text: string | null'],
+    'v2/ThreadSampleCancelParams.ts': ['requestId: RequestId'],
     'v2/ThreadRealtimeStartParams.ts': ['outputModality: RealtimeOutputModality', 'version?: RealtimeConversationVersion', 'includeStartupContext?: boolean'],
     'v2/ThreadRealtimeStartTransport.ts': ['"webrtc"', 'sdp: string'],
     'v2/ThreadRealtimeAppendTextParams.ts': ['text: string', 'role: ConversationTextRole'],

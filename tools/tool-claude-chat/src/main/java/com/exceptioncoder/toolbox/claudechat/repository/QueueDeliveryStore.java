@@ -12,6 +12,7 @@ import java.util.Optional;
 /** 队列原文、派发回执及完成准入在同一 SQLite 事务中转换；不根据时间猜测执行完成。 */
 @Repository
 public class QueueDeliveryStore {
+    public static final String OUTCOME_UNKNOWN = "outcome_unknown";
     public record Runtime(String turnId, boolean ready, String stopReason, String taskText, int checkAttempts, boolean checking) { }
     public record Delivery(String messageId, String turnId, String storeId, String status, int attempts, long retryAt, String note) { }
     private final JdbcTemplate jdbc;
@@ -71,11 +72,18 @@ public class QueueDeliveryStore {
         if (changed > 0) delivery(sessionId).filter(d -> d.turnId().equals(turnId)).ifPresent(d -> progress(sessionId, d.messageId(), "EXCEPTION", note));
     }
     /** 仅同一回执存储明确未收到时，才允许保留原 turnId 的最多三次有界重投。 */
+    @Transactional
     public boolean retry(String sessionId, Delivery expected) {
-        return jdbc.update("""
+        int claimed = jdbc.update("""
                 UPDATE claude_chat_queue_delivery SET status='DISPATCHING',attempts=attempts+1,retry_at=?,note=NULL
                 WHERE session_id=? AND turn_id=? AND attempts=? AND attempts<3
-                """, System.currentTimeMillis() + 10_000L * expected.attempts(), sessionId, expected.turnId(), expected.attempts()) == 1;
+                """, System.currentTimeMillis() + 10_000L * expected.attempts(), sessionId, expected.turnId(), expected.attempts());
+        if (claimed == 0) return false;
+        jdbc.update("""
+                UPDATE claude_chat_queue_runtime SET stop_reason=NULL,updated_at=?
+                WHERE session_id=? AND turn_id=? AND stop_reason='admission_rejected' AND checking=0
+                """, System.currentTimeMillis(), sessionId, expected.turnId());
+        return true;
     }
     /** 在实际发起追问前消耗一次持久次数；崩溃不能把次数清零。 */
     @Transactional
@@ -108,6 +116,9 @@ public class QueueDeliveryStore {
     public void confirmByUser(String sessionId) {
         var runtime = runtime(sessionId).orElseThrow(() -> new IllegalStateException("没有待确认任务"));
         if (runtime.ready()) return;
+        if ("admission_rejected".equals(runtime.stopReason()) && !runtime.checking() && delivery(sessionId).isPresent()) {
+            throw new IllegalStateException("引擎未接收队首消息，不能确认为完成。可等待重试，或复制原文、移除队首后重新发送。");
+        }
         settle(sessionId, runtime.turnId(), "user_confirmed", true);
     }
 
@@ -119,6 +130,10 @@ public class QueueDeliveryStore {
                     || "user_paused".equals(r.stopReason()) && !"user_confirmed".equals(stopReason))).isPresent()) return false;
         if (jdbc.update("UPDATE claude_chat_queue_runtime SET release_ready=?,stop_reason=?,updated_at=? WHERE session_id=? AND turn_id=?",
                 safe ? 1 : 0, stopReason, System.currentTimeMillis(), sessionId, turnId) != 1) return false;
+        if (OUTCOME_UNKNOWN.equals(stopReason)) {
+            uncertain(sessionId, turnId, "引擎连接中断，本轮结果待核对，原消息已保留。");
+            return true;
+        }
         var receipt = delivery(sessionId).filter(d -> d.turnId().equals(turnId));
         if (receipt.isPresent()) {
             boolean successful = List.of("end_turn","success","completed","stop","user_confirmed").contains(stopReason);
@@ -130,9 +145,12 @@ public class QueueDeliveryStore {
                         interrupted ? "当前派发已终止，任务未确认完成；其余待发送消息保留"
                                 : "user_confirmed".equals(stopReason) ? "原会话用户已核对完成" : null);
             } else {
+                String note = "admission_rejected".equals(stopReason)
+                        ? "引擎未接收本轮，原文已保留。若未自动恢复，可在队列中处理。"
+                        : "当前任务异常或未确认完成，后台将追问；连续三次仍不明确时等待人工确认。";
                 jdbc.update("UPDATE claude_chat_queue_delivery SET status='FAILED',note=? WHERE session_id=? AND turn_id=?",
-                        "当前任务异常或未确认完成，后台将追问；连续三次仍不明确时等待人工确认。", sessionId, turnId);
-                progress(sessionId, receipt.get().messageId(), "EXCEPTION", "任务未确认完成，沿用原队列核对及恢复流程");
+                        note, sessionId, turnId);
+                progress(sessionId, receipt.get().messageId(), "EXCEPTION", note);
             }
         }
         return true;

@@ -1033,7 +1033,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
         }))
         setItems(prev => {
           const id = `queued-user-${msg.messageId}`
-          if (prev.some(item => item.id === id)) return prev
+          if (prev.some(item => item.id === id || item.id === msg.messageId)) return prev
           const displayText = msg.displayText?.trim()
           return [...prev, { kind: 'user', id, text: msg.text,
             displayText: displayText && displayText !== msg.text ? displayText : undefined,

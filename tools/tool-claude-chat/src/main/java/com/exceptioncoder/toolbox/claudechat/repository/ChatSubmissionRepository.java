@@ -45,16 +45,30 @@ public class ChatSubmissionRepository {
         }, sessionId);
     }
     public void dispatched(String sessionId, String id, String turnId) {
-        jdbc.update("UPDATE claude_chat_submission SET status='DISPATCHED',turn_id=? WHERE session_id=? AND id=? AND status='RECEIVED'",
-                turnId, sessionId, id);
+        jdbc.update("""
+                UPDATE claude_chat_submission SET status='DISPATCHED',turn_id=?,note=NULL
+                WHERE session_id=? AND id=? AND (status IN ('RECEIVED','QUEUED') OR (status='FAILED' AND turn_id=?))
+                """, turnId, sessionId, id, turnId);
+    }
+    public void queued(String sessionId, String id) {
+        jdbc.update("UPDATE claude_chat_submission SET status='QUEUED',note=NULL WHERE session_id=? AND id=? AND status='RECEIVED'", sessionId, id);
+    }
+    public void cancelQueued(String sessionId, String id, String note) {
+        jdbc.update("UPDATE claude_chat_submission SET status='FAILED',note=? WHERE session_id=? AND id=? AND status='QUEUED'", note, sessionId, id);
     }
     public void failed(String sessionId, String id, String note) {
         jdbc.update("UPDATE claude_chat_submission SET status='FAILED',note=? WHERE session_id=? AND id=? AND status='RECEIVED'",
                 note, sessionId, id);
     }
     public void settled(String sessionId, String turnId, boolean success, String note) {
+        updateOutcome(sessionId, turnId, success ? "COMPLETED" : "FAILED", note);
+    }
+    public void outcomeUnknown(String sessionId, String turnId, String note) {
+        updateOutcome(sessionId, turnId, "UNKNOWN", note);
+    }
+    private void updateOutcome(String sessionId, String turnId, String status, String note) {
         jdbc.update("UPDATE claude_chat_submission SET status=?,note=? WHERE session_id=? AND turn_id=? AND status IN ('DISPATCHED','UNKNOWN')",
-                success ? "COMPLETED" : "FAILED", note, sessionId, turnId);
+                status, note, sessionId, turnId);
     }
     /** 重启无法证明旧引擎是否执行，不自动补发。 */
     public void markUncertainAfterRestart() {

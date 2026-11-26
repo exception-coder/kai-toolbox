@@ -193,6 +193,7 @@ public class ClaudeChatService {
             "toolActivity", "turnActivity", "codexActivity", "engineEvent", "result", "error");
     private static final Set<String> SUCCESSFUL_TURN_STOP_REASONS =
             Set.of("end_turn", "success", "completed", "stop");
+    private static final String ADMISSION_REJECTED = "admission_rejected";
     /** 本实例已随 Spring 上下文停机；后台重连一律停手 */
     private volatile boolean shuttingDown;
 
@@ -819,7 +820,12 @@ public class ClaudeChatService {
             rejectSubmission(ctx, ws, msg, "SESSION_UNAVAILABLE", "会话恢复未确认，原文已保留，请核对后重发");
             return;
         }
-        runtimeStates.inspect(ctx.sessionId);
+        var observation = runtimeStates.inspect(ctx.sessionId);
+        if (ws == null && msg.messageId() != null && !admissionGate.isDraining() && sidecar.isConnected()
+                && observation.filter(state -> "SIDECAR_UNREACHABLE".equals(state.consistency())).isPresent()) {
+            // Retry only the read while the durable submission is still undispatched.
+            runtimeStates.inspect(ctx.sessionId);
+        }
         synchronized (ctx) {
             String messageId = blankToNull(msg.messageId());
             log.info("[claude-chat] 收到用户消息 session={} messageId={} attachments={} textLength={}",
@@ -842,6 +848,7 @@ public class ClaudeChatService {
                 return;
             }
             if (ctx.status == SessionStatus.RUNNING) {
+                if (queueBusySubmission(ctx, ws, msg)) return;
                 rejectSubmission(ctx, ws, msg, "TURN_BUSY", "当前轮仍在运行或中断收口中，请稍后再发送");
                 return;
             }
@@ -860,6 +867,7 @@ public class ClaudeChatService {
                 decision = runtimeStates.canReleaseQueue(ctx.sessionId);
             }
             if (!decision.allowed()) {
+                if ("BACKEND_STATE_LOST".equals(decision.code()) && queueBusySubmission(ctx, ws, msg)) return;
                 rejectSubmission(ctx, ws, msg, "SESSION_STATE_UNCONFIRMED",
                         "SIDECAR_UNREACHABLE".equals(decision.code())
                                 ? "暂时无法确认连接状态，消息尚未发送。请稍后重试。"
@@ -891,6 +899,17 @@ public class ClaudeChatService {
                 events.sendToBrowser(ctx, seq -> new ServerMessage.SendAccepted(seq, messageId));
             }
         }
+    }
+
+    private boolean queueBusySubmission(SessionCtx ctx, WebSocketSession ws, ClientMessage.Send message) {
+        // Only the persisted HTTP submission path may implicitly queue a normal send.
+        if (ws != null || ctx.demo || admissionGate.isDraining() || queueDelivery.runtime(ctx.sessionId).isEmpty()) {
+            return false;
+        }
+        queuedMessages.saveSubmission(ctx.sessionId, message);
+        int queueSize = queuedMessages.list(ctx.sessionId).size();
+        events.sendToBrowser(ctx, seq -> new ServerMessage.QueueAccepted(seq, message.messageId(), queueSize));
+        return true;
     }
 
     /** 调用方须持有会话锁并先取得无活动任务的实时确认。 */
@@ -1930,6 +1949,15 @@ public class ClaudeChatService {
             return;
         }
         if (isTurnScopedSidecarEvent(type) && !turnLifecycle.matchesCurrent(sessionId, eventTurnId)) {
+            if (submissions != null && "result".equals(type) && eventTurnId != null) {
+                // A late result may settle its own send record. It cannot release the current queue.
+                String reason = node.path("stopReason").asText("error");
+                if (QueueDeliveryStore.OUTCOME_UNKNOWN.equals(reason)) {
+                    submissions.outcomeUnknown(sessionId, eventTurnId, "Codex 连接中断，本轮结果待核对");
+                } else {
+                    submissions.settled(sessionId, eventTurnId, isSuccessfulTurnCompletion(reason), reason);
+                }
+            }
             log.warn("[claude-chat] 忽略迟到轮次事件 session={} type={} eventTurn={} currentTurn={}",
                     sessionId, type, eventTurnId,
                     turnLifecycle.currentTurnId(sessionId).orElse("none"));
@@ -2147,7 +2175,8 @@ public class ClaudeChatService {
                     synchronized (ctx) {
                         // This command was not admitted. It is not evidence that the native engine is idle.
                         if (ctx.status == SessionStatus.RUNNING && turnLifecycle.complete(sessionId, eventTurnId)) {
-                            completeTurn(ctx, eventTurnId, Map.of(), "admission_rejected", null, false);
+                            completeTurn(ctx, eventTurnId, Map.of(), ADMISSION_REJECTED, null, false);
+                            wakeQueueWorker();
                         }
                     }
                 }
@@ -2240,9 +2269,14 @@ public class ClaudeChatService {
                 && "user_paused".equals(r.stopReason())).isPresent()) {
             queueReleaseSafe = false;
         }
-        if (submissions != null) submissions.settled(ctx.sessionId, turnId,
-                SUCCESSFUL_TURN_STOP_REASONS.contains(stopReason),
-                ctx.lastTurnErrorMessage == null ? stopReason : ctx.lastTurnErrorMessage);
+        if (submissions != null) {
+            String note = ctx.lastTurnErrorMessage == null ? stopReason : ctx.lastTurnErrorMessage;
+            if (QueueDeliveryStore.OUTCOME_UNKNOWN.equals(stopReason)) {
+                submissions.outcomeUnknown(ctx.sessionId, turnId, note);
+            } else {
+                submissions.settled(ctx.sessionId, turnId, SUCCESSFUL_TURN_STOP_REASONS.contains(stopReason), note);
+            }
+        }
         if (ctx.consultAccountPlan != null) {
             if (SUCCESSFUL_TURN_STOP_REASONS.contains(stopReason)) commitConsultAccount(ctx);
             consultRuntime.settled(ctx.sessionId, turnId, stopReason);
@@ -2330,6 +2364,13 @@ public class ClaudeChatService {
     @EventListener(QueueChangedEvent.class)
     void onQueueChanged(QueueChangedEvent event) { wakeQueueWorker(); }
 
+    @EventListener(QueueTaskProgressEvent.class)
+    void onQueueTaskProgress(QueueTaskProgressEvent event) {
+        if (submissions != null && "CANCELLED".equals(event.status())) {
+            submissions.cancelQueued(event.sessionId(), event.messageId(), event.note());
+        }
+    }
+
     private void wakeQueueWorker() {
         if (shuttingDown || !queueWorkerStarted || !queueWakePending.compareAndSet(false, true)) return;
         try {
@@ -2393,9 +2434,15 @@ public class ClaudeChatService {
     void reconcileQueue(String id) {
         SessionCtx ctx = restoreQueueContext(id);
         if (ctx == null || !sidecar.isConnected()) return;
-        var expected = queueDelivery.runtime(id).orElse(null);
+        QueueDeliveryStore.Runtime expected;
+        synchronized (ctx) {
+            // The dispatch holds this lock through the send. Querying before it can observe a
+            // newly saved turn ID while the engine is still idle and incorrectly start an inquiry.
+            expected = queueDelivery.runtime(id).orElse(null);
+        }
         if (expected == null) return; // 旧会话没有完成凭据，不能把数据库 IDLE 当作可续发。
-        if (Set.of("user_cancelled", "user_paused").contains(Objects.toString(expected.stopReason(), "")) && !expected.ready()) return;
+        if (Set.of("user_cancelled", "user_paused", QueueDeliveryStore.OUTCOME_UNKNOWN)
+                .contains(Objects.toString(expected.stopReason(), "")) && !expected.ready()) return;
         JsonNode snapshot = sidecar.querySessionState(id, expected.turnId(),
                 SessionRuntimeStateService.SIDECAR_QUERY_TIMEOUT_MS).orElse(null);
         if (snapshot == null || snapshot.path("queueReceiptProtocol").asInt() != 1) return;
@@ -2460,6 +2507,14 @@ public class ClaudeChatService {
                 turnLifecycle.clear(id);
                 observeRuntimeState(ctx);
                 dispatchNextQueuedMessage(ctx);
+            } else if (ADMISSION_REJECTED.equals(expected.stopReason())) {
+                // A refused turn did not start. Never ask an Agent to continue it as if it had.
+                if (!expected.checking() && ctx.status != SessionStatus.RUNNING
+                        && ctx.pendingRequest == null && ctx.backgroundTasks.isEmpty()
+                        && delivery != null && (receipt.isMissingNode() || receipt.isNull())
+                        && delivery.storeId().equals(ctx.queueReceiptStoreId)) {
+                    retryUnreceivedDispatch(ctx, delivery);
+                }
             } else if (expected.stopReason() != null || expected.checking()) {
                 startCompletionCheck(ctx, expected);
             } else if (delivery != null) {
@@ -2473,19 +2528,29 @@ public class ClaudeChatService {
                     startCompletionCheck(ctx, expected);
                     return;
                 }
-                var message = queuedMessages.list(id).stream().filter(m -> m.id().equals(delivery.messageId())).findFirst();
-                if (message.isEmpty()) return;
-                admissionGate.tryAdmit(() -> {
-                    if (queueDelivery.retry(id, delivery)) dispatchQueued(ctx, message.get(), null);
-                });
+                retryUnreceivedDispatch(ctx, delivery);
             } else startCompletionCheck(ctx, expected);
         }
+    }
+
+    private void retryUnreceivedDispatch(SessionCtx ctx, QueueDeliveryStore.Delivery delivery) {
+        if (isConsultReadonly(ctx) || !planStateService.writable(ctx.sessionId)
+                || delivery.retryAt() > System.currentTimeMillis() || delivery.attempts() >= 3) {
+            return;
+        }
+        var message = queuedMessages.list(ctx.sessionId).stream()
+                .filter(m -> m.id().equals(delivery.messageId())).findFirst();
+        if (message.isEmpty()) return;
+        admissionGate.tryAdmit(() -> {
+            if (queueDelivery.retry(ctx.sessionId, delivery)) dispatchQueued(ctx, message.get(), null);
+        });
     }
 
     private void startCompletionCheck(SessionCtx ctx, QueueDeliveryStore.Runtime expected) {
         // 明确停止、待授权、监督专用消息不被完成追问隐式恢复。
         if ("interrupted".equals(expected.stopReason()) || "user_cancelled".equals(expected.stopReason())
-                || "user_paused".equals(expected.stopReason()) || isConsultReadonly(ctx)
+                || "user_paused".equals(expected.stopReason()) || QueueDeliveryStore.OUTCOME_UNKNOWN.equals(expected.stopReason())
+                || isConsultReadonly(ctx)
                 || queueDelivery.delivery(ctx.sessionId).filter(d -> d.messageId().startsWith("autopilot:")).isPresent()
                 || !planStateService.writable(ctx.sessionId)) return;
         if (expected.checkAttempts() >= 3) {

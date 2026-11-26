@@ -7,6 +7,11 @@ The system SHALL request native App Server predictions only after a successful o
 - **WHEN** App Server accepts the request and later reports a completed prediction for the requested thread and turn
 - **THEN** Forge exposes its validated text to that idle session without adding a user turn or executing tools
 
+#### Scenario: Resident App Server samples the latest completed turn
+- **WHEN** an eligible turn completes on a resident Codex App Server
+- **THEN** Forge samples that exact native turn in the same process and exposes matching text to the empty composer
+- **AND** a new send cancels the outstanding sample by its RPC ID; late results cannot populate another turn or draft
+
 #### Scenario: No usable prediction
 - **WHEN** prediction fails, times out, returns null or malformed text, or the engine does not support predictions
 - **THEN** normal messaging and the original completion outcome remain available without a fabricated suggestion or retry loop
