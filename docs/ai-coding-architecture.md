@@ -203,6 +203,16 @@ flowchart TD
 
 物理去重由宿主注册/启动适配落实：套件适配器对 Codex 合并有效技能配置并禁用全局重复路径；对 Claude 生成去掉重复 Skill 的会话插件，保留其他能力。AGENTS.md 声明本身不会停用外部入口。组织策略、宿主版本和原生发现路径需核实；Forge 已在 Codex app-server 与 Claude SDK 轮次启动接入套件适配器，不另建分类器。App Server 模式在本轮同一进程初始化后读取实际 skills/list（forceReload=false）与有效配置，将适配器返回的结构化 skills.config 传入 thread/start 或 thread/resume，不再为 Skill 检查单独冷启动进程。缺少有效结构化配置时停止，不解析 CLI 字符串猜测配置。SDK/Exec 继续使用独立元数据进程和 CLI 参数；该路径超时仅在上一进程确认退出后重试一次，取消、配置校验或清理失败不重试。两种路径都在正式任务发送前完成检查，不能重放已发送任务或跳过项目优先规则；初始化与请求分别计时，不跨账号或跨轮次缓存配置。Claude 尊重项目禁用配置，使用临时插件并在轮次结束清理。非原生项目 Skill 路径附加明确读取提示，保留原提示与会话。只读咨询不额外注入插件。源码编译与定向回归的证据见[初始化故障记录](bug/codex-initialize-timeout.md)，**Forge 服务尚未重启加载本次修改**。普通全局安装不等于已完成物理去重，也不自动恢复既有监督运行。
 
+### Codex App Server 连接与轮次
+
+Sidecar 的 RPC 连接统一处理消息读写和请求编号，轮次处理业务状态、审批和回执。普通运行仍按轮次独占进程。共享路由已通过本机协议夹具验证，常驻进程、线程写入归属、预测接管以及真实多会话验收由[常驻 App Server 变更](../openspec/changes/share-resident-codex-app-server/tasks.md)跟踪。
+
+```mermaid
+flowchart LR
+    Native["原生 App Server stdio"] <-->|"JSON-RPC"| Wire["连接 · 请求编号与线程路由"]
+    Wire <-->|"本轮事件与审批"| Turn["轮次 · 会话权限与回执"]
+```
+
 ## 四层工程职责与维护入口
 
 Constitution 管 Agent 如何思考；Skill 管任务如何操作；Forge 管上下文候选、状态、策略和确定性约束；Hook/MCP 连接具体宿主。全局认知原则保持简短，仓库入口仍保留项目命令和约束。Agent 提交语义判断与证据，Forge 不把结构检查当成业务理解或人工批准。

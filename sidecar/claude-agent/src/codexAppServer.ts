@@ -9,6 +9,8 @@ import { logCodexTransportError } from './engine/codexTransportDiagnostics.js'
 import { createPredictionClose } from './codexPredictionCleanup.js'
 import { codexCleanupBarriers, observeCodexProcess } from './codexProcessLifetime.js'
 import { jsonLineWriter } from './jsonLineWriter.js'
+import { createCodexAppServerConnection } from './codexAppServerConnection.js'
+export { classifyCodexAppServerMessage } from './codexAppServerConnection.js'
 import { codexCleanupSnapshot } from './codexProcessCleanup.js'
 import { dirname, join, resolve } from 'node:path'
 import { homedir } from 'node:os'
@@ -136,12 +138,6 @@ type AppServerTurnOptions = {
   requiredMcpTools?: RequiredMcpTool[]
   /** review-only 必须在 turn/start 前确认没有任何运行时 MCP Tool，发现旁路即失败关闭。 */
   forbidMcpTools?: boolean
-}
-
-type PendingRequest = {
-  resolve: (result: Record<string, unknown>) => void
-  reject: (error: Error) => void
-  timer: NodeJS.Timeout
 }
 
 export class CodexAppServerTurnError extends Error {
@@ -280,20 +276,10 @@ export async function steerCodexAppServerTurn(
   return true
 }
 
-type JsonRpcMessageKind = 'response' | 'notification' | 'serverRequest' | 'invalid'
 
 type ServerRequestResolution = {
   result?: Record<string, unknown>
   error?: { code: number; message: string }
-}
-
-export function classifyCodexAppServerMessage(message: Record<string, unknown>): JsonRpcMessageKind {
-  const hasId = typeof message.id === 'number' || typeof message.id === 'string'
-  const hasMethod = typeof message.method === 'string' && message.method.trim().length > 0
-  if (hasId && hasMethod) return 'serverRequest'
-  if (hasId && ('result' in message || 'error' in message)) return 'response'
-  if (!hasId && hasMethod) return 'notification'
-  return 'invalid'
 }
 
 export async function resolveCodexAppServerRequest(
@@ -847,11 +833,8 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions, runti
   await codexCleanupBarriers.verify(options.sessionId, options.threadId, options.codexHome, runtime.closeTimeoutMs)
   options.signal.throwIfAborted()
   const child = runtime.open(options.codexHome)
-  const lifetime = observeCodexProcess(child)
-  const lines = createInterface({ input: child.stdout })
-  const pending = new Map<number, PendingRequest>()
-  let nextId = 1
-  let stderr = ''
+  const connection = createCodexAppServerConnection(child, runtime.closeTimeoutMs, 'exclusive')
+  const { lifetime } = connection
   let initialized = false
   let emittedActivity = false
   let threadId = options.threadId
@@ -868,6 +851,13 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions, runti
   let completionReconcileInFlight = false
   let completionReconcileWarningEmitted = false
   let abortCompletion: ((error: Error) => void) | undefined
+  let handleMessage: ((message: Record<string, unknown>, kind: 'serverRequest' | 'notification') => void) | undefined
+  const channel = connection.attach({
+    threadId: () => threadId,
+    turnId: () => turnId,
+    onFailure: error => abortCompletion?.(error),
+    onMessage: (message, kind) => handleMessage?.(message, kind),
+  })
   let reconnectActivityId: string | undefined
   let terminalEvent: Record<string, unknown> | undefined
   const commandActivities = new Map<string, CommandActivityState>()
@@ -888,32 +878,14 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions, runti
     if (reconnectDeadline) clearTimeout(reconnectDeadline)
     if (finalizingRecheck) clearTimeout(finalizingRecheck)
     if (completionReconcile) clearTimeout(completionReconcile)
-    lifetime.drain(lines)
+    channel.detach()
+    connection.dispose()
     if (force) runtime.stop(child)
     else closeInput(child)
   }
-  const failPending = (error: Error) => {
-    for (const request of pending.values()) {
-      clearTimeout(request.timer)
-      request.reject(error)
-    }
-    pending.clear()
-  }
-  const send = jsonLineWriter(child.stdin, error => abortCompletion?.(error), () => finished)
-  const request = (method: string, params: Record<string, unknown>): Promise<Record<string, unknown>> => {
-    if (finished) return Promise.reject(new Error('Codex App Server 轮次已结束'))
-    const id = nextId++
-    const timeoutMs = codexRpcTimeoutMs(method)
-    return observeCodexRpc(method, () => new Promise((resolveRequest, rejectRequest) => {
-      const timer = setTimeout(() => {
-        pending.delete(id)
-        rejectRequest(new CodexRpcTimeoutError(method, timeoutMs, method === 'initialize' ? 'initialize' : 'request'))
-      }, timeoutMs)
-      timer.unref?.()
-      pending.set(id, { resolve: resolveRequest, reject: rejectRequest, timer })
-      send({ method, id, params })
-    }), { sessionId: options.sessionId, threadId })
-  }
+  const request = (method: string, params: Record<string, unknown>): Promise<Record<string, unknown>> =>
+    observeCodexRpc(method, () => channel.request(method, params, codexRpcTimeoutMs(method)),
+      { sessionId: options.sessionId, threadId })
   const emitActivity = (event: Record<string, unknown>) => {
     emittedActivity = true
     options.emit(event)
@@ -972,7 +944,7 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions, runti
         error.message,
       )
       commandActivityEmittedAt.clear()
-      failPending(error)
+      channel.detach(error)
       cleanup(true)
       rejectCompletion(new CodexAppServerTurnError(error.message, !turnAccepted && !emittedActivity, nativeFailure))
     }
@@ -1110,44 +1082,13 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions, runti
       finishRootTurn(status, completedTurnId, false, turnErrorMessage)
     }
 
-    child.stderr.setEncoding('utf8')
-    child.stderr.on('data', chunk => { stderr = (stderr + String(chunk)).slice(-4000) })
-    child.on('error', finishError)
-    lines.on('error', finishError)
-    child.stderr.on('error', finishError)
-    child.once('exit', code => {
-      void lifetime.wait(runtime.closeTimeoutMs).then(() => {
-        if (finished) return
-        const detail = stderr.trim()
-        finishError(new Error(`Codex App Server 异常退出（${code ?? 'unknown'}）${detail ? `：${detail}` : ''}`))
-      })
-    })
-
-    lines.on('line', line => {
-      let message: Record<string, unknown>
-      try {
-        message = JSON.parse(line) as Record<string, unknown>
-      } catch {
-        return
-      }
-      const messageKind = classifyCodexAppServerMessage(message)
-      if (messageKind === 'response') {
-        const responseId = typeof message.id === 'number' ? message.id : undefined
-        const requestState = responseId == null ? undefined : pending.get(responseId)
-        if (!requestState || responseId == null) return
-        pending.delete(responseId)
-        clearTimeout(requestState.timer)
-        const error = asRecord(message.error)
-        if (error) requestState.reject(new Error(asString(error.message) || 'Codex App Server 请求失败'))
-        else requestState.resolve(asRecord(message.result) ?? {})
-        return
-      }
+    handleMessage = (message, messageKind) => {
       if (messageKind === 'serverRequest') {
         const requestId = message.id as number | string
         const requestMethod = asString(message.method)
         const requestParams = asRecord(message.params) ?? {}
         void resolveCodexAppServerRequest(requestMethod, requestParams, options.canUseTool, options.signal)
-          .then(resolution => send({ id: requestId, ...resolution }))
+          .then(resolution => channel.send({ id: requestId, ...resolution }))
           .catch(error => abortCompletion?.(
             new Error(`Codex App Server 反向请求回包失败：${error instanceof Error ? error.message : String(error)}`),
           ))
@@ -1354,7 +1295,7 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions, runti
           break
         }
       }
-    })
+    }
   })
   // 初始化请求可能先于 completion 的 await 失败；提前挂拒绝处理，避免进程级 unhandledRejection。
   void completion.catch(() => undefined)
@@ -1365,7 +1306,7 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions, runti
       const error = new Error('用户重试终止，正在清理本会话 Codex 进程')
       if (!finished) abortCompletion?.(error)
       else {
-        failPending(error)
+        channel.detach(error)
         runtime.stop(child)
       }
     },
@@ -1378,7 +1319,7 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions, runti
       capabilities: { experimentalApi: true },
     })
     void init
-    send({ method: 'initialized', params: {} })
+    channel.send({ method: 'initialized', params: {} })
     initialized = true
     const transport = await prepareCodexTransport(options, request)
     transportSelection = transport
@@ -1558,7 +1499,7 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions, runti
   } catch (error) {
     options.voice?.reportFailure(error instanceof Error ? error.message : String(error))
     cleanup(true)
-    failPending(error instanceof Error ? error : new Error(String(error)))
+    channel.detach(error instanceof Error ? error : new Error(String(error)))
     if (!await lifetime.wait(runtime.closeTimeoutMs)) {
       codexCleanupBarriers.retain(lifetime, options.sessionId, threadId, options.codexHome)
       throw new CodexAppServerTurnError(
@@ -1571,7 +1512,7 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions, runti
   } finally {
     // A terminal notification can overtake a background reconciliation RPC.
     if (codexCleanupRequests.get(options.sessionId) === cleanupRequest) codexCleanupRequests.delete(options.sessionId)
-    failPending(new Error('Codex App Server 轮次已结束'))
+    channel.detach(new Error('Codex App Server 轮次已结束'))
   }
 }
 
