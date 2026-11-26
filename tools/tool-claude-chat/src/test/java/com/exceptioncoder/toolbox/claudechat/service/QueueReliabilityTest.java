@@ -374,6 +374,39 @@ class QueueReliabilityTest {
         assertThat(sends()).isZero();
     }
 
+    @Test void transientStateTimeoutRetriesTheReadBeforeDispatchingExactlyOnce() {
+        Object ctx = ReflectionTestUtils.invokeMethod(chat, "restoreQueueContext", "s");
+        var runtimeStates = dep(SessionRuntimeStateService.class);
+        var unavailable = mock(com.exceptioncoder.toolbox.claudechat.api.dto.SessionRuntimeStateView.class);
+        when(unavailable.consistency()).thenReturn("SIDECAR_UNREACHABLE");
+        var ready = mock(com.exceptioncoder.toolbox.claudechat.api.dto.SessionRuntimeStateView.class);
+        when(runtimeStates.inspect("s")).thenReturn(Optional.of(unavailable), Optional.of(ready));
+        var message = new ClientMessage.Send("next", List.of(), null, null, "message-retry");
+        submissions.accept("s", message);
+        ReflectionTestUtils.invokeMethod(chat, "sendUserMessage", ctx, null, message, null);
+        verify(runtimeStates, times(2)).inspect("s");
+        assertThat(sends()).isEqualTo(1);
+        assertThat(submissions.list("s").getFirst().status()).isEqualTo("DISPATCHED");
+    }
+
+    @Test void continuedStateTimeoutPreservesTheSubmissionWithoutDispatching() {
+        Object ctx = ReflectionTestUtils.invokeMethod(chat, "restoreQueueContext", "s");
+        var runtimeStates = dep(SessionRuntimeStateService.class);
+        var unavailable = mock(com.exceptioncoder.toolbox.claudechat.api.dto.SessionRuntimeStateView.class);
+        when(unavailable.consistency()).thenReturn("SIDECAR_UNREACHABLE");
+        when(runtimeStates.inspect("s")).thenReturn(Optional.of(unavailable));
+        when(runtimeStates.canReleaseQueue("s")).thenReturn(
+                new SessionRuntimeStateService.SendDecision(false, "SIDECAR_UNREACHABLE", "unconfirmed"));
+        var message = new ClientMessage.Send("retained", List.of(), null, null, "message-retain");
+        submissions.accept("s", message);
+        ReflectionTestUtils.invokeMethod(chat, "sendUserMessage", ctx, null, message, null);
+        verify(runtimeStates, times(2)).inspect("s");
+        assertThat(sends()).isZero();
+        var record = submissions.list("s").getFirst();
+        assertThat(record.status()).isEqualTo("FAILED");
+        assertThat(record.text()).isEqualTo("retained");
+    }
+
     @Test void queueInspectionWaitsUntilDispatchReleasesItsSessionLock() throws Exception {
         priorSuccess();
         state(snapshot("null"));

@@ -820,7 +820,12 @@ public class ClaudeChatService {
             rejectSubmission(ctx, ws, msg, "SESSION_UNAVAILABLE", "会话恢复未确认，原文已保留，请核对后重发");
             return;
         }
-        runtimeStates.inspect(ctx.sessionId);
+        var observation = runtimeStates.inspect(ctx.sessionId);
+        if (ws == null && msg.messageId() != null && !admissionGate.isDraining() && sidecar.isConnected()
+                && observation.filter(state -> "SIDECAR_UNREACHABLE".equals(state.consistency())).isPresent()) {
+            // Retry only the read while the durable submission is still undispatched.
+            runtimeStates.inspect(ctx.sessionId);
+        }
         synchronized (ctx) {
             String messageId = blankToNull(msg.messageId());
             log.info("[claude-chat] 收到用户消息 session={} messageId={} attachments={} textLength={}",
