@@ -7,6 +7,7 @@ import { configuredMcpServerNames } from './codexSecurity.js'
 import { CodexPredictionCleanupError } from './codexPredictionCleanup.js'
 import { observeCodexProcess } from './codexProcessLifetime.js'
 import { jsonLineWriter } from './jsonLineWriter.js'
+import { codexResidentAppServers } from './codexResidentAppServer.js'
 
 export interface CodexPredictionOptions {
   sessionId: string
@@ -16,6 +17,7 @@ export interface CodexPredictionOptions {
   cwd: string
   model?: string
   config?: Record<string, unknown>
+  resident?: boolean
   emit: (event: Record<string, unknown>) => void
 }
 
@@ -103,6 +105,53 @@ export async function readCodexPrediction(
   runtime = { open: createCodexPredictionProcess, timeoutMs: PREDICTION_TIMEOUT_MS },
 ): Promise<string | null> {
   if (signal.aborted) return null
+  if (options.resident) return readResidentPrediction(options, signal, runtime.timeoutMs)
+  return codexResidentAppServers.withIsolatedThread(options, () => readIsolatedPrediction(options, signal, runtime))
+}
+
+async function readResidentPrediction(options: CodexPredictionOptions, signal: AbortSignal, timeoutMs: number): Promise<string | null> {
+  const worker = codexResidentAppServers.loadedThread(options)
+  if (!worker) return null
+  worker.begin(options)
+  let finish!: (text: string | null) => void
+  const prediction = new Promise<string | null>(resolve => { finish = resolve })
+  const onAbort = () => finish(null)
+  let channel: ReturnType<typeof worker.connection.attach> | undefined
+  const timer = setTimeout(onAbort, timeoutMs)
+  timer.unref()
+  signal.addEventListener('abort', onAbort, { once: true })
+  try {
+    channel = worker.connection.attach({
+      threadId: () => options.threadId,
+      turnId: () => options.sourceTurnId,
+      onFailure: onAbort,
+      onMessage: (event, kind) => {
+        if (kind === 'serverRequest') {
+          channel?.send({ id: event.id, error: { code: -32_601, message: 'Prediction does not execute tools' } })
+        } else if (event.method === 'thread/prediction/updated') {
+          const value = parseCodexPrediction((event.params ?? {}) as Record<string, unknown>, options.threadId, options.sourceTurnId)
+          if (value) finish(value.text)
+        }
+      },
+    })
+    void channel.request('thread/prediction/request', {
+      threadId: options.threadId, sourceTurnId: options.sourceTurnId,
+    }, timeoutMs).catch(onAbort)
+    return await prediction
+  } catch {
+    return null
+  } finally {
+    clearTimeout(timer)
+    signal.removeEventListener('abort', onAbort)
+    channel?.detach()
+    worker.end(options.sessionId, false)
+  }
+}
+
+async function readIsolatedPrediction(
+  options: CodexPredictionOptions, signal: AbortSignal,
+  runtime: { open: typeof createCodexPredictionProcess; timeoutMs: number },
+): Promise<string | null> {
   let auxiliary: ReturnType<typeof createCodexPredictionProcess>
   try { auxiliary = runtime.open(options.codexHome) } catch {
     console.info(JSON.stringify({ event: 'codex_prediction_unavailable', sessionId: options.sessionId }))

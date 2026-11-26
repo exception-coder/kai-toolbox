@@ -1952,7 +1952,11 @@ public class ClaudeChatService {
             if (submissions != null && "result".equals(type) && eventTurnId != null) {
                 // A late result may settle its own send record. It cannot release the current queue.
                 String reason = node.path("stopReason").asText("error");
-                submissions.settled(sessionId, eventTurnId, isSuccessfulTurnCompletion(reason), reason);
+                if (QueueDeliveryStore.OUTCOME_UNKNOWN.equals(reason)) {
+                    submissions.outcomeUnknown(sessionId, eventTurnId, "Codex 连接中断，本轮结果待核对");
+                } else {
+                    submissions.settled(sessionId, eventTurnId, isSuccessfulTurnCompletion(reason), reason);
+                }
             }
             log.warn("[claude-chat] 忽略迟到轮次事件 session={} type={} eventTurn={} currentTurn={}",
                     sessionId, type, eventTurnId,
@@ -2265,9 +2269,14 @@ public class ClaudeChatService {
                 && "user_paused".equals(r.stopReason())).isPresent()) {
             queueReleaseSafe = false;
         }
-        if (submissions != null) submissions.settled(ctx.sessionId, turnId,
-                SUCCESSFUL_TURN_STOP_REASONS.contains(stopReason),
-                ctx.lastTurnErrorMessage == null ? stopReason : ctx.lastTurnErrorMessage);
+        if (submissions != null) {
+            String note = ctx.lastTurnErrorMessage == null ? stopReason : ctx.lastTurnErrorMessage;
+            if (QueueDeliveryStore.OUTCOME_UNKNOWN.equals(stopReason)) {
+                submissions.outcomeUnknown(ctx.sessionId, turnId, note);
+            } else {
+                submissions.settled(ctx.sessionId, turnId, SUCCESSFUL_TURN_STOP_REASONS.contains(stopReason), note);
+            }
+        }
         if (ctx.consultAccountPlan != null) {
             if (SUCCESSFUL_TURN_STOP_REASONS.contains(stopReason)) commitConsultAccount(ctx);
             consultRuntime.settled(ctx.sessionId, turnId, stopReason);
@@ -2432,7 +2441,8 @@ public class ClaudeChatService {
             expected = queueDelivery.runtime(id).orElse(null);
         }
         if (expected == null) return; // 旧会话没有完成凭据，不能把数据库 IDLE 当作可续发。
-        if (Set.of("user_cancelled", "user_paused").contains(Objects.toString(expected.stopReason(), "")) && !expected.ready()) return;
+        if (Set.of("user_cancelled", "user_paused", QueueDeliveryStore.OUTCOME_UNKNOWN)
+                .contains(Objects.toString(expected.stopReason(), "")) && !expected.ready()) return;
         JsonNode snapshot = sidecar.querySessionState(id, expected.turnId(),
                 SessionRuntimeStateService.SIDECAR_QUERY_TIMEOUT_MS).orElse(null);
         if (snapshot == null || snapshot.path("queueReceiptProtocol").asInt() != 1) return;
@@ -2539,7 +2549,8 @@ public class ClaudeChatService {
     private void startCompletionCheck(SessionCtx ctx, QueueDeliveryStore.Runtime expected) {
         // 明确停止、待授权、监督专用消息不被完成追问隐式恢复。
         if ("interrupted".equals(expected.stopReason()) || "user_cancelled".equals(expected.stopReason())
-                || "user_paused".equals(expected.stopReason()) || isConsultReadonly(ctx)
+                || "user_paused".equals(expected.stopReason()) || QueueDeliveryStore.OUTCOME_UNKNOWN.equals(expected.stopReason())
+                || isConsultReadonly(ctx)
                 || queueDelivery.delivery(ctx.sessionId).filter(d -> d.messageId().startsWith("autopilot:")).isPresent()
                 || !planStateService.writable(ctx.sessionId)) return;
         if (expected.checkAttempts() >= 3) {

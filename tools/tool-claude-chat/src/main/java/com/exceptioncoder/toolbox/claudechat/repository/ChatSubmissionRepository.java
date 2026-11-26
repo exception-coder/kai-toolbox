@@ -61,8 +61,14 @@ public class ChatSubmissionRepository {
                 note, sessionId, id);
     }
     public void settled(String sessionId, String turnId, boolean success, String note) {
+        updateOutcome(sessionId, turnId, success ? "COMPLETED" : "FAILED", note);
+    }
+    public void outcomeUnknown(String sessionId, String turnId, String note) {
+        updateOutcome(sessionId, turnId, "UNKNOWN", note);
+    }
+    private void updateOutcome(String sessionId, String turnId, String status, String note) {
         jdbc.update("UPDATE claude_chat_submission SET status=?,note=? WHERE session_id=? AND turn_id=? AND status IN ('DISPATCHED','UNKNOWN')",
-                success ? "COMPLETED" : "FAILED", note, sessionId, turnId);
+                status, note, sessionId, turnId);
     }
     /** 重启无法证明旧引擎是否执行，不自动补发。 */
     public void markUncertainAfterRestart() {

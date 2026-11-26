@@ -28,8 +28,10 @@ class ChatSubmissionRepositoryTest {
             restored.dispatched("session-a", "id", "turn");
             restored.settled("session-a", "old-turn", true, "old");
             assertEquals("DISPATCHED", restored.list("session-a").getFirst().status());
-            restored.markUncertainAfterRestart();
+            restored.outcomeUnknown("session-a", "turn", "Codex 连接中断，本轮结果待核对");
             assertEquals("UNKNOWN", restored.list("session-a").getFirst().status());
+            restored.markUncertainAfterRestart();
+            assertEquals("Codex 连接中断，本轮结果待核对", restored.list("session-a").getFirst().note());
             assertFalse(restored.accept("session-a", message));
             restored.settled("session-a", "turn", false, "CODEX_QUERY_FAILED");
             assertEquals("FAILED", restored.list("session-a").getFirst().status());

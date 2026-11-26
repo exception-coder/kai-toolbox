@@ -12,6 +12,7 @@ import java.util.Optional;
 /** 队列原文、派发回执及完成准入在同一 SQLite 事务中转换；不根据时间猜测执行完成。 */
 @Repository
 public class QueueDeliveryStore {
+    public static final String OUTCOME_UNKNOWN = "outcome_unknown";
     public record Runtime(String turnId, boolean ready, String stopReason, String taskText, int checkAttempts, boolean checking) { }
     public record Delivery(String messageId, String turnId, String storeId, String status, int attempts, long retryAt, String note) { }
     private final JdbcTemplate jdbc;
@@ -129,6 +130,10 @@ public class QueueDeliveryStore {
                     || "user_paused".equals(r.stopReason()) && !"user_confirmed".equals(stopReason))).isPresent()) return false;
         if (jdbc.update("UPDATE claude_chat_queue_runtime SET release_ready=?,stop_reason=?,updated_at=? WHERE session_id=? AND turn_id=?",
                 safe ? 1 : 0, stopReason, System.currentTimeMillis(), sessionId, turnId) != 1) return false;
+        if (OUTCOME_UNKNOWN.equals(stopReason)) {
+            uncertain(sessionId, turnId, "引擎连接中断，本轮结果待核对，原消息已保留。");
+            return true;
+        }
         var receipt = delivery(sessionId).filter(d -> d.turnId().equals(turnId));
         if (receipt.isPresent()) {
             boolean successful = List.of("end_turn","success","completed","stop","user_confirmed").contains(stopReason);

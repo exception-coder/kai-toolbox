@@ -10,9 +10,11 @@ import { CodexPredictionCoordinator, readCodexPrediction } from './codexPredicti
 import { observeCodexProcess } from './codexProcessLifetime.js'
 import { CONSULT_READONLY_PROMPT } from './codexSecurity.js'
 import { buildCodexConfig } from './codexEngine.js'
+import { once } from 'node:events'
+import { codexResidentAppServers } from './codexResidentAppServer.js'
 
 // Real pipes and EOF, with a local JSON-RPC peer: no account, tools or model calls.
-function fixture(mode: 'skillPriority' | 'browserDenied' | 'consultPlugins' | 'managedConsult' | 'consultConfigMissing' | 'nativeStatus' | 'nativeFailure' | 'complete' | 'warnings' | 'hold' | 'holdError' | 'holdCancel' | 'cancel' | 'rpcError' | 'resumeError' | 'slowResume' | 'lostTerminal' | 'crash' | 'steer' | 'transport' = 'complete', rolloutPath?: string) {
+function fixture(mode: 'resident' | 'skillPriority' | 'browserDenied' | 'consultPlugins' | 'managedConsult' | 'consultConfigMissing' | 'nativeStatus' | 'nativeFailure' | 'complete' | 'warnings' | 'hold' | 'holdError' | 'holdCancel' | 'cancel' | 'rpcError' | 'resumeError' | 'slowResume' | 'lostTerminal' | 'crash' | 'steer' | 'transport' = 'complete', rolloutPath?: string) {
   const child = spawn(process.execPath, ['-e', `
     const mode = ${JSON.stringify(mode)};
     const rolloutPath = ${JSON.stringify(rolloutPath)};
@@ -30,8 +32,18 @@ function fixture(mode: 'skillPriority' | 'browserDenied' | 'consultPlugins' | 'm
       process.stderr.write('e'.repeat(1024*1024), done);
     }
     let resumeRequest;
+    let turnNumber = 0;
+    const calls = [];
+    const turns = new Map();
     process.on('message', message => {
       if (message === 'release') drain();
+      if (message === 'crash') process.exit(23);
+      if (message?.complete) {
+        const threadId = message.complete;
+        const id = turns.get(threadId);
+        send({method:'item/completed',params:{threadId,turnId:id,item:{type:'agentMessage',id:'answer',text:threadId}}});
+        send({method:'turn/completed',params:{threadId,turn:{id,status:'completed'}}});
+      }
       if (message === 'resume' && resumeRequest) send({id:resumeRequest.id,result:{thread:{id:'lifecycle-thread'}}});
     });
     process.stdin.on('end', () => { if (!mode.startsWith('hold')) drain(); });
@@ -43,6 +55,29 @@ function fixture(mode: 'skillPriority' | 'browserDenied' | 'consultPlugins' | 'm
     rl.on('line', line => {
       const m = JSON.parse(line);
       if (m.id == null) return;
+      if (mode === 'resident') {
+        calls.push(m.method);
+        if (m.method === 'turn/start') {
+          const threadId = m.params.threadId;
+          const id = 'turn-' + ++turnNumber;
+          if (turns.has(threadId)) {
+            send({method:'turn/completed',params:{threadId,turn:{id:turns.get(threadId),status:'completed'}}});
+          }
+          turns.set(threadId, id);
+          send({id:m.id,result:{turn:{id}}});
+          process.send({threadId,id,calls:[...calls]});
+          return;
+        }
+        if (m.method === 'thread/resume' || m.method === 'thread/start') {
+          send({id:m.id,result:{thread:{id:m.params.threadId || 'new-thread'}}});
+          return;
+        }
+        if (m.method === 'thread/prediction/request') {
+          send({id:m.id,result:{}});
+          send({method:'thread/prediction/updated',params:{...m.params,result:{type:'completed',text:'resident suggestion'}}});
+          return;
+        }
+      }
       if (mode === 'rpcError' || mode === 'holdError') { send({id:m.id,error:{message:'fixture RPC failed'}}); return; }
       if (m.method === 'initialize' && mode === 'warnings') {
         send({method:'configWarning',params:{summary:'Ignored setting.\\n user: node_repl.type',details:null}});
@@ -158,6 +193,96 @@ const turnOptions = (sessionId: string, events: Record<string, unknown>[] = [], 
   sandbox: 'read-only' as const, approvalPolicy: 'never' as const,
   input: [{ type: 'text', text: 'fixture only' }], signal, emit: (event: Record<string, unknown>) => { events.push(event) },
   setThreadId: () => {},
+})
+
+test('ordinary resident turns and prediction share a process with separate threads and one handshake', async t => {
+  const peer = fixture('resident')
+  t.after(() => peer.release())
+  const home = `/nonexistent/resident-${process.pid}`
+  const aEvents: Record<string, unknown>[] = [], bEvents: Record<string, unknown>[] = []
+  const a = { ...turnOptions('resident-a', aEvents), codexHome: home, resident: true, threadId: 'thread-a' }
+  const b = { ...turnOptions('resident-b', bEvents), codexHome: home, resident: true, threadId: 'thread-b' }
+  const start = async (options: typeof a) => {
+    const ready = once(peer.child, 'message')
+    const execution = runCodexAppServerTurn(options, peer.runtime)
+    void execution.catch(() => undefined)
+    const [message] = await Promise.race([ready, execution.then(() => { throw new Error('Turn ended before start') })])
+    return { message, execution }
+  }
+  const first = await start(a)
+  const parallel = await start(b)
+  assert.equal(parallel.message.threadId, 'thread-b')
+  assert.equal(peer.opens, 1)
+  await assert.rejects(runCodexAppServerTurn({ ...a, sessionId: 'different-owner' }, peer.runtime), /属于另一个 Forge 会话/)
+  peer.child.send({ complete: 'thread-a' })
+  await first.execution
+  assert.equal(bEvents.some(event => event.type === 'result'), false)
+  const prediction = await readCodexPrediction({ ...a, sourceTurnId: first.message.id }, a.signal,
+    { timeoutMs: 2000, open: () => { throw new Error('Must not start an auxiliary process') } })
+  assert.equal(prediction, 'resident suggestion')
+  const continued = await start(a)
+  assert.equal(continued.message.calls.filter((method: string) => method === 'initialize').length, 1)
+  assert.equal(continued.message.calls.filter((method: string) => method === 'thread/resume').length, 2)
+  assert.equal(aEvents.filter(event => event.type === 'result').length, 1, 'late terminal must not complete the new turn')
+  peer.child.send({ complete: 'thread-b' })
+  peer.child.send({ complete: 'thread-a' })
+  await Promise.all([continued.execution, parallel.execution])
+  assert.equal(aEvents.filter(event => event.type === 'result').length, 2)
+  assert.equal(bEvents.filter(event => event.type === 'result').length, 1)
+  await codexResidentAppServers.withIsolatedThread(a, async () => {
+    assert.equal(await peer.lifetime.wait(0), true, 'isolated writer waits for the resident owner to exit')
+  })
+})
+
+test('resident crash fails both accepted turns without replay and a later turn reopens only its thread', async t => {
+  const old = fixture('resident'), replacement = fixture('resident')
+  t.after(() => replacement.release())
+  const home = `/nonexistent/recovery-${process.pid}`
+  const a = { ...turnOptions('crash-a'), codexHome: home, resident: true, threadId: 'thread-a' }
+  const b = { ...turnOptions('crash-b'), codexHome: home, resident: true, threadId: 'thread-b' }
+  const start = async (options: typeof a, peer: typeof old) => {
+    const ready = once(peer.child, 'message')
+    const execution = runCodexAppServerTurn(options, peer.runtime)
+    void execution.catch(() => undefined)
+    const [message] = await Promise.race([ready, execution.then(() => { throw new Error('Turn ended before start') })])
+    return { message, execution }
+  }
+  const one = await start(a, old)
+  const two = await start(b, old)
+  old.child.send('crash')
+  for (const running of [one, two]) await assert.rejects(running.execution, error =>
+    error instanceof CodexAppServerTurnError && !error.retrySafe && error.outcomeUnknown && /异常退出/.test(error.message))
+  assert.equal(old.opens, 1)
+  const recovered = await start(a, replacement)
+  assert.equal(recovered.message.threadId, 'thread-a')
+  assert.equal(recovered.message.calls.filter((method: string) => method === 'thread/resume').length, 1)
+  assert.equal(recovered.message.calls.filter((method: string) => method === 'turn/start').length, 1)
+  replacement.child.send({ complete: 'thread-a' })
+  await recovered.execution
+})
+
+test('authorization homes keep separate children and rotating one never stops an active peer', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'forge-resident-home-'))
+  const a = { ...turnOptions('isolation-a'), codexHome: join(root, 'a') }
+  const b = { ...turnOptions('isolation-b'), codexHome: join(root, 'b') }
+  await Promise.all([mkdir(a.codexHome), mkdir(b.codexHome)])
+  const first = fixture('resident'), second = fixture('resident'), newFirst = fixture('resident')
+  t.after(async () => {
+    await Promise.all([first.release(), second.release(), newFirst.release()])
+    await rm(root, { recursive: true, force: true })
+  })
+  const left = await codexResidentAppServers.acquire(a, first.runtime)
+  const right = await codexResidentAppServers.acquire(b, second.runtime)
+  assert.notEqual(left.child.pid, right.child.pid)
+  await writeFile(join(a.codexHome, 'config.toml'), 'model = "changed"\n')
+  await assert.rejects(codexResidentAppServers.acquire(a, newFirst.runtime), /等待.*轮次完成/)
+  left.end(a.sessionId, false)
+  const rotated = await codexResidentAppServers.acquire(a, newFirst.runtime)
+  assert.equal(await first.lifetime.wait(0), true)
+  assert.equal(second.child.exitCode, null)
+  assert.notEqual(rotated.child.pid, left.child.pid)
+  rotated.end(a.sessionId, false)
+  right.end(b.sessionId, false)
 })
 
 test('project skill selection and execution share one initialized process for new and resumed threads', async () => {

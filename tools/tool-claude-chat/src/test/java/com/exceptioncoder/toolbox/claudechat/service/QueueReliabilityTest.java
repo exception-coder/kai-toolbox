@@ -362,6 +362,25 @@ class QueueReliabilityTest {
         assertThat(sends()).isZero();
     }
 
+    @Test void nativeDisconnectKeepsSubmissionAndQueueUnknownWithoutAutomaticDispatch() throws Exception {
+        var message = new ClientMessage.Send("保留原消息", List.of(), null, null, "message-unknown");
+        submissions.accept("s", message);
+        submissions.dispatched("s", message.messageId(), "lost-turn");
+        store.begin("s", "lost-turn", "q1", "epoch");
+        ReflectionTestUtils.invokeMethod(chat, "restoreQueueContext", "s");
+        chat.onSidecarEvent("s", mapper.readTree("""
+                {"type":"result","turnId":"lost-turn","stopReason":"outcome_unknown","queueReleaseSafe":false}
+                """));
+        assertThat(submissions.list("s").getFirst().status()).isEqualTo("UNKNOWN");
+        assertThat(submissions.list("s").getFirst().text()).isEqualTo(message.text());
+        assertThat(store.delivery("s").orElseThrow().status()).isEqualTo("UNKNOWN");
+        assertThat(store.runtime("s").orElseThrow().ready()).isFalse();
+        state(snapshot(completed("lost-turn", "outcome_unknown")));
+        chat.reconcileQueue("s");
+        assertThat(sends()).isZero();
+        assertThat(queue.findBySessionId("s")).extracting(QueuedChatMessage::id).containsExactly("q1", "q2");
+    }
+
     @Test void busyHttpSubmissionKeepsTheMessageInTheDurableQueueWithItsOriginalId() {
         store.begin("s", "current", null, "epoch");
         Object ctx = ReflectionTestUtils.invokeMethod(chat, "restoreQueueContext", "s");

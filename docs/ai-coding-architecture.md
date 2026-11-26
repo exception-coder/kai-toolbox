@@ -205,12 +205,17 @@ flowchart TD
 
 ### Codex App Server 连接与轮次
 
-Sidecar 的 RPC 连接统一处理消息读写和请求编号，轮次处理业务状态、审批和回执。普通运行仍按轮次独占进程。共享路由已通过本机协议夹具验证，常驻进程、线程写入归属、预测接管以及真实多会话验收由[常驻 App Server 变更](../openspec/changes/share-resident-codex-app-server/tasks.md)跟踪。
+Sidecar 按规范化授权目录及账号配置代际保有普通开发会话的 Codex App Server。不同线程可并行，同一线程的执行、追加和预测沿用现有会话身份与单轮约束。连接统一处理 RPC 请求编号，并按原生线程与轮次身份路由审批和事件。正常结束保留进程及线程。空闲十分钟回收，配置变动或转入独立执行通道时先等待该进程内的活动轮次结束，再确认退出。语音、专用浏览器、咨询与评审沿用隔离入口。
+
+新进程按会话恢复原生线程。任务发送后失去终态时，Java 将原消息和队列标为待核对并保留原文。自动派发暂停，用户仍可按既有控制确认后继续；迟到回执只处理原轮次。源码和独立原生验证见[常驻 App Server 变更](../openspec/changes/share-resident-codex-app-server/tasks.md)，目标 Forge 服务尚未重启验收。
 
 ```mermaid
 flowchart LR
-    Native["原生 App Server stdio"] <-->|"JSON-RPC"| Wire["连接 · 请求编号与线程路由"]
-    Wire <-->|"本轮事件与审批"| Turn["轮次 · 会话权限与回执"]
+    Scope["授权目录与配置代际"] --> Native["常驻原生 App Server"]
+    Native <-->|"stdio JSON-RPC"| Wire["连接 · 请求编号和身份路由"]
+    Wire <-->|"threadId + turnId"| A["会话 A · 独立权限与回执"]
+    Wire <-->|"threadId + turnId"| B["会话 B · 独立权限与回执"]
+    Native -->|"终态未确认时退出"| Review["对应消息待核对 · 暂停自动派发"]
 ```
 
 ## 四层工程职责与维护入口

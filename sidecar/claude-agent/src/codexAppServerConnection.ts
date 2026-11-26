@@ -95,15 +95,16 @@ export function createCodexAppServerConnection(child: ChildProcessWithoutNullStr
     const params = record(message.params)
     const threadId = params?.threadId ?? record(params?.thread)?.id ?? params?.conversationId
     const turnId = params?.turnId ?? record(params?.turn)?.id
+    if (routing === 'shared' && kind === 'serverRequest' && message.method === 'currentTime/read' && threadId == null) {
+      send({ id: message.id, result: { currentTimeAt: Math.floor(Date.now() / 1000) } })
+      return
+    }
     const matching = [...routes].filter(route => {
       if (routing === 'exclusive' && kind === 'notification') return true
-      if (kind === 'serverRequest' && threadId == null) {
-        return message.method === 'currentTime/read' && routes.size === 1
-      }
       if (typeof threadId !== 'string' || route.threadId() !== threadId) return false
       if (turnId == null) return true
       const activeTurn = route.turnId()
-      return activeTurn === turnId || (kind === 'notification' && activeTurn == null)
+      return activeTurn == null || activeTurn === turnId
     })
     const [route] = matching
     if (route && matching.length === 1) route.onMessage(message, kind)
