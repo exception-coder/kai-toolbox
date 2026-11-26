@@ -65,11 +65,19 @@ The system SHALL open authorized local `.sql` links in a lazy-loaded read-only S
 
 ### Requirement: Automatically embed bounded local file previews
 
-The system SHALL automatically render authorized local SQL, Markdown and Draw.io references next to their conversation context without requiring a click, using the existing typed read APIs and read-only renderers.
+The system SHALL automatically render authorized local SQL and Draw.io references next to their conversation context, using the existing typed read APIs and read-only renderers. Local Markdown references SHALL present a collapsed file row by default and load their content on explicit user action.
+
+#### Scenario: Expand and collapse Markdown in a message
+
+- **WHEN** a message containing a local Markdown reference is displayed
+- **THEN** its file row occupies one line and does not initiate a document read
+- **WHEN** the reader activates the row
+- **THEN** the document loads in the bounded inline reader and the same control can collapse it
+- **AND** reopening the same mounted row reuses a successful read
 
 #### Scenario: Read a file in the message flow
 
-- **WHEN** a supported local reference approaches the viewport
+- **WHEN** a supported local SQL or Draw.io reference approaches the viewport
 - **THEN** it automatically loads into a bounded inline reader with copy, refresh and optional expand actions
 - **AND** repeated paths within the same text segment share one preview, append-only streaming preserves mounted readers and expanding reuses the loaded result
 - **AND** Markdown document links do not recursively auto-embed other documents
