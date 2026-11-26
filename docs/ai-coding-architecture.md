@@ -627,8 +627,19 @@ flowchart LR
     CONTEXT --> NATIVE["原生 Harness 上下文与工具"]
     NATIVE --> EXEC["原生执行与错误恢复"]
     NATIVE --> WEB["获准且可用的原生检索<br/>证据充分即停止；离线明确限制"]
+    WEB --> DESIGN["方案判定<br/>实践依据、项目适用性与推荐"]
     EXEC --> RESULT["原始结果 / 既有事件映射"]
 ```
+
+#### 方案设计的联网核验
+
+架构设计、技术选型、重要性能或稳定性方案、新版本或 API 接入，以及复用还是自建的决策，必须先查项目现状，再用获准的联网工具核对当前事实与成熟实践，然后给出推荐。用户明确要求最新方案或最佳实践时同样适用。优先打开官方协议、版本文档、维护中的参考实现和发布记录，核对资料日期、适用版本及关键限制。根据目标环境、兼容性、运维成本和迁移风险判断是否适合。资料新或采用者多，只能作为线索。
+
+结论写进现有设计稿或会话方案。先给推荐，再交代项目现状和约束、关键外部事实的来源链接及适用版本、可行方案的取舍、本期最小落地范围及验证方式。明确区分官方推荐、已核实的项目现状和本项目推断。若保留现状或选择折中方案，写清原因以及哪些条件变化后应复核。决策记录保留上下文、选项和后果，沿用现有 OpenSpec 设计载体。 [Microsoft 架构决策记录指南](https://learn.microsoft.com/en-us/azure/well-architected/architect-role/architecture-decision-record) · [AWS 架构决策记录指南](https://docs.aws.amazon.com/prescriptive-guidance/latest/architectural-decision-records/adr-process.html)
+
+简单局部修复和已核验方案的继续实施按现有范围验证。用户要求离线、工具无权限或查询失败时，标明未联网核验的假设和待证实事项，基于本地证据给出可复核的暂定结论。此条款是项目设计规范，沿用 `research-first` 和现有权限边界，由方案撰写者负责落实。
+
+#### 引擎契约与适配
 
 Forge 把 Claude Code、Codex、Qwen Code、TraeCode CLI、Antigravity 与 OpenCode 视为独立 Agent 引擎。Sidecar 的统一引擎契约只承载会话、轮次、权限、中断、运行态、模型目录和公开事件；供应商 SDK/CLI 的请求、消息与错误必须停留在各自适配器内，不能泄漏到 Java 或浏览器。Codex 使用官方 `@openai/codex-sdk`，Qwen Code 使用官方 `@qwen-code/sdk` 并从当前认证的 SDK 控制请求读取模型目录；TraeCode CLI 2.0 通过 `exec --json` 适配，不以二进制版本号 `2.x` 判断产品代际（本机官方安装包报告 `0.206.1`），而按 CLI 命令能力和登录状态探测后开放选择；后续轮次仅通过 `exec resume <SESSION_ID>` 显式恢复所属 Forge 会话。CLI 已安装但尚未登录，JSONL 实流和工具事件仍待登录后的运行验收。QwenWork 桌面端不属于 Qwen Code SDK 的可控制范围，其登录与模型列表不能代替 Qwen Code 的认证和可用模型。切换引擎时清理旧引擎模型 ID；DashScope 模型 API 也不能被描述成完整 Agent 引擎。
 
