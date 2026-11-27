@@ -1,8 +1,8 @@
 openapi: 3.0.3
 info:
   title: Forge Business Consultation Backend Analysis
-  version: 1.7.0
-  description: 'Source contract, not deployment proof. SDK 0.6.0 adds optional externalUserId for persistent implementation Q&A; omitted identity keeps stateless analysis. Existing credentials and request recovery are preserved.'
+  version: 1.7.1
+  description: 'Source contract, not deployment proof. SDK 0.6.1 allows four-field continuous requests: tenantId, externalUserId, requestId, description. Omitted user identity keeps the legacy stateless requirements. Existing credentials and request recovery are preserved.'
 servers:
   - url: http://127.0.0.1:18080
     description: Local-instance example only; replace port with the developer's verified Forge port. Never another colleague's machine.
@@ -340,9 +340,16 @@ components:
     AnalysisInput:
       type: object
       additionalProperties: false
-      required: [agentId, tenantId, problemId, conversationId, requestId, title, description]
+      required: [tenantId, requestId, description]
+      anyOf:
+        - required: [externalUserId]
+          properties:
+            replyMode: { enum: [FORGE_FLEX] }
+        - required: [agentId, problemId, conversationId, title]
+          not:
+            required: [externalUserId]
       properties:
-        agentId: { type: string, enum: [it-support-partner] }
+        agentId: { type: string, enum: [it-support-partner], description: 'Optional for externalUserId mode; server defaults to it-support-partner.' }
         tenantId: { $ref: '#/components/schemas/Identifier' }
         problemId: { $ref: '#/components/schemas/Identifier' }
         conversationId: { $ref: '#/components/schemas/Identifier' }
@@ -350,7 +357,7 @@ components:
           allOf: [{ $ref: '#/components/schemas/Identifier' }]
           description: 'Optional stable user within authenticated clientId and authorized tenantId. FORGE_FLEX only; enables durable native conversation and result 1.3. Caller cannot supply a native thread ID.'
         requestId: { type: string, pattern: '^[A-Za-z0-9_-]{8,100}$' }
-        title: { type: string, minLength: 1, maxLength: 200 }
+        title: { type: string, minLength: 1, maxLength: 200, description: 'Optional caller title in continuous mode; not used to identify the native session.' }
         description: { type: string, minLength: 1, maxLength: 12000 }
         recentContext:
           type: array
@@ -626,8 +633,8 @@ components:
       properties:
         taskId: { type: string }
         requestId: { type: string }
-        problemId: { type: string }
-        conversationId: { type: string }
+        problemId: { type: string, nullable: true, description: 'Caller correlation only; null when omitted in continuous mode.' }
+        conversationId: { type: string, nullable: true, description: 'Caller source conversation only; not the native session identity.' }
         externalUserId: { $ref: '#/components/schemas/Identifier' }
         status: { type: string, enum: [QUEUED, RUNNING, CANCEL_REQUESTED, SUCCEEDED, NEEDS_INFORMATION, FAILED, CANCELLED, TIMED_OUT, INTERRUPTED] }
         result:

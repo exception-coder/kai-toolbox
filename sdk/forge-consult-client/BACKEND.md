@@ -1,6 +1,6 @@
 # Forge 业务咨询后端分析 API v1
 
-## 当前合同（1.7.0 / SDK 0.6.0）
+## 当前合同（1.7.1 / SDK 0.6.1）
 
 新增可选 `externalUserId`：认证 `clientId` + 授权 `tenantId` + 此用户 ID 稳定映射一个 Codex 线程，结果为 1.3，包含 `session` 与 `messageAction`，最多一条回复。固定处理规则每轮走独立开发者指令；只支持 FORGE_FLEX。省略参数保持下面的无状态 1.2 合同。接入、恢复及每日问题归并图解见 [外部用户连续实施答疑](EXTERNAL-USER-SESSIONS.md)。目标实例是否加载需独立验收。
 
@@ -143,11 +143,11 @@ JSON 不接受未知字段。请求体最多 192KiB，解析后最多 100000 字
 
 | 字段 | 必填、类型与限制 |
 |---|---|
-| `agentId` | 必填，固定 `it-support-partner` |
+| `agentId` | 无状态模式必填，固定 `it-support-partner`；连续模式可省略，由服务端提供 |
 | `tenantId` | 必填，与服务凭据绑定企业完全一致 |
-| `problemId/conversationId` | 必填，业务问题和会话关联，各 1–100 位字母数字及 `_.:-` |
+| `problemId/conversationId` | 无状态模式必填；连续模式为可选的调用方关联，省略后响应为 null；各 1–100 位字母数字及 `_.:-`，不用于选择原生线程 |
 | `requestId` | 必填，8–100 位字母数字及 `_ -`；发送前持久化 |
-| `title` | 必填，非空，最多 200 字符 |
+| `title` | 无状态模式必填，连续模式可省略；填写时非空，最多 200 字符 |
 | `description` | 必填，非空，最多 12000 字符 |
 | `recentContext` | 可选，最多 10 条，每条非空、最多 2000 字符 |
 | `classification` | 可选 `{decision,reason}`，decision 为 `IT/NOT_IT/UNKNOWN`，reason 非空、最多 2000 字符；仅作为待核实输入 |

@@ -2,7 +2,7 @@
 
 ## 本次新版接入
 
-2026-11-27 补充：SDK 0.6.0 / 合同 1.7.0 新增可选 externalUserId 连续实施答疑，返回 1.3 的会话标识和消息动作。见 [用户会话及每日归并图解](EXTERNAL-USER-SESSIONS.md)。下文未传 externalUserId 的无状态 1.2 接入仍有效；连续模式断线须查询原 requestId，不能直接换 ID 再分析。目标服务加载情况以本次任务验收记录为准。
+2026-11-27 补充：SDK 0.6.1 / 合同 1.7.1 新增可选 externalUserId 连续实施答疑，返回 1.3 的会话标识和消息动作。见 [用户会话及每日归并图解](EXTERNAL-USER-SESSIONS.md)。下文未传 externalUserId 的无状态 1.2 接入仍有效；连续模式断线须查询原 requestId，不能直接换 ID 再分析。目标服务加载情况以本次任务验收记录为准。
 
 既有 clientId、clientSecret、tenantId 继续使用，无需重新申请。新任务默认 FORGE_FLEX，也可显式提交该模式；结果版本 1.2，候选按需 0–8 条，不再固定三条。支持 businessInstructions、businessContext 和 result.businessResult；字段及完整请求见 [当前默认合同](BACKEND.md)。调用方的人工审核、结果校验及发送逻辑仍由调用方维护。
 

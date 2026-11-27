@@ -11,18 +11,19 @@ const response = (data, status = 200) => new Response(JSON.stringify(data), { st
 const authResponse = () => response({ access_token: token, token_type: 'Bearer', expires_in: 900 });
 
 test('external user identity and no-reply disposition roundtrip without resending uncertain native turns', async () => {
+  const minimal = { tenantId: 'tenant-a', externalUserId: 'user-a', requestId: input.requestId, description: '吃饭了没有' };
   const result = { schemaVersion: '1.3', messageAction: 'IGNORE', replyCandidates: [],
     session: { id: 'session-1', externalUserId: 'user-a', title: 'user-a-实施答疑', source: 'CONSULT_SDK' } };
   let attempts = 0;
   const client = new ForgeConsultBackendClient({ baseUrl: 'https://forge.example.test', clientId: 'client-1', getClientSecret: () => secret,
     fetch: async (url, init) => {
       if (url.endsWith('/token')) return authResponse();
-      assert.equal(JSON.parse(init.body).externalUserId, 'user-a');
+      assert.deepEqual(JSON.parse(init.body), minimal);
       if (++attempts === 2) throw new Error('response lost');
       return response({ requestId: input.requestId, result });
     } });
-  assert.deepEqual((await client.analyzeOnce({ ...input, externalUserId: 'user-a' })).result, result);
-  await assert.rejects(client.analyzeOnce({ ...input, externalUserId: 'user-a' }), error => error.code === 'REQUEST_STATUS_UNKNOWN');
+  assert.deepEqual((await client.analyzeOnce(minimal)).result, result);
+  await assert.rejects(client.analyzeOnce(minimal), error => error.code === 'REQUEST_STATUS_UNKNOWN');
   assert.equal(attempts, 2);
 });
 

@@ -10,6 +10,10 @@
 - **WHEN** 同一用户以新 requestId 提交后续消息
 - **THEN** 续接同一原生线程；不同应用、租户或用户不得共享线程。
 
+#### Scenario: Minimal continuous request
+- **WHEN** 已认证应用只提供 tenantId、externalUserId、requestId 和 description
+- **THEN** 接受连续答疑请求，固定 agentId 由服务端提供；problemId、conversationId、title 为可选调用方资料，不制造问题编号或把来源会话当原生线程。无外部用户身份时保持旧必填合同。
+
 #### Scenario: Unknown execution
 - **WHEN** 执行结果不确定或线程不可恢复
 - **THEN** 返回明确失败或待核对状态，不自动重放或替换线程；重复请求保持原身份。

@@ -128,9 +128,28 @@ class ConsultBackendIntegrationTest {
                     conversation.threadId() == null ? "native-" + conversation.id() : conversation.threadId());
             return externalResult("REPLY");
         });
-        var first = service.submit(principal, externalInput("external-001", "user-a"));
+        var minimal = mapper.writeValueAsString(Map.of("tenantId", "tenant-a", "externalUserId", "user-a",
+                "requestId", "external-001", "description", "手机端怎么操作？"));
+        var parsed = service.parse(minimal);
+        assertThat(parsed.agentId()).isEqualTo(ConsultAnalysisInput.AGENT_ID);
+        assertThat(parsed.problemId()).isNull();
+        assertThat(parsed.conversationId()).isNull();
+        assertThat(parsed.title()).isNull();
+        assertThat(evidence.collect(parsed)).anySatisfy(packet -> {
+            assertThat(packet.source()).isEqualTo("external-001");
+            assertThat(packet.text()).isEqualTo("手机端怎么操作？");
+        });
+        for (var invalid : List.of(minimal.replace("\"externalUserId\":\"user-a\"", "\"externalUserId\":null"),
+                minimal.replace("user-a", ""), minimal.replace("{", "{\"agentId\":\"other\","),
+                minimal.replace("{", "{\"problemId\":\"\","), minimal.replace("{", "{\"title\":\"\","))) {
+            assertThatThrownBy(() -> service.parse(invalid)).isInstanceOf(ConsultBackendException.class);
+        }
+        var first = service.submit(principal, minimal);
+        assertThat(service.submit(principal, minimal).taskId()).isEqualTo(first.taskId());
         service.recover(); service.tick(); awaitTerminal(first.taskId());
         assertThat(service.get(principal, first.taskId()).status()).isEqualTo("SUCCEEDED");
+        assertThat(service.get(principal, first.taskId()).problemId()).isNull();
+        assertThat(service.get(principal, first.taskId()).conversationId()).isNull();
         assertThat(service.get(principal, first.taskId()).result().path("session").path("title").asText()).isEqualTo("user-a-实施答疑");
         service.close();
         service = new ConsultAnalysisService(store, auth, evidence, model, images, mapper, 30000);
@@ -143,7 +162,7 @@ class ConsultBackendIntegrationTest {
         service.tick(); awaitTerminal(other.taskId());
         assertThat(conversations.get(2).id()).isNotEqualTo(conversations.getFirst().id());
         assertThat(conversations.get(2).threadId()).isNull();
-        var saved = service.analyzeOnce(principal, externalInput("external-001", "user-a"));
+        var saved = service.analyzeOnce(principal, minimal);
         assertThat(saved.result().path("session").path("id").asText()).isEqualTo(conversations.getFirst().id());
         verify(runner, times(3)).runConversation(any(), anyString(), any(), anyList(), any());
         var anotherClient = new ConsultBackendStore.Client("another-client", "app", "tenant-a", "hash", "[]", 1, true, Long.MAX_VALUE);

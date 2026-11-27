@@ -22,14 +22,15 @@ public class ConsultAnalysisEvidence {
 
     public List<Packet> collect(ConsultAnalysisInput input) {
         var result = new ArrayList<Packet>();
-        String description = input.title() + "\n" + input.description();
+        String description = input.title() == null ? input.description() : input.title() + "\n" + input.description();
+        String source = input.problemId() == null ? input.requestId() : input.problemId();
         if (!input.recentContext().isEmpty()) description += "\n调用方近期上下文：\n" + String.join("\n", input.recentContext());
         if (input.classification() != null) description += "\n调用方分类：" + input.classification().decision() + "；理由：" + input.classification().reason();
-        result.add(new Packet("input", "CALLER_DESCRIPTION", input.problemId(), description));
+        result.add(new Packet("input", "CALLER_DESCRIPTION", source, description));
         if (input.businessContext() != null) {
-            result.add(new Packet("business-context", "CALLER_BUSINESS_CONTEXT", input.problemId(), input.businessContext().toString()));
+            result.add(new Packet("business-context", "CALLER_BUSINESS_CONTEXT", source, input.businessContext().toString()));
         }
-        if (input.errorText() != null && !input.errorText().isBlank()) result.add(new Packet("error", "CALLER_ERROR", input.problemId(), input.errorText()));
+        if (input.errorText() != null && !input.errorText().isBlank()) result.add(new Packet("error", "CALLER_ERROR", source, input.errorText()));
         int number = 0;
         for (var attachment : input.attachmentTexts()) result.add(new Packet("attachment-" + ++number, "CALLER_ATTACHMENT_TEXT", attachment.id(), attachment.text()));
         var catalog = projects.list(false);

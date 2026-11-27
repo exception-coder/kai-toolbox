@@ -42,10 +42,12 @@ public record ConsultAnalysisInput(String agentId, String tenantId, String probl
     }
 
     public ConsultAnalysisInput validated() {
-        if (!AGENT_ID.equals(agentId)) throw ConsultBackendException.invalid("agentId 必须为 it-support-partner");
+        boolean continuous = externalUserId != null;
+        String resolvedAgent = continuous && agentId == null ? AGENT_ID : agentId;
+        if (!AGENT_ID.equals(resolvedAgent)) throw ConsultBackendException.invalid("agentId 必须为 it-support-partner");
         ConsultBackendAuth.identifier(tenantId, "tenantId");
-        ConsultBackendAuth.identifier(problemId, "problemId");
-        ConsultBackendAuth.identifier(conversationId, "conversationId");
+        if (!continuous || problemId != null) ConsultBackendAuth.identifier(problemId, "problemId");
+        if (!continuous || conversationId != null) ConsultBackendAuth.identifier(conversationId, "conversationId");
         if (externalUserId != null) {
             ConsultBackendAuth.identifier(externalUserId, "externalUserId");
             if (replyMode != null && !flexibleReplies()) {
@@ -53,7 +55,7 @@ public record ConsultAnalysisInput(String agentId, String tenantId, String probl
             }
         }
         if (requestId == null || !requestId.matches("[A-Za-z0-9_-]{8,100}")) throw ConsultBackendException.invalid("requestId 须为 8–100 位字母数字、下划线或短横线");
-        text(title, 200, true); text(description, 12000, true); text(errorText, 12000, false);
+        text(title, 200, !continuous || title != null); text(description, 12000, true); text(errorText, 12000, false);
         var context = list(recentContext, 10);
         context.forEach(s -> text(s, 2000, true));
         var systems = list(systemIds, 8);
@@ -96,7 +98,7 @@ public record ConsultAnalysisInput(String agentId, String tenantId, String probl
         if ((businessInstructions != null || businessContext != null) && replyMode != null && !flexibleReplies()) {
             throw ConsultBackendException.invalid("业务规则和资料仅用于 FORGE_FLEX 模式");
         }
-        return new ConsultAnalysisInput(agentId, tenantId, problemId, conversationId, requestId, title, description,
+        return new ConsultAnalysisInput(resolvedAgent, tenantId, problemId, conversationId, requestId, title, description,
                 context, classification, systems, errorText, attachments, refs, images, replyMode, businessInstructions, businessContext, externalImages, externalUserId);
     }
 

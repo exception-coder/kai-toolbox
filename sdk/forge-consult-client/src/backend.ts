@@ -1,14 +1,14 @@
 /** Server-only application client. Separate credentials and contract from the employee WSS client. */
-export interface AnalysisInput {
+interface AnalysisInputFields {
   /** Stable business user within this authenticated client + tenant. Enables persistent Codex context (FORGE_FLEX only). */
   externalUserId?: string;
-  agentId: 'it-support-partner';
+  agentId?: 'it-support-partner';
   tenantId: string;
-  problemId: string;
-  conversationId: string;
+  problemId?: string;
+  conversationId?: string;
   /** Persist with the complete input before submission. Never replace it merely because of a timeout. */
   requestId: string;
-  title: string;
+  title?: string;
   description: string;
   recentContext?: string[];
   classification?: { decision: 'IT' | 'NOT_IT' | 'UNKNOWN'; reason: string };
@@ -28,6 +28,12 @@ export interface AnalysisInput {
   businessContext?: unknown;
   evidenceRefs?: { projectId: string; path: string; startLine: number; endLine: number }[];
 }
+
+/** Continuous messages need only tenant, user, request ID and content; legacy stateless inputs stay unchanged. */
+export type AnalysisInput = AnalysisInputFields & (
+  | { externalUserId: string; replyMode?: 'FORGE_FLEX' }
+  | { externalUserId?: undefined; agentId: 'it-support-partner'; problemId: string; conversationId: string; title: string }
+);
 
 export interface AnalysisResult {
   schemaVersion: '1.0' | '1.1' | '1.2' | '1.3';
@@ -70,8 +76,8 @@ export interface AnalysisTask {
   externalUserId?: string;
   taskId: string;
   requestId: string;
-  problemId: string;
-  conversationId: string;
+  problemId: string | null;
+  conversationId: string | null;
   status: 'QUEUED' | 'RUNNING' | 'CANCEL_REQUESTED' | 'SUCCEEDED' | 'NEEDS_INFORMATION' | 'FAILED' | 'CANCELLED' | 'TIMED_OUT' | 'INTERRUPTED';
   result: AnalysisResult | null;
   error: { code: string; message: string; retryable: boolean } | null;

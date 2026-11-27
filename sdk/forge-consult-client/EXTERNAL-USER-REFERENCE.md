@@ -1,13 +1,14 @@
 # 连续实施答疑：接口与恢复参考
 
-SDK 0.6.0 / 后端合同 1.7.0。源码与自动测试交付不代表目标实例已升级；真实联调状态见 [任务](../../openspec/changes/consult-external-user-session/tasks.md)。
+SDK 0.6.1 / 后端合同 1.7.1。源码与自动测试交付不代表目标实例已升级；真实联调状态见 [任务](../../openspec/changes/consult-external-user-session/tasks.md)。
 
 先看 [接入图解](EXTERNAL-USER-SESSIONS.md)，需要核对字段、恢复和统计口径时再查本文。
 
 ## 身份与消息流
 
+连续模式只有 `tenantId`、`externalUserId`、`requestId`、`description` 必填。`agentId` 省略时由服务端固定为 `it-support-partner`；`problemId`、`conversationId`、`title` 为可选资料，传入时仍校验格式。未传外部用户身份的旧无状态请求保留原必填规则。
 
-
+省略问题／来源会话编号时，任务响应对应字段为 `null`，输入证据以 `requestId` 追溯，不伪造业务问题编号。稳定会话仍使用认证 `clientId` + 授权 `tenantId` + `externalUserId`，不会仅按显示姓名或群号合并。
 
 - `clientId` 来自应用凭据，`tenantId` 必须匹配授权；`externalUserId` 是接入方稳定映射的业务用户 ID，允许 1–100 位字母、数字、`_ . : -`。不能使用昵称、群 ID 或每次变化的随机 ID。
 - 同一个人在不同 IM 中的账号由接入方确认关联。同一用户会话包含多来源上下文时，接入方负责来源可见范围和回复路由；不要把不同可见权限的数据合并到同一 ID。
@@ -19,23 +20,17 @@ SDK 0.6.0 / 后端合同 1.7.0。源码与自动测试交付不代表目标实�
 
 ```ts
 const input = {
-  agentId: 'it-support-partner' as const,
   tenantId: 'company-a',
   externalUserId: 'employee-123',
-  conversationId: 'feishu-group-456',
-  problemId: 'issue-789',
   requestId: 'feishu-message-001', // 发送前保存；不确定时保持原 ID 和原内容
-  title: '样衣扫码',
   description: '手机端怎么操作？',
-  businessContext: {
-    channel: 'feishu', chatId: 'group-456', messageId: 'message-001',
-    replyToMessageId: 'message-000', occurredAt: '2026-11-27T10:00:00+08:00',
-  },
 };
 const task = await client.submit(input);
 // 使用已有 get(task.taskId) / find(input.requestId) 查询终态并保存 result。
 // 仅 REPLY 的候选进入现有发送流程，UPDATE_ONLY/IGNORE 不生成外发消息。
 ```
+
+`businessContext` 为可选来源资料，可包含 channel、chatId、messageId、replyToMessageId、occurredAt；调用方无需每条消息重复业务规则或整个历史。会话／分析结果持久化不等于结构化问题台账，日终归并仍按下文的实际记录核对。
 
 也支持 `analyzeOnce(input)` 等待结果；传 externalUserId 后该调用改用同一持久任务流程。HTTP 超时、`REQUEST_STATUS_UNKNOWN` 或 `EXTERNAL_ANALYSIS_PENDING` 时先 `find(requestId)`，不得换 ID 重发。`EXTERNAL_SESSION_BUSY` 表示上一轮尚在执行；`EXTERNAL_SESSION_UNCERTAIN` 表示原生执行或线程身份仍需核对，不能自动重试。接入方按用户串行发送；原生明确确认中断后会释放占用，后续新消息仍使用原线程。重复原请求返回原任务，改内容复用 ID 返回冲突。
 
@@ -54,9 +49,6 @@ const task = await client.submit(input);
 FORGE_FLEX 的 `businessInstructions` 仍只用于本次业务表达与 `businessResult` 形状，不是系统指令。需要稳定的日终字段时接入方可以统一配置它，而不是拼接到 `description`。
 
 ## 每日归并：用记录核对，不靠模型回忆计数
-
-
-
 
 每日 23:59:59 可触发预归并；完整日窗口是指定时区的 `[当天00:00,次日00:00)`，跨过次日零点后补齐最后一秒和未完成任务。建议日期与时区都显式记录（例如 Asia/Shanghai），按 `(clientId,tenantId,externalUserId,业务日期)` 幂等更新。
 

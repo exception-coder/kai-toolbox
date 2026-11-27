@@ -1,22 +1,22 @@
 # 业务咨询 SDK：一个用户，一条持续答疑会话
 
-ITCS 把同一业务用户的消息交给 Forge，业务追问沿用历史，闲聊不打扰。适用于后端 SDK 0.6.0 的 FORGE_FLEX 模式。
+ITCS 把同一业务用户的消息交给 Forge，业务追问沿用历史，闲聊不打扰。适用于后端 SDK 0.6.1 的 FORGE_FLEX 模式。
 
 ## 01 · 身份固定，问题接着聊
 
 ![用户身份、固定会话与消息处理](diagrams/external-user-1.png)
 
-- 只需在现有请求中增加稳定的 `externalUserId`；`clientId` 来自应用凭据，`tenantId` 按已有授权校验。
+- 每条消息只必填 `tenantId`、`externalUserId`、`requestId`、`description`；`clientId` 来自应用凭据，无需重复传入。
 - 规则由 Forge 每轮通过独立指令通道带入，用户原文不再追加模板。固定规则可以统一更新，不代表只发送或计费一次。
 - 不传新参数，继续使用原来的无状态分析；开启后会持久保留任务与原生会话上下文。
 
 ## 02 · 接入时，先跑通一次追问
 
-在现有 `ForgeConsultBackendClient` 调用上补充用户编号，并按用户串行提交：
+使用 `ForgeConsultBackendClient` 按用户串行提交；无需预先填写问题编号、来源会话编号或标题：
 
 ```ts
 const task = await client.submit({
-  ...existingInput,                   // 保留租户、问题、原消息等既有字段
+  tenantId: 'company-a',               // 必须匹配当前应用授权
   externalUserId: 'employee-123',      // 同一用户始终使用相同 ID
   requestId: 'feishu-message-002',      // 每条新消息使用独立、已保存的 ID
   description: '刚才那个手机入口叫什么？',
@@ -25,6 +25,8 @@ const saved = await client.get(task.taskId); // 查询到终态后处理 result
 ```
 
 **成功标志：** 前后两轮的 `result.session.id` 相同，标题以 `-实施答疑` 结尾。仅 `REPLY` 进入现有回复流程，`UPDATE_ONLY / IGNORE` 不外发。
+
+群聊来源、引用消息和时间可放入可选 `businessContext`；附件按原协议补充。`requestId` 用于防重复，不能省略。Forge 保存会话和分析结果；不传 `problemId` 不代表已经生成结构化问题台账。
 
 **异常处理：** 超时先用 `find(requestId)` 查原任务；忙碌时等上一轮，不确定时核对原任务，不能换 ID 重发。完整初始化、字段与恢复规则见 [接口参考](EXTERNAL-USER-REFERENCE.md) 和 [后端协议](BACKEND.md)。
 
