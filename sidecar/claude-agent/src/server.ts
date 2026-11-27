@@ -388,6 +388,7 @@ wss.on('connection', (ws) => {
             authToken: msg.authToken as string | undefined,
             codexHome: msg.codexHome as string | undefined,
             toolPolicy: msg.toolPolicy as string | undefined,
+            conversation: msg.conversation as { id: string; threadId?: string; title: string } | undefined,
           },
         )
         break

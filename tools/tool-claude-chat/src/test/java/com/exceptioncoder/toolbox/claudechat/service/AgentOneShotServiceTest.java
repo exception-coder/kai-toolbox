@@ -23,6 +23,38 @@ import static org.mockito.Mockito.verifyNoInteractions;
 class AgentOneShotServiceTest {
 
     @Test
+    void conversationPersistsNativeIdentityBeforeReturningAndPassesServerOwnedResumeMetadata() throws Exception {
+        var sidecar = mock(SidecarClient.class);
+        var service = new AgentOneShotService(mock(SidecarProcessRegistry.class), sidecar,
+                new ClaudeChatProperties(), AgentTelemetry.noop(256), new AgentWorkAdmissionGate(), mock(CodexModelCatalogService.class));
+        var mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+        var conversation = new com.exceptioncoder.toolbox.llm.spi.AgentOneShotRunner.Conversation("session-1", "native-1", "user-a-实施答疑");
+        var bound = new java.util.concurrent.atomic.AtomicReference<String>();
+        var interrupted = new AtomicBoolean();
+        doAnswer(call -> {
+            assertThat((Object) call.getArgument(5)).isEqualTo(conversation);
+            String id = call.getArgument(0);
+            service.handle(id, mapper.readTree("{\"type\":\"init\",\"sdkSessionId\":\"native-1\"}"));
+            assertThat(bound.get()).isEqualTo("native-1");
+            service.handle(id, mapper.readTree("{\"type\":\"assistantDelta\",\"text\":\"reply\"}"));
+            service.handle(id, mapper.createObjectNode().put("type", "result")
+                    .put("stopReason", interrupted.get() ? "interrupted" : "end_turn"));
+            return null;
+        }).when(sidecar).conversationTurn(anyString(), any(), org.mockito.ArgumentMatchers.anyList(), any(), any(), any());
+        assertThat(service.runConversation(ExecutionRequest.text("rules", "message", "model", "codex"),
+                java.util.UUID.randomUUID().toString(), conversation, java.util.List.of(), bound::set)).isEqualTo("reply");
+        interrupted.set(true);
+        assertThatThrownBy(() -> service.runConversation(ExecutionRequest.text("rules", "message", "model", "codex"),
+                java.util.UUID.randomUUID().toString(), conversation, java.util.List.of(), bound::set))
+                .isInstanceOf(com.exceptioncoder.toolbox.llm.spi.AgentOneShotRunner.ConversationTurnStoppedException.class);
+        assertThatThrownBy(() -> service.runConversation(ExecutionRequest.text("rules", "message", "model", "codex"),
+                java.util.UUID.randomUUID().toString(), conversation, java.util.List.of(),
+                threadId -> { throw new IllegalStateException("identity save failed"); }))
+                .isNotInstanceOf(com.exceptioncoder.toolbox.llm.spi.AgentOneShotRunner.ConversationTurnStoppedException.class)
+                .hasMessageContaining("受管分析引擎未正常完成");
+    }
+
+    @Test
     void managedImagesReachExistingSidecarWithoutChangingCancellationOrDisabledTools() throws Exception {
         var sidecar = mock(SidecarClient.class);
         var catalog = mock(CodexModelCatalogService.class);

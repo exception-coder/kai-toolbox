@@ -63,7 +63,8 @@ public class ConsultAnalysisService {
     public record TaskView(String taskId, String requestId, String problemId, String conversationId, String status,
                            JsonNode result, Map<String, Object> error, long createdAt, Long startedAt,
                            Long finishedAt, Long policyVersion,
-                           @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_EMPTY) List<String> attachmentIds) {}
+                           @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_EMPTY) List<String> attachmentIds,
+                           @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL) String externalUserId) {}
 
     public record DirectResult(String requestId, JsonNode result) {}
 
@@ -72,6 +73,9 @@ public class ConsultAnalysisService {
         authorize(client, input);
         if (!input.attachmentIds().isEmpty()) {
             throw ConsultBackendException.invalid("即时分析请使用 imageRefs，不接受已上传附件");
+        }
+        if (input.externalUserId() != null) {
+            return awaitPersistentAnalysis(client, raw);
         }
         if (!input.imageRefs().isEmpty()) { externalImages.requireAccess(client); }
         if (!slots.tryAcquire()) {
@@ -133,6 +137,28 @@ public class ConsultAnalysisService {
         }
     }
 
+    private DirectResult awaitPersistentAnalysis(ConsultBackendStore.Client client, String raw) {
+        var task = submit(client, raw);
+        long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.MILLISECONDS.toNanos(timeoutMs);
+        while (List.of("QUEUED", "RUNNING", "CANCEL_REQUESTED").contains(task.status())) {
+            if (System.nanoTime() >= deadline) {
+                throw new ConsultBackendException(504, "EXTERNAL_ANALYSIS_PENDING", "任务已受理，请按原 requestId 查询结果，不要创建新的请求", true);
+            }
+            try { Thread.sleep(50); }
+            catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                throw new ConsultBackendException(503, "EXTERNAL_ANALYSIS_PENDING", "等待中断，请按原 requestId 查询结果", true);
+            }
+            auth.active(client.id());
+            task = get(client, task.taskId());
+        }
+        if (task.result() == null) {
+            throw new ConsultBackendException(409, task.error() == null ? "ANALYSIS_FAILED" : task.error().get("code").toString(),
+                    "本次任务未产生有效结果，请查询原任务后处理", false);
+        }
+        return new DirectResult(task.requestId(), task.result());
+    }
+
     public synchronized TaskView submit(ConsultBackendStore.Client client, String raw) {
         var input = parse(raw);
         authorize(client, input);
@@ -144,6 +170,15 @@ public class ConsultAnalysisService {
         if (existing.isPresent()) {
             if (!existing.get().inputHash().equals(hash)) throw new ConsultBackendException(409, "IDEMPOTENCY_CONFLICT", "相同 requestId 已用于不同内容", false);
             return view(existing.get());
+        }
+        if (input.externalUserId() != null) {
+            if (store.externalUserPending(client.id(), input)) {
+                throw new ConsultBackendException(409, "EXTERNAL_SESSION_BUSY", "该用户已有进行中任务，请先查询原任务", true);
+            }
+            if (store.findExternalSession(client.id(), input.tenantId(), input.externalUserId())
+                    .map(session -> session.activeTaskId() != null).orElse(false)) {
+                throw new ConsultBackendException(409, "EXTERNAL_SESSION_UNCERTAIN", "原生会话仍有结果待核对的任务，禁止自动重放", false);
+            }
         }
         // Existing request IDs are resolved above against the original caller input, before applying a new default.
         try { normalized = mapper.writeValueAsString(input.withDefaultMode()); }
@@ -280,13 +315,16 @@ public class ConsultAnalysisService {
             var error = t.errorCode() == null ? null : Map.<String, Object>of("code", t.errorCode(),
                     "message", message(t.errorCode()), "retryable", List.of("ANALYSIS_FAILED", "ANALYSIS_TIMEOUT", "EXECUTION_INTERRUPTED", "INVALID_ANALYSIS_OUTPUT", "ANALYSIS_NOT_CONFIGURED").contains(t.errorCode()));
             return new TaskView(t.id(), t.requestId(), input.problemId(), input.conversationId(), t.status(),
-                    t.result() == null ? null : mapper.readTree(t.result()), error, t.createdAt(), t.startedAt(), t.finishedAt(), t.policyVersion(), input.attachmentIds());
+                    t.result() == null ? null : mapper.readTree(t.result()), error, t.createdAt(), t.startedAt(), t.finishedAt(), t.policyVersion(), input.attachmentIds(), input.externalUserId());
         } catch (ConsultBackendException e) { throw e; }
         catch (Exception e) { throw new IllegalStateException("分析任务记录不可读", e); }
     }
 
     private static String message(String code) {
         return switch (code) {
+            case "EXTERNAL_SESSION_UNCERTAIN" -> "原生执行或线程身份未确认，请核对原任务与线程，不要自动重发";
+            case "EXTERNAL_SESSION_ACCOUNT_CHANGED" -> "咨询默认账号已变化，原生历史未跨账号续接";
+            case "EXTERNAL_SESSION_SCOPE_CHANGED" -> "应用授权系统已变化，历史上下文需核对后再使用";
             case "ANALYSIS_TIMEOUT" -> "分析超时，问题已保留；重试须使用新 requestId";
             case "EXECUTION_INTERRUPTED" -> "上次执行被中断，未自动重发；可显式发起新任务";
             case "CANCELLED_BY_CALLER" -> "调用方已请求取消，请以任务最终状态为准";

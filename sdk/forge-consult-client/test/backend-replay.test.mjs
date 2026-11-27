@@ -12,6 +12,15 @@ const result = { schemaVersion: '1.2', businessResult: null, missingInformation:
   humanHandoff: { recommended: true, reason: '需人工核查仓库关联' }, replyCandidates: [], evidence: [] };
 const task = { taskId: 'task-1', requestId: input.requestId, status: 'SUCCEEDED', result };
 
+test('external quiet results are distinct from handoff and retain user isolation', () => {
+  const persistent = { ...task, externalUserId: 'user-a', result: { ...result, schemaVersion: '1.3',
+    messageAction: 'IGNORE', session: { source: 'CONSULT_SDK', externalUserId: 'user-a' },
+    humanHandoff: { recommended: false, reason: '无关闲聊' } } };
+  assert.deepEqual(checkReplayResult(persistent, []), []);
+  assert.ok(checkReplayResult({ ...persistent, externalUserId: 'user-b' }, []).includes('INVALID_SESSION_RESULT'));
+  assert.ok(checkReplayResult({ ...persistent, result: { ...persistent.result, humanHandoff: result.humanHandoff } }, []).includes('QUIET_ACTION_HAS_REPLY'));
+});
+
 test('lost submit resumes the original task and completed replay performs no new model request', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'forge-replay-'));
   try {

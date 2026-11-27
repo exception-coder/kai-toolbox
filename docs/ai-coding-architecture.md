@@ -1374,6 +1374,23 @@ clientId + requestId 唯一绑定完整规范化调用方输入，重复登记�
 
 管理员从业务咨询原配置进入 `/tools/fore-consult/access`，复用同一应用授权存储及管理员身份，查看有界的安全元数据并颁发、轮换/续期、撤销凭据。管理允许在分析开关关闭时先准备授权，换票/分析仍独立受功能开关约束；页面不修改启动配置或重启服务。可选 Idempotency-Key 按管理员与请求 UUID 确定稳定 clientId，已完成的相同意图返回 409，不重复颁发或重显密钥；页面 sessionStorage 只保留该 UUID 及非敏感申请草稿，不含密钥。原无请求头的签发合同保留，同一应用的独立授权不受限制；重复撤销不增加版本，首版单实例，不新增分布式锁或迁移。明文密钥仅在当次写响应及组件临时内存出现，元数据查询不读取摘要，Query 缓存和持久存储不保存密钥。配置交付由管理员显式复制/下载，应用本地部署须由其本地 Forge 颁发，凭据不跨实例通用。流程补充为“管理员 → 本实例凭据管理 → 现有应用认证”，不改变上述分析任务及人审发送链路。
 
+### 外部业务用户连续实施答疑
+
+后端 SDK 0.6.0 可选 `externalUserId`，由认证 clientId、授权 tenantId 和稳定外部用户标识共同定位 `consult_external_session`。不创建 Forge 用户，不允许调用方指定原生线程；未传用户 ID 保持无状态入口。连续模式复用持久任务幂等与查询，即时等待丢失时也按原 requestId 恢复。会话固化账号目录与模型，授权范围改变或原生终态未知时停止自动续接，不跨账号、跨用户拼接历史。
+
+```mermaid
+flowchart LR
+    Caller[接入方认证与用户映射] --> Task[现有分析任务与幂等查询]
+    Task --> Mapping[应用 + 租户 + 外部用户会话映射]
+    Mapping --> Runner[公共 runConversation 端口]
+    Runner --> Native[Codex App Server start / resume]
+    Policy[平台固定开发者指令] --> Native
+    Native --> Result[动作 + 建议回复 + 业务结果]
+    Result --> Archive[接入方保存并日终归并]
+```
+
+平台指令每轮从服务端装配到 developerInstructions，IM 原文只作为数据。该分析入口继续禁用工具，不继承内部交互咨询的浏览器或资源权限。持久 thread 不执行临时线程删除；SDK 来源与 `-实施答疑` 标题可识别。结果 1.3 明确 REPLY/UPDATE_ONLY/IGNORE，闲聊不等于人工转交。接入方保留原消息、实际发送和知识库审核职责；连续模式明确持久保留任务与原生上下文，不适用旧无状态“不保留历史”描述。详细时区、迟到消息及统计口径见 [连续答疑图解](../sdk/forge-consult-client/EXTERNAL-USER-SESSIONS.md)；实施及真实加载状态见 [任务](../openspec/changes/consult-external-user-session/tasks.md)。
+
 ## 咨询建议整理与登记
 
 咨询平台的需求建议由fore-consult模块持有，区别于单轮回答评分和需求池待执行开发任务。登录用户输入原文，已有AgentOneShotRunner在禁用工具、无项目目录的纯文本请求中整理；服务端校验有界JSON，用户可编辑并提交，模型输出不直接入库。作者来自服务端身份，唯一用户与提交键保证安全重试，原文与标准描述同时保留。模型不可用时支持手填，不引入新的执行器或外部任务系统。

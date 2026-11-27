@@ -1,5 +1,7 @@
 /** Server-only application client. Separate credentials and contract from the employee WSS client. */
 export interface AnalysisInput {
+  /** Stable business user within this authenticated client + tenant. Enables persistent Codex context (FORGE_FLEX only). */
+  externalUserId?: string;
   agentId: 'it-support-partner';
   tenantId: string;
   problemId: string;
@@ -28,7 +30,9 @@ export interface AnalysisInput {
 }
 
 export interface AnalysisResult {
-  schemaVersion: '1.0' | '1.1' | '1.2';
+  schemaVersion: '1.0' | '1.1' | '1.2' | '1.3';
+  messageAction?: 'REPLY' | 'UPDATE_ONLY' | 'IGNORE';
+  session?: { id: string; externalUserId: string; title: string; source: 'CONSULT_SDK' };
   businessResult?: Record<string, unknown> | null;
   understanding: string;
   category: 'ACCESS' | 'PRINTING' | 'DATA' | 'WORKFLOW' | 'INTEGRATION' | 'OTHER' | 'UNKNOWN';
@@ -38,7 +42,7 @@ export interface AnalysisResult {
   missingInformation: string[];
   unknowns: string[];
   humanHandoff: { recommended: boolean; reason: string };
-  evidence: { id: string; kind: 'CALLER_DESCRIPTION' | 'CALLER_BUSINESS_CONTEXT' | 'CALLER_ERROR' | 'CALLER_ATTACHMENT_TEXT' | 'CALLER_IMAGE' | 'SERVER_SOURCE'; source: string; text: string }[];
+  evidence: { id: string; kind: 'CALLER_DESCRIPTION' | 'CALLER_BUSINESS_CONTEXT' | 'CALLER_ERROR' | 'CALLER_ATTACHMENT_TEXT' | 'CALLER_IMAGE' | 'CALLER_HISTORY' | 'SERVER_SOURCE'; source: string; text: string }[];
   /** Server-owned coverage statement, separate from the model's unknowns. */
   evidenceLimitations: string;
   replyCandidatesGeneratedBy: 'CALLER' | 'FORGE';
@@ -63,6 +67,7 @@ export type ExternalAnalysisImage = Omit<AnalysisImage, 'attachmentId' | 'upload
   & { attachmentId: `external-${string}`; uploadId?: never; createdAt?: never; expiresAt?: never };
 
 export interface AnalysisTask {
+  externalUserId?: string;
   taskId: string;
   requestId: string;
   problemId: string;
@@ -124,11 +129,16 @@ export class ForgeConsultBackendClient {
     try {
       const response = await this.authorized('/analyze-once', { method: 'POST', body: JSON.stringify(input),
         headers: { 'Content-Type': 'application/json' } }, this.options.analyzeOnceTimeoutMs ?? 195000);
-      if (response?.requestId !== input.requestId || !['1.0', '1.1', '1.2'].includes(response?.result?.schemaVersion))
+      if (response?.requestId !== input.requestId || !['1.0', '1.1', '1.2', '1.3'].includes(response?.result?.schemaVersion))
         throw new ConsultBackendError('INVALID_RESPONSE', '即时分析响应不符合合同');
+      if (input.externalUserId && (response.result.schemaVersion !== '1.3'
+        || response.result.session?.externalUserId !== input.externalUserId
+        || response.result.session?.source !== 'CONSULT_SDK'
+        || !['REPLY', 'UPDATE_ONLY', 'IGNORE'].includes(response.result.messageAction)))
+        throw new ConsultBackendError('INVALID_RESPONSE', '连续答疑响应身份或处理动作不符合合同');
       return response;
     } catch (error) {
-      if (error instanceof ConsultBackendError && error.code === 'REQUEST_STATUS_UNKNOWN')
+      if (!input.externalUserId && error instanceof ConsultBackendError && error.code === 'REQUEST_STATUS_UNKNOWN')
         throw new ConsultBackendError('DIRECT_RESPONSE_LOST', '未收到即时分析结果，调用方可重新发起分析', undefined, true);
       throw error;
     }

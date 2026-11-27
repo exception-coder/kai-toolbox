@@ -1,8 +1,8 @@
 openapi: 3.0.3
 info:
   title: Forge Business Consultation Backend Analysis
-  version: 1.6.0
-  description: 'Source contract, not deployment proof. SDK 0.5.0 adds application-scoped image receipt reuse and quota diagnostics; new tasks default to FORGE_FLEX. Existing credentials, stored tasks and request recovery are preserved.'
+  version: 1.7.0
+  description: 'Source contract, not deployment proof. SDK 0.6.0 adds optional externalUserId for persistent implementation Q&A; omitted identity keeps stateless analysis. Existing credentials and request recovery are preserved.'
 servers:
   - url: http://127.0.0.1:18080
     description: Local-instance example only; replace port with the developer's verified Forge port. Never another colleague's machine.
@@ -346,6 +346,9 @@ components:
         tenantId: { $ref: '#/components/schemas/Identifier' }
         problemId: { $ref: '#/components/schemas/Identifier' }
         conversationId: { $ref: '#/components/schemas/Identifier' }
+        externalUserId:
+          allOf: [{ $ref: '#/components/schemas/Identifier' }]
+          description: 'Optional stable user within authenticated clientId and authorized tenantId. FORGE_FLEX only; enables durable native conversation and result 1.3. Caller cannot supply a native thread ID.'
         requestId: { type: string, pattern: '^[A-Za-z0-9_-]{8,100}$' }
         title: { type: string, minLength: 1, maxLength: 200 }
         description: { type: string, minLength: 1, maxLength: 12000 }
@@ -444,8 +447,26 @@ components:
           properties:
             replyCandidatesGeneratedBy: { enum: [FORGE] }
             schemaVersion: { enum: ['1.2'] }
+        - required: [businessResult, replyCandidates, messageAction, session]
+          properties:
+            replyCandidatesGeneratedBy: { enum: [FORGE] }
+            schemaVersion: { enum: ['1.3'] }
+            replyCandidates: { minItems: 0, maxItems: 1 }
       properties:
-        schemaVersion: { type: string, enum: ['1.0', '1.1', '1.2'], description: '1.2 for FORGE_FLEX, 1.0/1.1 retained for legacy modes.' }
+        schemaVersion: { type: string, enum: ['1.0', '1.1', '1.2', '1.3'], description: '1.3 for external user conversations; 1.2 for stateless FORGE_FLEX.' }
+        messageAction:
+          type: string
+          enum: [REPLY, UPDATE_ONLY, IGNORE]
+          description: 'UPDATE_ONLY/IGNORE have no reply candidates, missing questions or human handoff. REPLY contains at most one best reply; unavailable evidence may require handoff.'
+        session:
+          type: object
+          additionalProperties: false
+          required: [id, externalUserId, title, source]
+          properties:
+            id: { type: string, description: 'Server-owned stable logical session; not the native thread ID.' }
+            externalUserId: { $ref: '#/components/schemas/Identifier' }
+            title: { type: string, description: 'Ends with -实施答疑.' }
+            source: { type: string, enum: [CONSULT_SDK] }
         businessResult:
           type: object
           nullable: true
@@ -495,7 +516,7 @@ components:
             required: [id, kind, source, text]
             properties:
               id: { type: string }
-              kind: { type: string, enum: [CALLER_DESCRIPTION, CALLER_BUSINESS_CONTEXT, CALLER_ERROR, CALLER_ATTACHMENT_TEXT, CALLER_IMAGE, SERVER_SOURCE] }
+              kind: { type: string, enum: [CALLER_DESCRIPTION, CALLER_BUSINESS_CONTEXT, CALLER_ERROR, CALLER_ATTACHMENT_TEXT, CALLER_IMAGE, CALLER_HISTORY, SERVER_SOURCE] }
               source: { type: string, description: Opaque caller reference or approved project ID plus relative source location. }
               text: { type: string }
         replyCandidatesGeneratedBy: { type: string, enum: [CALLER, FORGE] }
@@ -607,6 +628,7 @@ components:
         requestId: { type: string }
         problemId: { type: string }
         conversationId: { type: string }
+        externalUserId: { $ref: '#/components/schemas/Identifier' }
         status: { type: string, enum: [QUEUED, RUNNING, CANCEL_REQUESTED, SUCCEEDED, NEEDS_INFORMATION, FAILED, CANCELLED, TIMED_OUT, INTERRUPTED] }
         result:
           nullable: true

@@ -11,7 +11,19 @@ public record ConsultAnalysisInput(String agentId, String tenantId, String probl
         @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL) String replyMode,
         @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL) String businessInstructions,
         @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL) com.fasterxml.jackson.databind.JsonNode businessContext,
-        @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_EMPTY) List<ImageRef> imageRefs) {
+        @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_EMPTY) List<ImageRef> imageRefs,
+        @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL) String externalUserId) {
+
+    public ConsultAnalysisInput(String agentId, String tenantId, String problemId, String conversationId,
+            String requestId, String title, String description, List<String> recentContext,
+            Classification classification, List<String> systemIds, String errorText,
+            List<AttachmentText> attachmentTexts, List<EvidenceRef> evidenceRefs, List<String> attachmentIds,
+            String replyMode, String businessInstructions, com.fasterxml.jackson.databind.JsonNode businessContext,
+            List<ImageRef> imageRefs) {
+        this(agentId, tenantId, problemId, conversationId, requestId, title, description, recentContext,
+                classification, systemIds, errorText, attachmentTexts, evidenceRefs, attachmentIds,
+                replyMode, businessInstructions, businessContext, imageRefs, null);
+    }
 
     public static final String AGENT_ID = "it-support-partner";
     public record Classification(String decision, String reason) {}
@@ -26,7 +38,7 @@ public record ConsultAnalysisInput(String agentId, String tenantId, String probl
     public ConsultAnalysisInput withDefaultMode() {
         return replyMode != null ? this : new ConsultAnalysisInput(agentId, tenantId, problemId, conversationId,
                 requestId, title, description, recentContext, classification, systemIds, errorText,
-                attachmentTexts, evidenceRefs, attachmentIds, "FORGE_FLEX", businessInstructions, businessContext, imageRefs);
+                attachmentTexts, evidenceRefs, attachmentIds, "FORGE_FLEX", businessInstructions, businessContext, imageRefs, externalUserId);
     }
 
     public ConsultAnalysisInput validated() {
@@ -34,6 +46,12 @@ public record ConsultAnalysisInput(String agentId, String tenantId, String probl
         ConsultBackendAuth.identifier(tenantId, "tenantId");
         ConsultBackendAuth.identifier(problemId, "problemId");
         ConsultBackendAuth.identifier(conversationId, "conversationId");
+        if (externalUserId != null) {
+            ConsultBackendAuth.identifier(externalUserId, "externalUserId");
+            if (replyMode != null && !flexibleReplies()) {
+                throw ConsultBackendException.invalid("externalUserId 仅用于 FORGE_FLEX 连续实施答疑");
+            }
+        }
         if (requestId == null || !requestId.matches("[A-Za-z0-9_-]{8,100}")) throw ConsultBackendException.invalid("requestId 须为 8–100 位字母数字、下划线或短横线");
         text(title, 200, true); text(description, 12000, true); text(errorText, 12000, false);
         var context = list(recentContext, 10);
@@ -79,7 +97,7 @@ public record ConsultAnalysisInput(String agentId, String tenantId, String probl
             throw ConsultBackendException.invalid("业务规则和资料仅用于 FORGE_FLEX 模式");
         }
         return new ConsultAnalysisInput(agentId, tenantId, problemId, conversationId, requestId, title, description,
-                context, classification, systems, errorText, attachments, refs, images, replyMode, businessInstructions, businessContext, externalImages);
+                context, classification, systems, errorText, attachments, refs, images, replyMode, businessInstructions, businessContext, externalImages, externalUserId);
     }
 
     static void text(String value, int max, boolean required) {

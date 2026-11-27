@@ -1,6 +1,6 @@
 {
   "name": "@kai/forge-consult-client",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Forge 业务咨询客户端：有界 WSS 与应用身份图文分析、回复候选",
   "type": "module",
   "main": "./dist/index.js",
@@ -9,7 +9,7 @@
     ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" },
     "./backend": { "types": "./dist/backend.d.ts", "import": "./dist/backend.js" }
   },
-  "files": ["dist", "README.md", "BACKEND.md", "HANDOFF-YOOONI-AGENT.md", "openapi-backend.yaml", "examples"],
+  "files": ["dist", "README.md", "BACKEND.md", "EXTERNAL-USER-SESSIONS.md", "diagrams", "HANDOFF-YOOONI-AGENT.md", "openapi-backend.yaml", "examples"],
   "engines": { "node": ">=22" },
   "scripts": {
     "build": "tsc -p tsconfig.json",

@@ -9,7 +9,7 @@ import { callAppServer, createCodexPredictionProcess, runCodexAppServerTurn, ste
 import { CodexPredictionCoordinator, readCodexPrediction } from './codexPrediction.js'
 import { observeCodexProcess } from './codexProcessLifetime.js'
 import { CONSULT_READONLY_PROMPT } from './codexSecurity.js'
-import { buildCodexConfig } from './codexEngine.js'
+import { buildCodexConfig, runCodexTurn } from './codexEngine.js'
 import { once } from 'node:events'
 import { codexResidentAppServers } from './codexResidentAppServer.js'
 
@@ -103,6 +103,10 @@ function fixture(mode: 'resident' | 'skillPriority' | 'browserDenied' | 'consult
       } else if (m.method === 'thread/read' && rolloutPath) {
         send({id:m.id,result:{thread:{path:rolloutPath,modelProvider:'openai'}}});
       } else if (m.method === 'thread/start' || m.method === 'thread/resume') {
+        if (m.params.config.developer_instructions === 'external-user-rules'
+          && m.params.developerInstructions !== 'external-user-rules') {
+          send({id:m.id,error:{message:'Persistent instructions missing on resume'}}); return;
+        }
         if (mode === 'skillPriority' && m.params.config['skills.config']?.[0]?.enabled !== false) {
           send({id:m.id,error:{message:'Project priority missing before thread startup'}}); return;
         }
@@ -175,6 +179,9 @@ function fixture(mode: 'resident' | 'skillPriority' | 'browserDenied' | 'consult
         send({id:m.id,result:{}});
         send({method:'thread/prediction/updated',params:{threadId:'lifecycle-thread',sourceTurnId:'lifecycle-turn',
           result:{type:'completed',text:'fixture suggestion'}}});
+      } else if (m.method === 'thread/name/set') {
+        process.send?.({name:m.params.name,threadId:m.params.threadId});
+        send({id:m.id,result:{}});
       } else send({id:m.id,result:{data:[]}});
     });
   `], { stdio: ['pipe', 'pipe', 'pipe', 'ipc'], windowsHide: true }) as ChildProcessWithoutNullStreams
@@ -205,6 +212,34 @@ const turnOptions = (sessionId: string, events: Record<string, unknown>[] = [], 
   sandbox: 'read-only' as const, approvalPolicy: 'never' as const,
   input: [{ type: 'text', text: 'fixture only' }], signal, emit: (event: Record<string, unknown>) => { events.push(event) },
   setThreadId: () => {},
+})
+
+test('external user resumes the exact native thread with independent instructions and a marked title', async t => {
+  const home = await mkdtemp(join(tmpdir(), 'external-consult-'))
+  t.after(() => rm(home, { recursive: true, force: true }))
+  const peer = fixture()
+  t.after(() => peer.release())
+  const names: unknown[] = []
+  peer.child.on('message', message => { names.push(message) })
+  const events: Record<string, unknown>[] = []
+  let nativeId: string | undefined
+  await runCodexTurn({
+    text: '手机端呢', cwd: home, codexHome: home, model: 'fixture', permissionMode: 'bypassPermissions',
+    sdkSessionId: 'lifecycle-thread', strictThreadContinuity: true, threadTitle: 'user-a-实施答疑',
+    developerInstructions: 'external-user-rules', toolPolicy: 'disabled', signal: new AbortController().signal,
+    emit: event => events.push(event), setSdkSessionId: id => { nativeId = id },
+  }, options => {
+    assert.equal(options.threadId, 'lifecycle-thread')
+    assert.equal(options.sandbox, 'read-only')
+    assert.equal(options.forbidMcpTools, true)
+    assert.equal(options.config?.developer_instructions, 'external-user-rules')
+    assert.equal((options.config?.features as Record<string, unknown>).shell_tool, false)
+    assert.equal(options.input[0]?.text, '手机端呢')
+    return runCodexAppServerTurn(options, peer.runtime)
+  })
+  assert.equal(nativeId, 'lifecycle-thread')
+  assert.ok(names.some(message => (message as { name?: string }).name === 'user-a-实施答疑'))
+  assert.equal(events.find(event => event.type === 'result')?.stopReason, 'end_turn')
 })
 
 test('ordinary resident turns and prediction share a process with separate threads and one handshake', async t => {

@@ -99,6 +99,18 @@ public class AgentOneShotService implements AgentOneShotRunner {
         return sidecar.interrupt(id);
     }
 
+    @Override
+    public String runConversation(ExecutionRequest request, String executionId, Conversation conversation,
+            List<ImageInput> images, Consumer<String> onThreadId) {
+        if (!"codex".equals(request.engine()) || !TOOL_POLICY_DISABLED.equals(request.toolPolicy())) {
+            throw new IllegalArgumentException("实施答疑会话仅支持禁用工具的 Codex 分析");
+        }
+        if (!images.isEmpty() && !supportsManagedImages(request)) {
+            throw new UnsupportedOperationException("所选模型未声明图片输入能力");
+        }
+        return executeObserved(request, null, images, managedId(executionId), conversation, onThreadId).text();
+    }
+
     private String managedId(String executionId) {
         if (executionId == null || !executionId.matches("[a-f0-9-]{36}")) throw new IllegalArgumentException("受管分析任务 ID 无效");
         return PREFIX + "consult-backend:" + executionId;
@@ -145,6 +157,11 @@ public class AgentOneShotService implements AgentOneShotRunner {
     }
 
     private ObservedResult executeObserved(ExecutionRequest request, Consumer<String> onDelta, List<ImageInput> images, String managedId) {
+        return executeObserved(request, onDelta, images, managedId, null, null);
+    }
+
+    private ObservedResult executeObserved(ExecutionRequest request, Consumer<String> onDelta, List<ImageInput> images,
+            String managedId, Conversation conversation, Consumer<String> onThreadId) {
         if (request == null || request.userPrompt() == null || request.userPrompt().isBlank()) {
             throw new IllegalArgumentException("一次性 Agent 任务的 userPrompt 不能为空");
         }
@@ -154,6 +171,7 @@ public class AgentOneShotService implements AgentOneShotRunner {
                 "agent-oneshot", id, engine, request.model());
         AgentSpan span = telemetry.start("agent.oneshot", metadata);
         Call call = new Call(onDelta, managedId != null);
+        call.onThreadId = onThreadId;
         // Registration and drain acquisition use the same lock. Once a drain lease is acquired,
         // no one-shot can slip in after the updater's final idle snapshot.
         boolean admitted;
@@ -171,7 +189,11 @@ public class AgentOneShotService implements AgentOneShotRunner {
             throw new IllegalStateException("系统正在准备自动更新，暂不接受新的 Agent 任务，请稍后重试");
         }
         try {
-            sidecar.oneShot(id, request, engine, images, span.traceContext(), metadata);
+            if (conversation == null) {
+                sidecar.oneShot(id, request, engine, images, span.traceContext(), metadata);
+            } else {
+                sidecar.conversationTurn(id, request, images, span.traceContext(), metadata, conversation);
+            }
             // A managed cancellation must retain its slot until Sidecar acknowledges terminal execution.
             // The owning durable task supplies the deadline and cancellation signal. Unknown exits are not replayed.
             ObservedResult result = call.managed ? call.future.get()
@@ -203,6 +225,7 @@ public class AgentOneShotService implements AgentOneShotRunner {
             // ExecutionException：解出 sidecar 报的原因
             Throwable cause = e.getCause() != null ? e.getCause() : e;
             span.fail(cause.getMessage(), cause);
+            if (cause instanceof ConversationTurnStoppedException stopped) throw stopped;
             throw new RuntimeException(cause.getMessage(), cause);
         } finally {
             calls.remove(id);
@@ -235,6 +258,15 @@ public class AgentOneShotService implements AgentOneShotRunner {
         }
         String type = node.path("type").asText("");
         switch (type) {
+            case "init" -> {
+                if (call.onThreadId != null && node.path("sdkSessionId").isTextual()) {
+                    try { call.onThreadId.accept(node.path("sdkSessionId").asText()); }
+                    catch (RuntimeException invalidIdentity) {
+                        call.error = "持久会话身份保存失败";
+                        sidecar.interrupt(requestId);
+                    }
+                }
+            }
             case "assistantDelta" -> {
                 String text = node.path("text").asText("");
                 if (!text.isEmpty()) {
@@ -273,7 +305,9 @@ public class AgentOneShotService implements AgentOneShotRunner {
                 call.text.append(node.path("text").asText(""));
             }
             case "result" -> {
-                if (call.managed && (call.error != null || !"end_turn".equals(node.path("stopReason").asText()))) {
+                if (call.onThreadId != null && call.error == null && "interrupted".equals(node.path("stopReason").asText())) {
+                    call.future.completeExceptionally(new ConversationTurnStoppedException());
+                } else if (call.managed && (call.error != null || !"end_turn".equals(node.path("stopReason").asText()))) {
                     call.future.completeExceptionally(new IllegalStateException("受管分析引擎未正常完成"));
                 } else {
                     call.future.complete(new ObservedResult(call.text.toString(), node.path("traceId").asText(null),
@@ -315,6 +349,7 @@ public class AgentOneShotService implements AgentOneShotRunner {
         final Consumer<String> onDelta;
         final boolean managed;
         volatile String error;
+        Consumer<String> onThreadId;
         final CompletableFuture<ObservedResult> future = new CompletableFuture<>();
 
         Call(Consumer<String> onDelta, boolean managed) {

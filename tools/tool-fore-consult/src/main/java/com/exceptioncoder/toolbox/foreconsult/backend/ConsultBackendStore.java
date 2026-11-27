@@ -12,6 +12,64 @@ import org.springframework.stereotype.Repository;
 public class ConsultBackendStore {
     private final JdbcTemplate jdbc;
 
+    public record ExternalSession(String id, String title, String codexHome, String model, String projects, String threadId,
+                                  String activeTaskId) {}
+
+    public ExternalSession externalSession(Client client, ConsultAnalysisInput input, String codexHome, String model) {
+        String title = input.externalUserId() + "-实施答疑";
+        jdbc.update("INSERT INTO consult_external_session (session_id, client_id, tenant_id, external_user_id, title, codex_home, model, project_ids, created_at) "
+                        + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (client_id, tenant_id, external_user_id) DO NOTHING",
+                java.util.UUID.randomUUID().toString(), client.id(), client.tenantId(), input.externalUserId(),
+                title, codexHome, model, client.projects(), System.currentTimeMillis());
+        var session = findExternalSession(client.id(), client.tenantId(), input.externalUserId()).orElseThrow();
+        if (!session.projects().equals(client.projects())) {
+            throw new ConsultBackendException(409, "EXTERNAL_SESSION_SCOPE_CHANGED", "应用授权系统已变化，历史上下文需核对后再使用", false);
+        }
+        return session;
+    }
+
+    public Optional<ExternalSession> findExternalSession(String clientId, String tenantId, String userId) {
+        return jdbc.query("SELECT session_id, title, codex_home, model, project_ids, thread_id, active_task_id FROM consult_external_session "
+                        + "WHERE client_id = ? AND tenant_id = ? AND external_user_id = ?",
+                (r, n) -> new ExternalSession(r.getString("session_id"), r.getString("title"), r.getString("codex_home"),
+                        r.getString("model"), r.getString("project_ids"), r.getString("thread_id"), r.getString("active_task_id")),
+                clientId, tenantId, userId).stream().findFirst();
+    }
+
+    public void acquireExternalSession(ExternalSession session, String taskId) {
+        if (jdbc.update("UPDATE consult_external_session SET active_task_id = ? WHERE session_id = ? AND active_task_id IS NULL",
+                taskId, session.id()) != 1) {
+            throw new ConsultBackendException(409, "EXTERNAL_SESSION_BUSY", "该用户会话仍有进行中或结果待核对的任务，请先查询原任务", false);
+        }
+    }
+
+    public void bindExternalThread(String sessionId, String taskId, String threadId) {
+        if (threadId == null || threadId.isBlank() || jdbc.update("UPDATE consult_external_session SET thread_id = ? "
+                        + "WHERE session_id = ? AND active_task_id = ? AND (thread_id IS NULL OR thread_id = ?)",
+                threadId, sessionId, taskId, threadId) != 1) {
+            throw new IllegalStateException("原生会话身份变化或当前任务已失去执行权");
+        }
+    }
+
+    public void releaseExternalSession(String sessionId, String taskId) {
+        if (jdbc.update("UPDATE consult_external_session SET active_task_id = NULL WHERE session_id = ? AND active_task_id = ? AND thread_id IS NOT NULL",
+                sessionId, taskId) != 1) {
+            throw new IllegalStateException("未取得原生线程身份，不能确认连续会话成功");
+        }
+    }
+
+    public void releaseStoppedExternalSession(String sessionId, String taskId) {
+        jdbc.update("UPDATE consult_external_session SET active_task_id = NULL WHERE session_id = ? AND active_task_id = ?",
+                sessionId, taskId);
+    }
+
+    public boolean externalUserPending(String clientId, ConsultAnalysisInput input) {
+        return jdbc.queryForObject("SELECT COUNT(*) FROM consult_analysis_task WHERE client_id = ? "
+                        + "AND status IN ('QUEUED', 'RUNNING', 'CANCEL_REQUESTED') "
+                        + "AND json_extract(input_json, '$.tenantId') = ? AND json_extract(input_json, '$.externalUserId') = ?",
+                Integer.class, clientId, input.tenantId(), input.externalUserId()) > 0;
+    }
+
     public ConsultBackendStore(JdbcTemplate jdbc) { this.jdbc = jdbc; }
 
     public record Client(String id, String appId, String tenantId, String secretHash,

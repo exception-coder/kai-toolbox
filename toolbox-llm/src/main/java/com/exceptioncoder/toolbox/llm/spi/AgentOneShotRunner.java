@@ -96,6 +96,20 @@ public interface AgentOneShotRunner {
     /** Requests cancellation only. Returning true means the request was sent, not that execution has stopped. */
     default boolean cancelManaged(String executionId) { return false; }
 
+    /** Server-owned persistent identity; never accepted directly from an external caller. */
+    record Conversation(String id, String threadId, String title) {}
+
+    /** Native cancellation acknowledged after execution stopped; distinct from a lost terminal response. */
+    final class ConversationTurnStoppedException extends RuntimeException {
+        public ConversationTurnStoppedException() { super("原生会话已确认中断，未返回有效答案"); }
+    }
+
+    /** Native thread identity must be persisted before accepting later turns. No stateless fallback. */
+    default String runConversation(ExecutionRequest request, String executionId, Conversation conversation,
+            List<ImageInput> images, Consumer<String> onThreadId) {
+        throw new UnsupportedOperationException("当前执行器不支持持久实施答疑会话");
+    }
+
     /** 带图片运行并返回运行时可观测身份；默认实现兼容仅支持文本的执行器。 */
     default ObservedResult runObserved(ExecutionRequest request, List<ImageInput> images) {
         return new ObservedResult(

@@ -57,3 +57,17 @@ CREATE TABLE IF NOT EXISTS consult_analysis_attachment (
 CREATE INDEX IF NOT EXISTS idx_consult_analysis_attachment_expiry ON consult_analysis_attachment(expires_at);
 -- 功能：同应用原图复用；变更：按摘要和媒体类型查找有效回执；目的：避免遍历其他应用图片
 CREATE INDEX IF NOT EXISTS idx_consult_attachment_reuse ON consult_analysis_attachment(client_id, content_hash, media_type, expires_at);
+CREATE TABLE IF NOT EXISTS consult_external_session (
+    session_id TEXT PRIMARY KEY,
+    client_id TEXT NOT NULL,
+    tenant_id TEXT NOT NULL,
+    external_user_id TEXT NOT NULL,
+    title TEXT NOT NULL,
+    codex_home TEXT NOT NULL,
+    model TEXT NOT NULL,
+    project_ids TEXT NOT NULL,
+    thread_id TEXT,
+    active_task_id TEXT,
+    created_at INTEGER NOT NULL,
+    UNIQUE (client_id, tenant_id, external_user_id)
+);

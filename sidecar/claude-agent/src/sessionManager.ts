@@ -2004,6 +2004,7 @@ export class SessionManager {
       authToken?: string
       codexHome?: string
       toolPolicy?: string
+      conversation?: { id: string; threadId?: string; title: string }
     },
   ): Promise<void> {
     const cwd = options?.cwd || process.env.USERPROFILE || process.env.HOME || process.cwd()
@@ -2012,8 +2013,12 @@ export class SessionManager {
       const controller = new AbortController()
       this.oneShotControllers.set(id, controller)
       try {
-        await runEphemeralCodexTurn({
-          text: options?.toolPolicy === 'disabled'
+        const conversation = options?.conversation
+        if (conversation && (options?.toolPolicy !== 'disabled' || !conversation.id || !conversation.title.endsWith('-实施答疑'))) {
+          throw new Error('无效的实施答疑会话配置')
+        }
+        await (conversation ? runCodexTurn : runEphemeralCodexTurn)({
+          text: conversation ? userPrompt : options?.toolPolicy === 'disabled'
             ? `${systemPrompt}\n\n禁止调用任何工具、命令、网络或文件操作，只能根据消息中提供的证据输出答案。\n\n${userPrompt}`
             : `${systemPrompt}\n\n${userPrompt}`,
           cwd,
@@ -2028,9 +2033,15 @@ export class SessionManager {
           images,
           permissionMode: 'bypassPermissions',
           toolPolicy: options?.toolPolicy,
+          developerInstructions: conversation ? systemPrompt : undefined,
+          strictThreadContinuity: Boolean(conversation),
+          threadTitle: conversation?.title,
+          sdkSessionId: conversation?.threadId || undefined,
           signal: controller.signal,
           emit: (e) => this.emit(id, e),
-          setSdkSessionId: () => {},
+          setSdkSessionId: threadId => {
+            if (conversation && threadId) this.emit(id, { type: 'init', sdkSessionId: threadId })
+          },
         })
       } finally {
         this.oneShotControllers.delete(id)

@@ -118,6 +118,7 @@ type AppServerTurnOptions = {
   /** Forge 会话 id，用于把运行中的追加消息路由到当前 App Server turn。 */
   sessionId: string
   threadId?: string
+  threadTitle?: string
   cwd: string
   model?: string
   reasoningEffort?: string
@@ -1394,7 +1395,7 @@ async function executeCodexAppServerTurn(options: AppServerTurnOptions, runtime:
     ].filter(Boolean).join('\n\n')
     const providerOverride = transport.modelProvider ? { modelProvider: transport.modelProvider } : {}
     // Resume must use this turn's platform policy as its explicit instruction override.
-    const consultInstructions = options.consultReadonly && typeof threadConfig.developer_instructions === 'string'
+    const consultInstructions = (options.consultReadonly || options.threadTitle) && typeof threadConfig.developer_instructions === 'string'
       ? { developerInstructions: threadConfig.developer_instructions } : {}
     const effective = worker ? await request('config/read', { cwd: options.cwd, includeLayers: false }) : undefined
     if (worker && !asRecord(effective?.config)) {
@@ -1408,7 +1409,7 @@ async function executeCodexAppServerTurn(options: AppServerTurnOptions, runtime:
       ? { threadId, excludeTurns: true, cwd: options.cwd, model: options.model ?? null, approvalPolicy: options.approvalPolicy, sandbox: options.sandbox, config: threadConfig, ...providerOverride, ...consultInstructions }
       : { cwd: options.cwd, model: options.model ?? null, approvalPolicy: options.approvalPolicy, sandbox: options.sandbox, config: threadConfig, ...providerOverride, ...consultInstructions })
     const thread = asRecord(threadResult?.thread)
-    if (worker && threadId && thread && thread.id !== threadId) {
+    if (threadId && thread && thread.id !== threadId) {
       throw new CodexAppServerTurnError('Codex 返回的线程身份与现有会话不一致，本轮开发任务尚未发送', false)
     }
     threadId = asString(thread?.id) || threadId
@@ -1417,6 +1418,9 @@ async function executeCodexAppServerTurn(options: AppServerTurnOptions, runtime:
     if (worker) console.info(JSON.stringify({ event: 'codex_resident_thread_ready', pid: child.pid,
       sessionId: options.sessionId, threadId, reused: Boolean(loadedConfig) }))
     options.setThreadId(threadId)
+    if (options.threadTitle) {
+      await request('thread/name/set', { threadId, name: options.threadTitle })
+    }
     let runtimeStatuses: McpRuntimeStatus[] = []
     let mcpRuntimeResult: JsonRpcResult | undefined
     let mcpRuntimeError: string | undefined

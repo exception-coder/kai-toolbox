@@ -1,6 +1,10 @@
 # Forge 业务咨询后端分析 API v1
 
-## 当前默认合同（1.6.0 / SDK 0.5.0）
+## 当前合同（1.7.0 / SDK 0.6.0）
+
+新增可选 `externalUserId`：认证 `clientId` + 授权 `tenantId` + 此用户 ID 稳定映射一个 Codex 线程，结果为 1.3，包含 `session` 与 `messageAction`，最多一条回复。固定处理规则每轮走独立开发者指令；只支持 FORGE_FLEX。省略参数保持下面的无状态 1.2 合同。接入、恢复及每日问题归并图解见 [外部用户连续实施答疑](EXTERNAL-USER-SESSIONS.md)。目标实例是否加载需独立验收。
+
+连续模式的 `/analyze-once` 也持久受理任务；超时或断线先按原 requestId 查询，不沿用无状态“可直接重新分析”的恢复方式。同一用户上一轮未结束时返回 EXTERNAL_SESSION_BUSY。未传用户 ID 的请求仍不保留原生历史。
 
 认证方式不变：既有 clientId/clientSecret 换票，tenantId 继续使用原授权企业，无需重新颁发或员工登录。新请求省略 replyMode 即 FORGE_FLEX，也可显式填写；结果 schemaVersion=1.2。
 

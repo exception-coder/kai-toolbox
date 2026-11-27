@@ -28,7 +28,7 @@ export function checkReplayResult(task, images) {
   const issues = [];
   if (!['SUCCEEDED', 'NEEDS_INFORMATION'].includes(task.status)) return issues;
   const result = task.result;
-  if (!result || result.schemaVersion !== '1.2' || !Object.hasOwn(result, 'businessResult')
+  if (!result || !['1.2', '1.3'].includes(result.schemaVersion) || !Object.hasOwn(result, 'businessResult')
     || (result.businessResult !== null && (typeof result.businessResult !== 'object' || Array.isArray(result.businessResult)))) {
     issues.push('INVALID_FLEX_RESULT');
     return issues;
@@ -38,14 +38,20 @@ export function checkReplayResult(task, images) {
   if (!result.humanHandoff || typeof result.humanHandoff.recommended !== 'boolean'
     || typeof result.humanHandoff.reason !== 'string' || !result.humanHandoff.reason.trim()) issues.push('INVALID_HANDOFF');
   const candidates = result.replyCandidates;
+  const persistent = result.schemaVersion === '1.3';
+  const quiet = persistent && ['UPDATE_ONLY', 'IGNORE'].includes(result.messageAction);
+  if (persistent && (!['REPLY', 'UPDATE_ONLY', 'IGNORE'].includes(result.messageAction)
+    || result.session?.source !== 'CONSULT_SDK' || result.session?.externalUserId !== task.externalUserId)) issues.push('INVALID_SESSION_RESULT');
   if (!Array.isArray(result.evidence) || result.evidence.some(item => !item || typeof item.id !== 'string')) {
     issues.push('INVALID_EVIDENCE');
     return issues;
   }
   const evidence = new Set(result.evidence.map(item => item.id));
-  if (!Array.isArray(candidates) || candidates.length > 8) issues.push('INVALID_CANDIDATES');
+  if (!Array.isArray(candidates) || candidates.length > (persistent ? 1 : 8)) issues.push('INVALID_CANDIDATES');
   else {
-    if (candidates.length === 0 && result.humanHandoff?.recommended !== true) issues.push('EMPTY_WITHOUT_HANDOFF');
+    if (!quiet && candidates.length === 0 && result.humanHandoff?.recommended !== true) issues.push('EMPTY_WITHOUT_HANDOFF');
+    if (quiet && (candidates.length !== 0 || result.humanHandoff?.recommended !== false
+      || result.missingInformation?.length !== 0)) issues.push('QUIET_ACTION_HAS_REPLY');
     const texts = new Set();
     for (const [index, candidate] of candidates.entries()) {
       if (!candidate || typeof candidate.text !== 'string') {

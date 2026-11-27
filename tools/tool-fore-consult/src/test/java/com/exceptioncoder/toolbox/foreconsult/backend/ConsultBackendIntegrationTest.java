@@ -71,7 +71,8 @@ class ConsultBackendIntegrationTest {
         when(policy.get()).thenReturn(new BusinessConsultModelPolicyView("model", "Model", "private-account", 1L, 4, "OK", 1L));
         var beans = new StaticListableBeanFactory(Map.of("runner", runner));
         model = new ConsultAnalysisModel(beans.getBeanProvider(AgentOneShotRunner.class), policy, mapper, store);
-        service = new ConsultAnalysisService(store, auth, evidence, model, images, mapper, 1000);
+        // Normal assertions are not latency checks; watchdog tests explicitly age started_at instead.
+        service = new ConsultAnalysisService(store, auth, evidence, model, images, mapper, 30000);
         admin();
         credential = auth.create(new ConsultBackendAuth.GrantRequest("yoooni-agent", "tenant-a", List.of("erp"), System.currentTimeMillis() + 86400000));
         AuthContext.clear();
@@ -92,9 +93,105 @@ class ConsultBackendIntegrationTest {
         return auth.token("Basic " + Base64.getEncoder().encodeToString((credential.clientId() + ":" + credential.clientSecret()).getBytes(StandardCharsets.UTF_8)), "client_credentials").access_token();
     }
     private void awaitTerminal(String id) throws Exception {
-        long until = System.currentTimeMillis() + 5000;
+        long until = System.currentTimeMillis() + 60000;
         while (List.of("QUEUED", "RUNNING", "CANCEL_REQUESTED").contains(store.task(id).orElseThrow().status()) && System.currentTimeMillis() < until) Thread.sleep(10);
         assertThat(store.task(id).orElseThrow().status()).isNotIn("QUEUED", "RUNNING", "CANCEL_REQUESTED");
+    }
+
+    private String externalInput(String request, String user) throws Exception {
+        var value = (com.fasterxml.jackson.databind.node.ObjectNode) mapper.readTree(input(request));
+        value.put("externalUserId", user).put("replyMode", "FORGE_FLEX");
+        return value.toString();
+    }
+
+    private String externalResult(String action) throws Exception {
+        var value = (com.fasterxml.jackson.databind.node.ObjectNode) mapper.readTree(VALID_RESULT);
+        value.put("schemaVersion", "1.3").put("messageAction", action);
+        value.putArray("missingInformation");
+        value.putObject("humanHandoff").put("recommended", false).put("reason", "无需人工接手");
+        value.putNull("businessResult");
+        var replies = value.putArray("replyCandidates");
+        if ("REPLY".equals(action)) replies.addObject().put("text", "请打开手机端扫码入口。").putArray("evidenceIds").add("input");
+        return value.toString();
+    }
+
+    @Test void externalUserResumesNativeThreadAcrossServiceRecreationAndKeepsOwnersSeparate() throws Exception {
+        var conversations = new java.util.ArrayList<AgentOneShotRunner.Conversation>();
+        when(runner.runConversation(any(), anyString(), any(), anyList(), any())).thenAnswer(call -> {
+            var conversation = (AgentOneShotRunner.Conversation) call.getArgument(2);
+            conversations.add(conversation);
+            var request = (AgentOneShotRunner.ExecutionRequest) call.getArgument(0);
+            assertThat(request.systemPrompt()).contains("messageAction", "不能按问号或关键词机械过滤");
+            assertThat(request.toolPolicy()).isEqualTo("disabled");
+            assertThat(request.userPrompt()).doesNotContain("不能按问号或关键词机械过滤");
+            ((java.util.function.Consumer<String>) call.getArgument(4)).accept(
+                    conversation.threadId() == null ? "native-" + conversation.id() : conversation.threadId());
+            return externalResult("REPLY");
+        });
+        var first = service.submit(principal, externalInput("external-001", "user-a"));
+        service.recover(); service.tick(); awaitTerminal(first.taskId());
+        assertThat(service.get(principal, first.taskId()).status()).isEqualTo("SUCCEEDED");
+        assertThat(service.get(principal, first.taskId()).result().path("session").path("title").asText()).isEqualTo("user-a-实施答疑");
+        service.close();
+        service = new ConsultAnalysisService(store, auth, evidence, model, images, mapper, 30000);
+        service.recover();
+        var second = service.submit(principal, externalInput("external-002", "user-a"));
+        service.tick(); awaitTerminal(second.taskId());
+        assertThat(conversations.get(1).id()).isEqualTo(conversations.getFirst().id());
+        assertThat(conversations.get(1).threadId()).isEqualTo("native-" + conversations.getFirst().id());
+        var other = service.submit(principal, externalInput("external-003", "user-b"));
+        service.tick(); awaitTerminal(other.taskId());
+        assertThat(conversations.get(2).id()).isNotEqualTo(conversations.getFirst().id());
+        assertThat(conversations.get(2).threadId()).isNull();
+        var saved = service.analyzeOnce(principal, externalInput("external-001", "user-a"));
+        assertThat(saved.result().path("session").path("id").asText()).isEqualTo(conversations.getFirst().id());
+        verify(runner, times(3)).runConversation(any(), anyString(), any(), anyList(), any());
+        var anotherClient = new ConsultBackendStore.Client("another-client", "app", "tenant-a", "hash", "[]", 1, true, Long.MAX_VALUE);
+        var anotherTenant = new ConsultBackendStore.Client("another-client", "app", "tenant-b", "hash", "[]", 1, true, Long.MAX_VALUE);
+        var input = service.parse(externalInput("external-004", "user-a"));
+        var a = store.externalSession(anotherClient, input, "account", "model");
+        var b = store.externalSession(anotherTenant, input, "account", "model");
+        assertThat(a.id()).isNotEqualTo(b.id()).isNotEqualTo(conversations.getFirst().id());
+    }
+
+    @Test void externalRequestsKeepIdempotencyRejectOverlapAndDoNotReplayUnknownTurns() throws Exception {
+        var raw = externalInput("external-101", "user-a");
+        var first = service.submit(principal, raw);
+        assertThat(service.submit(principal, raw).taskId()).isEqualTo(first.taskId());
+        assertThatThrownBy(() -> service.submit(principal, externalInput("external-102", "user-a")))
+                .isInstanceOfSatisfying(ConsultBackendException.class, e -> assertThat(e.code()).isEqualTo("EXTERNAL_SESSION_BUSY"));
+        when(runner.runConversation(any(), anyString(), any(), anyList(), any())).thenAnswer(call -> {
+            ((java.util.function.Consumer<String>) call.getArgument(4)).accept("native-unknown");
+            throw new IllegalStateException("connection lost before terminal");
+        });
+        service.recover(); service.tick(); awaitTerminal(first.taskId());
+        assertThat(service.get(principal, first.taskId()).status()).isEqualTo("FAILED");
+        service.recover();
+        assertThatThrownBy(() -> service.submit(principal, externalInput("external-103", "user-a")))
+                .isInstanceOfSatisfying(ConsultBackendException.class, e -> assertThat(e.code()).isEqualTo("EXTERNAL_SESSION_UNCERTAIN"));
+        verify(runner, times(1)).runConversation(any(), anyString(), any(), anyList(), any());
+        org.mockito.Mockito.doAnswer(call -> {
+            ((java.util.function.Consumer<String>) call.getArgument(4)).accept("native-stopped");
+            throw new AgentOneShotRunner.ConversationTurnStoppedException();
+        }).when(runner).runConversation(any(), anyString(), any(), anyList(), any());
+        var stopped = service.submit(principal, externalInput("external-104", "user-b"));
+        service.tick(); awaitTerminal(stopped.taskId());
+        var session = store.findExternalSession(principal.id(), principal.tenantId(), "user-b").orElseThrow();
+        assertThat(session.activeTaskId()).isNull();
+        assertThat(session.threadId()).isEqualTo("native-stopped");
+        assertThat(service.submit(principal, externalInput("external-105", "user-b")).status()).isEqualTo("QUEUED");
+    }
+
+    @Test void externalActionsSeparateChatterFromHandoffAndRejectContradictoryResponses() throws Exception {
+        var packets = evidence.collect(service.parse(externalInput("external-201", "user-a")));
+        assertThat(model.validate(externalResult("IGNORE"), packets, true, List.of(), true, true).path("replyCandidates")).isEmpty();
+        assertThat(model.validate(externalResult("UPDATE_ONLY"), packets, true, List.of(), true, true).path("messageAction").asText()).isEqualTo("UPDATE_ONLY");
+        assertThatThrownBy(() -> model.validate(externalResult("REPLY").replace("\"REPLY\"", "\"IGNORE\""), packets, true, List.of(), true, true))
+                .isInstanceOf(ConsultBackendException.class);
+        assertThatThrownBy(() -> model.validate(externalResult("IGNORE"), packets, true, List.of(), true, false))
+                .isInstanceOf(ConsultBackendException.class);
+        assertThatThrownBy(() -> service.parse(externalInput("external-202", "user-a").replace("FORGE_FLEX", "CALLER")))
+                .isInstanceOf(ConsultBackendException.class);
     }
 
     @Test void credentialsAreHashedAndRotationRevokesTokensWithoutDeletingTasks() throws Exception {
@@ -199,7 +296,7 @@ class ConsultBackendIntegrationTest {
         assertThatThrownBy(() -> service.submit(principal, body.replace("\"agentId\"", "\"codexHome\":\"other\",\"agentId\""))).hasMessageContaining("未知字段");
         assertThatThrownBy(() -> service.submit(principal, body.replace("\"tenant-a\"", "123"))).isInstanceOf(ConsultBackendException.class);
         assertThatThrownBy(() -> service.submit(principal, body.replace("\"tenantId\":\"tenant-a\"", "\"tenantId\":\"tenant-a\",\"tenantId\":\"tenant-a\""))).isInstanceOf(ConsultBackendException.class);
-        var restored = new ConsultAnalysisService(store, auth, evidence, model, images, mapper, 1000);
+        var restored = new ConsultAnalysisService(store, auth, evidence, model, images, mapper, 30000);
         assertThat(restored.findRequest(principal, "request-003").taskId()).isEqualTo(first.taskId());
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM consult_analysis_task", Integer.class)).isEqualTo(1);
     }

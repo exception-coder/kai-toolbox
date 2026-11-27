@@ -802,6 +802,23 @@ public class SidecarClient implements ReviewThreadForkGateway {
                         java.util.List<com.exceptioncoder.toolbox.llm.spi.AgentOneShotRunner.ImageInput> images,
                         TraceContext traceContext,
                         AgentRunMetadata telemetry) {
+        sendOneShot(sessionId, request, normalizedEngine, images, traceContext, telemetry, null);
+    }
+
+    public void conversationTurn(String sessionId,
+            com.exceptioncoder.toolbox.llm.spi.AgentOneShotRunner.ExecutionRequest request,
+            java.util.List<com.exceptioncoder.toolbox.llm.spi.AgentOneShotRunner.ImageInput> images,
+            TraceContext traceContext, AgentRunMetadata telemetry,
+            com.exceptioncoder.toolbox.llm.spi.AgentOneShotRunner.Conversation conversation) {
+        sendOneShot(sessionId, request, "codex", images, traceContext, telemetry, conversation);
+    }
+
+    private void sendOneShot(String sessionId,
+            com.exceptioncoder.toolbox.llm.spi.AgentOneShotRunner.ExecutionRequest request,
+            String normalizedEngine,
+            java.util.List<com.exceptioncoder.toolbox.llm.spi.AgentOneShotRunner.ImageInput> images,
+            TraceContext traceContext, AgentRunMetadata telemetry,
+            com.exceptioncoder.toolbox.llm.spi.AgentOneShotRunner.Conversation conversation) {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("type", "oneShot");
         payload.put("sessionId", sessionId);
@@ -816,13 +833,18 @@ public class SidecarClient implements ReviewThreadForkGateway {
         payload.put("authToken", nz(request.authToken()));
         payload.put("codexHome", nz(request.codexHome()));
         payload.put("toolPolicy", nz(request.toolPolicy()));
+        if (conversation != null) {
+            payload.put("conversation", conversation);
+        }
         putTelemetry(payload, traceContext, telemetry);
         if (images != null && !images.isEmpty()) {
             payload.put("images", images.stream()
                     .map(img -> Map.of("mediaType", img.mimeType(), "data", img.base64Data()))
                     .toList());
         }
-        send(payload);
+        if (!send(payload)) {
+            throw new IllegalStateException("分析请求未发送至 sidecar");
+        }
     }
 
     private static void putTelemetry(Map<String, Object> payload, TraceContext traceContext,
