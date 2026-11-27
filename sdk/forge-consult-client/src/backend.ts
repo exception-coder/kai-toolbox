@@ -48,7 +48,7 @@ export interface AnalysisResult {
   missingInformation: string[];
   unknowns: string[];
   humanHandoff: { recommended: boolean; reason: string };
-  evidence: { id: string; kind: 'CALLER_DESCRIPTION' | 'CALLER_BUSINESS_CONTEXT' | 'CALLER_ERROR' | 'CALLER_ATTACHMENT_TEXT' | 'CALLER_IMAGE' | 'CALLER_HISTORY' | 'SERVER_SOURCE'; source: string; text: string }[];
+  evidence: { id: string; kind: 'CALLER_DESCRIPTION' | 'CALLER_BUSINESS_CONTEXT' | 'CALLER_ERROR' | 'CALLER_ATTACHMENT_TEXT' | 'CALLER_IMAGE' | 'CALLER_HISTORY' | 'SERVER_SOURCE' | 'SERVER_SCREENSHOT_SOURCE'; source: string; text: string }[];
   /** Server-owned coverage statement, separate from the model's unknowns. */
   evidenceLimitations: string;
   replyCandidatesGeneratedBy: 'CALLER' | 'FORGE';

@@ -722,6 +722,92 @@ class ConsultBackendIntegrationTest {
                 mock(ConsultExternalImageSource.class, invocation -> new byte[] {1}))).hasMessageContaining("摘要");
     }
 
+    @Test void directScreenshotLookupUsesCurrentApplicationProjectsAndKeepsSourceInternal() throws Exception {
+        var root = directory.resolve("project");
+        var another = Files.createDirectory(directory.resolve("another"));
+        var ui = Files.createDirectories(root.resolve("WebRoot"));
+        Files.writeString(ui.resolve("Shipment.jsp"), """
+                <h2>染整生产单</h2>
+                <label>净重出货</label>
+                const restricted = orderStatus === "CLOSED";
+                """);
+        Files.writeString(Files.createDirectories(another.resolve("WebRoot")).resolve("Outside.jsp"),
+                "<h2>染整生产单</h2><p>净重出货</p>FORBIDDEN_PROJECT_MARKER");
+        ProjectCatalog catalog = excluded -> List.of(
+                new ProjectCatalog.Entry("erp", "system", "ERP", root.toString(), directory.toString(), true, false, "registry"),
+                new ProjectCatalog.Entry("other", "other", "Other", another.toString(), directory.toString(), true, false, "registry"));
+        ProjectAccess access = path -> true;
+        var search = new ConsultScreenshotSourceSearch(catalog, access);
+        assertThat(search.find(List.of("erp", "other"), List.of("净重出货", "染整生产单"))).isEmpty();
+        var feature = new ConsultScreenshotEvidence(search, mapper, List.of(principal.id()));
+        var beans = new StaticListableBeanFactory(Map.of("runner", runner));
+        model = new ConsultAnalysisModel(beans.getBeanProvider(AgentOneShotRunner.class), policy, mapper, store, feature);
+
+        byte[] bytes = png();
+        String digest = java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256").digest(bytes));
+        var ref = new ConsultAnalysisInput.ImageRef("itcs-picture", digest, "image/png");
+        var source = mock(ConsultExternalImageSource.class);
+        when(source.read(principal, ref, ConsultAnalysisImages.MAX_BYTES)).thenReturn(bytes);
+        service.close();
+        service = new ConsultAnalysisService(store, auth, evidence, model, images, mapper, source, 30000);
+
+        var input = (com.fasterxml.jackson.databind.node.ObjectNode) mapper.readTree(input("screenshot-rule-01"));
+        input.remove("systemIds");
+        input.put("title", "出货方式");
+        input.put("description", "为什么这张单不能选图中的选项？");
+        input.set("imageRefs", mapper.valueToTree(List.of(ref)));
+
+        var output = (com.fasterxml.jackson.databind.node.ObjectNode) mapper.readTree(VALID_RESULT);
+        output.put("schemaVersion", "1.1");
+        output.putArray("imageObservations").addObject().put("attachmentId", "external-itcs-picture")
+                .put("readable", true).put("observation", "图中可见毛重和净重选项");
+        output.putArray("facts").addObject().put("text", "单据关闭时限制切换")
+                .putArray("evidenceIds").add("screenshot-source-1");
+        when(runner.supportsManagedImages(any())).thenReturn(true);
+        when(runner.runManaged(any(AgentOneShotRunner.ExecutionRequest.class), anyString(), anyList())).thenAnswer(call -> {
+            AgentOneShotRunner.ExecutionRequest request = call.getArgument(0);
+            assertThat(request.toolPolicy()).isEqualTo(AgentOneShotRunner.TOOL_POLICY_DISABLED);
+            if (request.systemPrompt().startsWith("只定位业务截图")) {
+                return "[\"净重出货\",\"染整生产单\"]";
+            }
+            assertThat(request.userPrompt()).contains("orderStatus", "screenshot-source-1").doesNotContain("FORBIDDEN_PROJECT_MARKER");
+            return output.toString();
+        });
+
+        var result = service.analyzeOnce(principal, input.toString()).result();
+        assertThat(result.path("evidence").toString()).contains("screenshot-source-1").doesNotContain("Shipment.jsp", "orderStatus");
+        assertThat(result.path("evidenceLimitations").asText()).contains("未核验运行版本");
+        verify(runner, times(2)).runManaged(any(AgentOneShotRunner.ExecutionRequest.class), anyString(), anyList());
+
+        var continuousOutput = (com.fasterxml.jackson.databind.node.ObjectNode) mapper.readTree(externalResult("REPLY"));
+        continuousOutput.set("imageObservations", output.path("imageObservations").deepCopy());
+        continuousOutput.set("facts", output.path("facts").deepCopy());
+        when(runner.runConversation(any(), anyString(), any(), anyList(), any())).thenAnswer(call -> {
+            var request = (AgentOneShotRunner.ExecutionRequest) call.getArgument(0);
+            assertThat(request.systemPrompt()).containsOnlyOnce(ConsultPlainWritingSkill.instructions())
+                    .contains("REPLY 最多一条回复").doesNotContain("0–8 条", "对外回复第一句给出已核实的结论");
+            assertThat(request.userPrompt()).contains("orderStatus", "screenshot-source-1")
+                    .doesNotContain("FORBIDDEN_PROJECT_MARKER");
+            ((java.util.function.Consumer<String>) call.getArgument(4)).accept("native-screenshot");
+            return continuousOutput.toString();
+        });
+        var minimal = mapper.writeValueAsString(Map.of("tenantId", "tenant-a", "externalUserId", "user-a",
+                "requestId", "screenshot-continuous-01", "description", "为什么这张单不能选图中的选项？",
+                "imageRefs", List.of(ref)));
+        var task = service.submit(principal, minimal);
+        service.recover(); service.tick(); awaitTerminal(task.taskId());
+        var continuous = service.get(principal, task.taskId());
+        assertThat(continuous.status()).isEqualTo("SUCCEEDED");
+        assertThat(continuous.problemId()).isNull();
+        assertThat(continuous.result().path("session").path("source").asText()).isEqualTo("CONSULT_SDK");
+        assertThat(continuous.result().path("evidence").toString()).contains("screenshot-source-1")
+                .doesNotContain("Shipment.jsp", "orderStatus");
+
+        output.putArray("unknowns").add("内部实现位于 WebRoot/Shipment.jsp");
+        assertThatThrownBy(() -> service.analyzeOnce(principal, input.toString()))
+                .isInstanceOfSatisfying(ConsultBackendException.class, error -> assertThat(error.code()).isEqualTo("INVALID_ANALYSIS_OUTPUT"));
+    }
+
     @Test void taskActuallyPassesOriginalBytesAndPersistsThreeStableCandidates() throws Exception {
         var image = images.upload(principal, "upload-model-01", "image/png", png());
         var output = replies();
@@ -905,7 +991,13 @@ class ConsultBackendIntegrationTest {
                 .withBean(ConsultBackendStore.class, () -> store)
                 .withBean(ConsultBackendAuth.class, () -> auth)
                 .withBean(ConsultAnalysisEvidence.class, () -> evidence)
-                .withBean(ConsultAnalysisModel.class, () -> model)
+                .withBean(AgentOneShotRunner.class, () -> runner)
+                .withBean(BusinessConsultModelPolicyService.class, () -> policy)
+                .withBean(ProjectCatalog.class, () -> excluded -> List.of())
+                .withBean(ProjectAccess.class, () -> path -> true)
+                .withBean(ConsultScreenshotSourceSearch.class)
+                .withBean(ConsultScreenshotEvidence.class)
+                .withBean(ConsultAnalysisModel.class)
                 .withBean(ConsultAnalysisImages.class, () -> images)
                 .withBean(ObjectMapper.class, () -> mapper)
                 .withBean(ConsultExternalImageSource.class, () -> mock(ConsultExternalImageSource.class))

@@ -86,7 +86,8 @@ public class ConsultAnalysisService {
             try (var execution = telemetry.start(client.id(), executionId, input, 0)) {
                 execution.attribute("consult.mode", "DIRECT");
                 try {
-                    auth.active(client.id());
+                    var activeClient = auth.active(client.id());
+                    authorize(activeClient, input);
                     List<ConsultAnalysisEvidence.Packet> packets;
                     try (var stage = execution.stage("evidence")) {
                         packets = evidence.collect(input);
@@ -100,7 +101,8 @@ public class ConsultAnalysisService {
                     if (Thread.currentThread().isInterrupted()) {
                         throw new InterruptedException();
                     }
-                    var result = mapper.readTree(model.analyze(executionId, input, packets, imageInputs, false, execution));
+                    var result = mapper.readTree(model.analyze(executionId, input, packets, imageInputs, false,
+                            execution, screenshotProjects(activeClient, input, imageInputs), () -> false));
                     auth.active(client.id());
                     execution.complete(result.path("missingInformation").isEmpty() ? "SUCCEEDED" : "NEEDS_INFORMATION", null);
                     return new DirectResult(input.requestId(), result);
@@ -220,6 +222,16 @@ public class ConsultAnalysisService {
         auth.validateProjects(input.systemIds());
     }
 
+    private List<String> screenshotProjects(ConsultBackendStore.Client client, ConsultAnalysisInput input,
+            ConsultAnalysisImages.Inputs images) {
+        if (images.images().isEmpty() || !input.evidenceRefs().isEmpty() || !model.screenshotLookupEnabled(client.id())) {
+            return List.of();
+        }
+        var granted = auth.projectIds(auth.active(client.id()));
+        return input.systemIds().isEmpty() ? granted
+                : input.systemIds().stream().filter(granted::contains).toList();
+    }
+
     ConsultAnalysisInput parse(String raw) {
         if (raw == null || raw.length() > 100000) throw ConsultBackendException.invalid("请求超过 100000 字符");
         try { return mapper.readValue(raw, ConsultAnalysisInput.class).validated(); }
@@ -277,7 +289,9 @@ public class ConsultAnalysisService {
                 execution.complete(stopped.status(), stopped.errorCode());
                 return;
             }
-            String result = model.analyze(id, input, packets, imageInputs, true, execution);
+            String result = model.analyze(id, input, packets, imageInputs, true,
+                    execution, screenshotProjects(client, input, imageInputs),
+                    () -> !"RUNNING".equals(store.task(id).orElseThrow().status()));
             var current = store.task(id).orElseThrow();
             if (current.startedAt() != null && System.currentTimeMillis() - current.startedAt() >= timeoutMs) store.cancel(id, "ANALYSIS_TIMEOUT");
             // Credential expiry/revocation while generating must not publish a fresh successful result.

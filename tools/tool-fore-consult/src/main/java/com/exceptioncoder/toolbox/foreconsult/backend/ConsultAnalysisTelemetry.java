@@ -161,7 +161,8 @@ public class ConsultAnalysisTelemetry {
     private static String implementationDigest() {
         var bytes = new java.io.ByteArrayOutputStream();
         for (var type : java.util.List.of(ConsultAnalysisTelemetry.class, Execution.class, Stage.class,
-                ConsultAnalysisService.class, ConsultAnalysisModel.class, ConsultAnalysisInput.class, ConsultAnalysisEvidence.class)) {
+                ConsultAnalysisService.class, ConsultAnalysisModel.class, ConsultAnalysisInput.class, ConsultAnalysisEvidence.class,
+                ConsultScreenshotEvidence.class, ConsultScreenshotSourceSearch.class)) {
             String resource = type.getName().substring(type.getPackageName().length() + 1) + ".class";
             try (var stream = type.getResourceAsStream(resource)) {
                 if (stream == null) {

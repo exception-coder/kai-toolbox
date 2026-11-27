@@ -1,8 +1,8 @@
 openapi: 3.0.3
 info:
   title: Forge Business Consultation Backend Analysis
-  version: 1.7.1
-  description: 'Source contract, not deployment proof. SDK 0.6.1 allows four-field continuous requests: tenantId, externalUserId, requestId, description. Omitted user identity keeps the legacy stateless requirements. Existing credentials and request recovery are preserved.'
+  version: 1.7.2
+  description: 'Source contract, not deployment proof. SDK 0.6.2 allows four-field continuous requests: tenantId, externalUserId, requestId, description. Omitted user identity keeps the legacy stateless requirements. Existing credentials and request recovery are preserved.'
 servers:
   - url: http://127.0.0.1:18080
     description: Local-instance example only; replace port with the developer's verified Forge port. Never another colleague's machine.
@@ -523,7 +523,7 @@ components:
             required: [id, kind, source, text]
             properties:
               id: { type: string }
-              kind: { type: string, enum: [CALLER_DESCRIPTION, CALLER_BUSINESS_CONTEXT, CALLER_ERROR, CALLER_ATTACHMENT_TEXT, CALLER_IMAGE, CALLER_HISTORY, SERVER_SOURCE] }
+              kind: { type: string, enum: [CALLER_DESCRIPTION, CALLER_BUSINESS_CONTEXT, CALLER_ERROR, CALLER_ATTACHMENT_TEXT, CALLER_IMAGE, CALLER_HISTORY, SERVER_SOURCE, SERVER_SCREENSHOT_SOURCE] }
               source: { type: string, description: Opaque caller reference or approved project ID plus relative source location. }
               text: { type: string }
         replyCandidatesGeneratedBy: { type: string, enum: [CALLER, FORGE] }

@@ -1,6 +1,6 @@
 # 连续实施答疑：接口与恢复参考
 
-SDK 0.6.1 / 后端合同 1.7.1。源码与自动测试交付不代表目标实例已升级；真实联调状态见 [任务](../../openspec/changes/consult-external-user-session/tasks.md)。
+SDK 0.6.2 / 后端合同 1.7.2。源码与自动测试交付不代表目标实例已升级；真实联调状态见 [任务](../../openspec/changes/consult-external-user-session/tasks.md)。
 
 先看 [接入图解](EXTERNAL-USER-SESSIONS.md)，需要核对字段、恢复和统计口径时再查本文。
 

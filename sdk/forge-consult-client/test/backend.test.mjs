@@ -31,6 +31,7 @@ test('new contract sends caller business rules and material unchanged and preser
   const businessContext = { system: 'ERP', manualExperience: '添加供应商资料后建立仓库关联' };
   const businessInstructions = '直接给出业务结论；businessResult 返回 action 字段';
   const saved = { ...task, status: 'SUCCEEDED', result: { schemaVersion: '1.2', businessResult: { action: '关联供应商' },
+    evidence: [{ id: 'screenshot-source-1', kind: 'SERVER_SCREENSHOT_SOURCE', source: 'Forge 源码检索', text: '仅提供业务结论所需的来源标记' }],
     replyCandidatesGeneratedBy: 'FORGE', replyCandidates: [{ id: 'reply-1', text: '请添加供应商资料，再建立仓库与供应商关联。', evidenceIds: ['business-context'] }] } };
   let submitted = false;
   const client = new ForgeConsultBackendClient({ baseUrl: 'https://forge.example.test', clientId: 'client-1', getClientSecret: () => secret,

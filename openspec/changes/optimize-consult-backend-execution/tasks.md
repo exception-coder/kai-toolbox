@@ -19,3 +19,23 @@
 - Forge CLI verify all 退出 0，JSON PASSED，executedCheckers 为空，仅执行 API-RUNTIME-001 既有服务 HTTP 200。不能证明新版本已加载或新观测已导出。
 - OpenSpec strict、受影响文档及 diff 检查通过。架构沿用现有 Mermaid 源码同步，解析验证与实际渲染分别记录。
 - OTel 实际导出、真实模型回放、人工认可率及新流量 P50/P95 尚待目标实例和业务案例。未重启、未部署、未发布 SDK、未改运行配置。
+
+## 外部截图查证
+
+- [x] 3.1 接入应用授权下的定向检索和结论优先回复，验证无授权项目泄露、同分降级及内部证据投影。
+- [ ] 3.2 [MANUAL_CONFIRMATION] 在已确认的目标实例启用 ITCS Client ID，使用真实截图回放核对命中、结论准确率、无必要追问和延迟。
+
+- 2026-11-25 本地宿主 reactor 定向验证及咨询模块复验通过，共 37 项。新增集成用例使用原图和模型替身，覆盖应用授权、同分降级、证据投影及内部路径拒绝。
+- OpenSpec strict、架构 Mermaid 解析、Git diff 检查通过。Forge 质量门禁 JSON 为 PASSED，退出 0，无静态检查器执行，仅对既有实例执行 API-RUNTIME-001 并返回 200。
+- 真实 ITCS 案例、查证速度与回复准确率待部署后回放。未修改运行配置、未重启后端。
+
+- [x] 3.3 复用请求已有控件原文，限制快速命中为同一片段的独立线索，并兼容可核对的旧版 GBK 源码。咨询模块及依赖 41 项测试通过，含 4 项快速路径和原图回退专项。OpenSpec strict 校验通过，质量门禁仅复测运行中实例 API 200。真实 ITCS 工单仍待 3.2。
+
+## 2026-11-27 双远端合并验证
+
+- 合并 Gitee 截图查证与主线外部用户连续答疑更新，保留两侧提交历史。修复省略可选 title 时图片定位载荷触发空值的问题；共用统一表达规则，保留截图专属的证据限制与连续会话输出合同。
+- SDK 0.6.2 / OpenAPI 1.7.2 补齐 SERVER_SCREENSHOT_SOURCE 类型，旧请求和四字段连续请求保持兼容。
+- 完整 toolbox-starter reactor 定向 test 退出 0，覆盖宿主编译；后端集成 38 项、截图查证 4 项、统一表达装配 2 项通过。既有集成用例补充最小连续请求附图、授权项目隔离、内部证据投影及真实 Spring 构造器装配。SDK 27 项、请求/证据 TypeScript 类型检查、OpenAPI 解析和 npm pack 通过。
+- 两个相关 OpenSpec change strict 校验、冒烟脚本语法及 diff 检查通过。质量入口 PASSED、exit 0，executedCheckers 为空，仅 API-RUNTIME-001 检查既有 HTTP 200，不能证明新版运行验收。
+- DeepSeek 独立只读审查在约 300 秒后 EXECUTION_TIMEOUT，reviewStatus=NOT_EXECUTED；按现有 auto 策略回归自主核对，未将其记为通过。自主检查覆盖自动合并的模型/服务调用、可选字段、项目范围、证据脱敏及 SDK 合同。
+- 未修改运行配置或重启服务；真实 ITCS 图片、目标版本加载与效果回放仍待 3.2。原工作区未提交 README 保留，不纳入合并提交。

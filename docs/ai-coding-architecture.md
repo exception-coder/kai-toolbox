@@ -1350,6 +1350,8 @@ flowchart LR
     ADMIN["本实例管理员<br/>颁发 轮换 撤销凭据"] --> AUTH
     AUTH --> IMAGE["应用原图上传、摘要复用或提交外部引用<br/>执行时校验原图"]
     AUTH --> DIRECT["ITCS 即时分析<br/>结果直接返回，ITCS 保存"]
+    DIRECT --> LOOKUP["启用后按授权项目查截图规则<br/>源码留在 Forge"]
+    TASK --> LOOKUP
     IMAGE --> TASK["持久分析任务<br/>提交 查询 请求取消"]
     AUTH --> TASK
     TASK --> DATA["完整快照转为去重证据载荷<br/>原图与来源保持对应"]
@@ -1364,7 +1366,7 @@ flowchart LR
     CHECK -.-> OBS
 ```
 
-一个任务独立运行，调用方 conversationId 只用于关联，不作为原生线程身份。平台账号在实际执行前确定并记录配置版本，输入资料永远不提升为系统指令。依据是调用方文字、应用身份上传的原图及显式授权源码引用；没有自主查库或 Web 登录，缺少证据时明确说明。输出不包含 AI 凭据或本机绝对路径；结构合法不等于因果结论已由人工核验。新任务缺省 FORGE_FLEX，Forge 返回 1.2 结果、0–8 条实际有用的通俗候选及调用方规则指导的 businessResult。businessInstructions 只在数据层约束表达和结果形状，businessContext 作为 CALLER_BUSINESS_CONTEXT 人工资料证据，不提升为已核验事实或执行权限。旧任务及显式 FORGE/CALLER 保留原合同，既有凭据不变；选择来源、人工修改和飞书发送由 yoooni-agent 负责，Forge 没有消息发送或业务修改端口。
+一个任务独立运行，调用方 conversationId 只用于关联，不作为原生线程身份。平台账号在实际执行前确定并记录配置版本，输入资料永远不提升为系统指令。依据是调用方文字、应用身份提供的原图及显式授权源码引用。启用截图查证的应用可从授权项目取得限量候选片段，外部只收到证据标记。同步及异步共用查证，模型工具继续关闭。没有自主查库或 Web 登录，缺少证据时明确说明。输出不包含 AI 凭据或本机绝对路径；结构合法不等于因果结论已由人工核验。新任务缺省 FORGE_FLEX，Forge 返回 1.2 结果、0–8 条实际有用的通俗候选及调用方规则指导的 businessResult。businessInstructions 只在数据层约束表达和结果形状，businessContext 作为 CALLER_BUSINESS_CONTEXT 人工资料证据，不提升为已核验事实或执行权限。旧任务及显式 FORGE/CALLER 保留原合同，既有凭据不变；选择来源、人工修改和飞书发送由 yoooni-agent 负责，Forge 没有消息发送或业务修改端口。
 
 分析模型的内部 question 保留身份、业务输出规则及附件名称，描述、历史上下文、分类、报错、附件文字和业务资料由 evidence 单次承载；完整调用方输入仍用于快照和幂等。准备、模型、校验和保存分别生成观测，模型 span 成功不代表分析合同通过。实现 class 摘要、实际提示词与调用方规则摘要、配置版本、字符量及阶段耗时以 taskId/requestId/clientId 关联；实现摘要只标识分析实现，不能冒充完整发布提交。OTel 沿用既有开关与异步导出，关闭时低敏 JSON 汇总日志仍可用于基线统计，新增诊断不保存业务原文、原图或凭据。SDK 私有案例回放复用应用认证和异步任务，不经页面咨询的只读工具流程；冻结输入及上传检查点支持原键恢复，原始报告与人工参考独立保存。观测导出、真实图文效果和目标版本加载须分别验收，状态见[优化任务](../openspec/changes/optimize-consult-backend-execution/tasks.md)。
 
@@ -1376,7 +1378,7 @@ clientId + requestId 唯一绑定完整规范化调用方输入，重复登记�
 
 ### 外部业务用户连续实施答疑
 
-后端 SDK 0.6.1 的连续请求只需 tenantId、externalUserId、requestId、description；固定 agentId 由服务端默认，调用方问题编号、来源会话和标题可省略，省略时不制造结构化问题编号。可选 `externalUserId`，由认证 clientId、授权 tenantId 和稳定外部用户标识共同定位 `consult_external_session`。不创建 Forge 用户，不允许调用方指定原生线程；未传用户 ID 保持无状态入口。连续模式复用持久任务幂等与查询，即时等待丢失时也按原 requestId 恢复。会话固化账号目录与模型，授权范围改变或原生终态未知时停止自动续接，不跨账号、跨用户拼接历史。
+后端 SDK 0.6.2 的连续请求只需 tenantId、externalUserId、requestId、description；固定 agentId 由服务端默认，调用方问题编号、来源会话和标题可省略，省略时不制造结构化问题编号。可选 `externalUserId`，由认证 clientId、授权 tenantId 和稳定外部用户标识共同定位 `consult_external_session`。不创建 Forge 用户，不允许调用方指定原生线程；未传用户 ID 保持无状态入口。连续模式复用持久任务幂等与查询，即时等待丢失时也按原 requestId 恢复。会话固化账号目录与模型，授权范围改变或原生终态未知时停止自动续接，不跨账号、跨用户拼接历史。
 
 ```mermaid
 flowchart LR
