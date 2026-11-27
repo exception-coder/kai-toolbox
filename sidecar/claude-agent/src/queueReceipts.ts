@@ -85,8 +85,8 @@ export function queueCheckOutcome(text: string, turnId: string): 'COMPLETED' | '
 export function applyTaskCompletionReceipt(text: string, event: Record<string, unknown>): Record<string, unknown> {
   if (!['end_turn', 'success', 'completed', 'stop'].includes(String(event.stopReason)) || event.queueReleaseSafe === false) return event
   const lastLine = text.trim().split(/\r?\n/).at(-1)
-  if (lastLine === '<!-- forge-task:answered -->' || lastLine === '<!-- forge-task:completed -->') return event
   const reason = lastLine === '<!-- forge-task:confirmation_required -->' ? 'task_confirmation_required'
-    : lastLine === '<!-- forge-task:incomplete -->' ? 'task_incomplete' : 'outcome_unknown'
+    : lastLine === '<!-- forge-task:incomplete -->' ? 'task_incomplete' : undefined
+  if (reason === undefined) return event
   return { ...event, stopReason: reason, queueReleaseSafe: false }
 }

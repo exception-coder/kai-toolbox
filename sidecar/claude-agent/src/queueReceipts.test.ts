@@ -14,10 +14,12 @@ test('the original turn receipt distinguishes completed work, partial work and u
     { stopReason: 'task_incomplete', queueReleaseSafe: false })
   assert.deepEqual(applyTaskCompletionReceipt('请确认方案\n<!-- forge-task:confirmation_required -->', terminal),
     { stopReason: 'task_confirmation_required', queueReleaseSafe: false })
-  assert.deepEqual(applyTaskCompletionReceipt('<!-- forge-task:completed -->\n还没完成', terminal),
-    { stopReason: 'outcome_unknown', queueReleaseSafe: false })
+  assert.equal(applyTaskCompletionReceipt('这个问题已有统一规则，直接复用即可。', terminal), terminal)
+  assert.equal(applyTaskCompletionReceipt('<!-- forge-task:confirmation_required -->\n这是格式示例。', terminal), terminal)
   const unsafe = { stopReason: 'end_turn', queueReleaseSafe: false }
   assert.equal(applyTaskCompletionReceipt('<!-- forge-task:completed -->', unsafe), unsafe)
+  const unknown = { stopReason: 'outcome_unknown', queueReleaseSafe: false }
+  assert.equal(applyTaskCompletionReceipt('<!-- forge-task:completed -->', unknown), unknown)
 })
 
 test('durable receipts deduplicate input, retain model conclusion and change epoch after pruning', () => {
