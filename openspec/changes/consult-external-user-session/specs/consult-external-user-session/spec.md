@@ -25,6 +25,10 @@
 - **WHEN** 收到无关闲聊或已知问题的简短追问
 - **THEN** 前者 IGNORE 且无回复，后者关联上下文回答；空回复不能自动等同人工转交。
 
+#### Scenario: Reuse shared consultation instructions
+- **WHEN** 为外部用户创建或续接实施答疑会话
+- **THEN** 每轮复用一份统一咨询表达规则，仅补 SDK 消息处理约定和当前模式的输出合同；连续模式不混入无状态候选数量，IM 原文不追加平台规则，续接不累积重复指令。
+
 ### Requirement: SDK provenance and aggregation evidence
 SDK 响应 SHALL 提供用户和会话关联，实施答疑会话标题以 -实施答疑 结尾；文档说明接入方按消息及回复记录归并问题。
 

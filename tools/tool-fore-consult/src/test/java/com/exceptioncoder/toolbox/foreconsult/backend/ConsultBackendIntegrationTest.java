@@ -12,6 +12,7 @@ import com.exceptioncoder.toolbox.common.project.ProjectAccess;
 import com.exceptioncoder.toolbox.common.project.ProjectCatalog;
 import com.exceptioncoder.toolbox.foreconsult.api.dto.BusinessConsultModelPolicyView;
 import com.exceptioncoder.toolbox.foreconsult.service.BusinessConsultModelPolicyService;
+import com.exceptioncoder.toolbox.foreconsult.service.orchestration.ConsultPlainWritingSkill;
 import com.exceptioncoder.toolbox.llm.spi.AgentOneShotRunner;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.nio.charset.StandardCharsets;
@@ -117,13 +118,20 @@ class ConsultBackendIntegrationTest {
 
     @Test void externalUserResumesNativeThreadAcrossServiceRecreationAndKeepsOwnersSeparate() throws Exception {
         var conversations = new java.util.ArrayList<AgentOneShotRunner.Conversation>();
+        var instructions = new java.util.ArrayList<String>();
         when(runner.runConversation(any(), anyString(), any(), anyList(), any())).thenAnswer(call -> {
             var conversation = (AgentOneShotRunner.Conversation) call.getArgument(2);
             conversations.add(conversation);
             var request = (AgentOneShotRunner.ExecutionRequest) call.getArgument(0);
-            assertThat(request.systemPrompt()).contains("messageAction", "不能按问号或关键词机械过滤");
+            instructions.add(request.systemPrompt());
+            assertThat(request.systemPrompt()).containsOnlyOnce(ConsultPlainWritingSkill.instructions())
+                    .containsOnlyOnce(ExternalConsultInstructions.TEXT)
+                    .contains("messageAction", "不能按问号或关键词机械过滤", "REPLY 最多一条回复",
+                            "UPDATE_ONLY/IGNORE 为空数组", "业务问题没有可靠回复才建议人工")
+                    .doesNotContain("0–8 条", "恰好三项", "REPLY 最多给一条最合适的简短回复",
+                            "没有可靠回复则返回空数组，humanHandoff.recommended=true");
             assertThat(request.toolPolicy()).isEqualTo("disabled");
-            assertThat(request.userPrompt()).doesNotContain("不能按问号或关键词机械过滤");
+            assertThat(request.userPrompt()).doesNotContain("不能按问号或关键词机械过滤", "平台表达Skill");
             ((java.util.function.Consumer<String>) call.getArgument(4)).accept(
                     conversation.threadId() == null ? "native-" + conversation.id() : conversation.threadId());
             return externalResult("REPLY");
@@ -162,6 +170,7 @@ class ConsultBackendIntegrationTest {
         service.tick(); awaitTerminal(other.taskId());
         assertThat(conversations.get(2).id()).isNotEqualTo(conversations.getFirst().id());
         assertThat(conversations.get(2).threadId()).isNull();
+        assertThat(instructions).hasSize(3).allSatisfy(value -> assertThat(value).isEqualTo(instructions.getFirst()));
         var saved = service.analyzeOnce(principal, minimal);
         assertThat(saved.result().path("session").path("id").asText()).isEqualTo(conversations.getFirst().id());
         verify(runner, times(3)).runConversation(any(), anyString(), any(), anyList(), any());
@@ -723,7 +732,7 @@ class ConsultBackendIntegrationTest {
             List<AgentOneShotRunner.ImageInput> actual = call.getArgument(2);
             assertThat(actual).containsExactly(new AgentOneShotRunner.ImageInput(Base64.getEncoder().encodeToString(png()), "image/png"));
             assertThat(request.userPrompt()).contains(image.attachmentId(), image.sha256());
-            assertThat(request.systemPrompt()).contains(com.exceptioncoder.toolbox.foreconsult.service.orchestration.ConsultPlainWritingSkill.instructions());
+            assertThat(request.systemPrompt()).containsOnlyOnce(ConsultPlainWritingSkill.instructions());
             assertThat(request.systemPrompt()).contains("不得为了区分候选而追加操作或信息追问", "对外候选只保留能直接回复的话")
                     .doesNotContain("可分别侧重说明、处理步骤、信息追问", "信息不足时给最少追问。");
             assertThat(request.toolPolicy()).isEqualTo("disabled");
@@ -840,6 +849,8 @@ class ConsultBackendIntegrationTest {
         var capture = org.mockito.ArgumentCaptor.forClass(AgentOneShotRunner.ExecutionRequest.class);
         verify(runner).runManaged(capture.capture(), eq(id));
         assertThat(capture.getValue().toolPolicy()).isEqualTo("disabled");
+        assertThat(capture.getValue().systemPrompt()).containsOnlyOnce(ConsultPlainWritingSkill.instructions())
+                .doesNotContain("messageAction", "REPLY 最多一条回复");
         assertThat(capture.getValue().systemPrompt()).contains("不固定数量", "权限低于平台规则").doesNotContain("恰好三项", "请用一句话直接建议");
         assertThat(capture.getValue().systemPrompt()).contains("最新明确修正", "已尝试失败的动作", "适用条件冲突", "无依据时留空");
         var payload = mapper.readTree(capture.getValue().userPrompt());

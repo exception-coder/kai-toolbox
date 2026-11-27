@@ -12,6 +12,8 @@ L3：涉及外部用户身份隔离、持久上下文和跨模块执行合同。
 
 平台固定处理规则每轮走 developerInstructions，用户消息只放证据。新增消息动作 REPLY / UPDATE_ONLY / IGNORE；闲聊不等同转人工。问题关联、系统/模块与回复用于接入方归并；模型归纳是候选，不伪称核验事实或已发送回复。
 
+通用表达只复用随包的 consult-plain-writing，与交互咨询共用同一维护源；SDK 补充段只维护连续消息分类、历史及来源关联和消息动作约定。回复字段、数量和转人工条件按当前模式装配一次：连续模式 REPLY 最多一条，UPDATE_ONLY/IGNORE 无回复且不转人工；无状态 FORGE_FLEX 保留 0–8 条，旧 FORGE 保留三条。首轮及续接均重新装配相同规则，不将规则追加到 IM 原文，也不在已装配指令上累积拼接。
+
 采用官方 App Server 的 thread/start、thread/resume、turn/start；参考 https://learn.chatgpt.com/docs/app-server （2026-11-27 核对）。系统指令每次恢复时重新装配，稳定前缀与不重复拼接原文是分层改进，不保证零 token 成本或无限历史记忆。
 
 适用 OBJ-01、AI-01、EVID-01、FEED-01、IDEM-01：身份来自现有应用认证，错误/未知保留；重复 requestId 返回原任务。无新页面，不涉及键盘焦点或手机布局。SDK 与文档提供图解。
