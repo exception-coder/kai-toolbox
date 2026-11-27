@@ -996,9 +996,11 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
         }
         queueReleaseSessionRef.current = !serverQueueDispatchRef.current && completedSuccessfully
           ? sessionIdRef.current : null
-        setQueuePausedReason(completedSuccessfully
-          ? null : msg.stopReason === 'user_paused' ? '你已暂停自动执行与完成核对；核对后可手动继续。'
-            : '上一轮未正常完成，待发送消息已暂停；请确认后手动继续。')
+        setQueuePausedReason(completedSuccessfully ? null
+          : msg.stopReason === 'task_confirmation_required' ? '原任务等待你确认方案或授权，待发送消息已暂停。'
+            : msg.stopReason === 'task_incomplete' ? '原任务未完成，待发送消息已暂停。请核对剩余事项。'
+              : msg.stopReason === 'user_paused' ? '你已暂停自动发送；核对后可手动继续。'
+                : '上一轮结果待核对，待发送消息已暂停。')
         setQueueReleaseVersion(version => version + 1)
         const latencyMs = turnStartRef.current != null ? Date.now() - turnStartRef.current : undefined
         const ttftMs = ttftRef.current ?? undefined

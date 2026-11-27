@@ -3,7 +3,22 @@ import assert from 'node:assert/strict'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { QueueReceipts, queueCheckOutcome } from './queueReceipts.js'
+import { QueueReceipts, applyTaskCompletionReceipt, queueCheckOutcome } from './queueReceipts.js'
+
+test('the original turn receipt distinguishes completed work, partial work and user decisions', () => {
+  const terminal = { stopReason: 'end_turn', queueReleaseSafe: true }
+  for (const outcome of ['answered', 'completed']) {
+    assert.equal(applyTaskCompletionReceipt(`结果\n<!-- forge-task:${outcome} -->`, terminal), terminal)
+  }
+  assert.deepEqual(applyTaskCompletionReceipt('还有一项未做\n<!-- forge-task:incomplete -->', terminal),
+    { stopReason: 'task_incomplete', queueReleaseSafe: false })
+  assert.deepEqual(applyTaskCompletionReceipt('请确认方案\n<!-- forge-task:confirmation_required -->', terminal),
+    { stopReason: 'task_confirmation_required', queueReleaseSafe: false })
+  assert.deepEqual(applyTaskCompletionReceipt('<!-- forge-task:completed -->\n还没完成', terminal),
+    { stopReason: 'outcome_unknown', queueReleaseSafe: false })
+  const unsafe = { stopReason: 'end_turn', queueReleaseSafe: false }
+  assert.equal(applyTaskCompletionReceipt('<!-- forge-task:completed -->', unsafe), unsafe)
+})
 
 test('durable receipts deduplicate input, retain model conclusion and change epoch after pruning', () => {
   const dir = mkdtempSync(join(tmpdir(), 'forge-queue-'))

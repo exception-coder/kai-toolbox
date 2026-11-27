@@ -497,24 +497,22 @@ class QueueReliabilityTest {
 
 
 
-    @Test void failedTaskIsAskedAtMostThreeTimesThenUserCanContinue() throws Exception {
+    @Test void failedTaskStaysOnTheSameReceiptUntilUserConfirms() throws Exception {
         store.begin("s", "t1", "q1", "epoch", "finish q1");
         store.settle("s", "t1", "error", false);
-        for (int count = 1; count <= 3; count++) {
-            state(snapshot("null")); chat.reconcileQueue("s");
-            var runtime = store.runtime("s").orElseThrow();
-            assertThat(runtime.checkAttempts()).isEqualTo(count);
-            assertThat(runtime.checking()).isTrue();
-            // A normal engine stop without the explicit completion answer does not release the next item.
-            state(snapshot(completed(runtime.turnId(), "end_turn"))); chat.reconcileQueue("s");
-        }
-        chat.reconcileQueue("s"); chat.reconcileQueue("s");
-        assertThat(sends()).isEqualTo(3);
-        assertThat(store.runtime("s").orElseThrow().ready()).isFalse();
-        state(snapshot("null")); chat.confirmQueueAndContinue("s");
+        state(snapshot("null"));
+        for (int count = 0; count < 5; count++) chat.reconcileQueue("s");
+        var waiting = store.runtime("s").orElseThrow();
+        assertThat(waiting.turnId()).isEqualTo("t1");
+        assertThat(waiting.taskText()).isEqualTo("finish q1");
+        assertThat(waiting.checkAttempts()).isZero();
+        assertThat(waiting.stopReason()).isEqualTo("outcome_unknown");
+        assertThat(queue.findBySessionId("s")).extracting(QueuedChatMessage::id).containsExactly("q1", "q2");
+        assertThat(sends()).isZero();
+        chat.confirmQueueAndContinue("s");
         chat.reconcileQueue("s");
         assertThat(queue.findBySessionId("s")).extracting(QueuedChatMessage::id).containsExactly("q2");
-        assertThat(sends()).isEqualTo(4);
+        assertThat(sends()).isEqualTo(1);
     }
 
     @Test void readyRestoresLegacyFailureWithoutInventingCauseAndSuppressesItWhileRunning() {
@@ -531,37 +529,22 @@ class QueueReliabilityTest {
         assertThat(running.lastTurnFailure()).isNull();
     }
 
-    @Test void completionCheckIsAnnouncedOnlyAfterReceiptAndRestoredInReady() throws Exception {
-        when(dep(ClaudeChatProperties.class).getEventBufferSize()).thenReturn(128);
-        store.begin("s", "original", "q1", "epoch", "original task");
-        store.settle("s", "original", "error", false);
-        state(snapshot("null"));
-        chat.reconcileQueue("s");
-        SessionCtx ctx = ReflectionTestUtils.invokeMethod(chat, "restoreQueueContext", "s");
-        String turn = store.runtime("s").orElseThrow().turnId();
-        assertThat(ctx.buffer).noneMatch(ServerMessage.QueueCheck.class::isInstance);
-        ServerMessage.Ready beforeReceipt = ReflectionTestUtils.invokeMethod(chat, "ready", ctx);
-        assertThat(beforeReceipt.queueCheck()).isNull();
-
-        JsonNode accepted = mapper.readTree("{\"type\":\"turnAccepted\",\"turnId\":\"" + turn + "\"}");
-        chat.onSidecarEvent("s", accepted);
-        chat.onSidecarEvent("s", accepted);
-        assertThat(ctx.buffer.stream().filter(ServerMessage.QueueCheck.class::isInstance).count()).isEqualTo(1);
-        assertThat(ctx.buffer).noneMatch(ServerMessage.QueueDispatched.class::isInstance);
-        ServerMessage.Ready ready = ReflectionTestUtils.invokeMethod(chat, "ready", ctx);
-        assertThat(ready.queueCheck()).isEqualTo(new ServerMessage.QueueCheckProgress(turn, 1, 3));
-        assertThat(store.runtime("s").orElseThrow().ready()).isFalse();
-        assertThat(queue.findBySessionId("s")).hasSize(2);
-
+    @Test void originalTaskWaitingForUserRemainsHeldAfterServiceRecovery() throws Exception {
+        var message = new ClientMessage.Send("请选择方案后执行", List.of(), null, null, "decision");
+        submissions.accept("s", message);
+        submissions.dispatched("s", message.messageId(), "original");
+        store.begin("s", "original", "q1", "epoch", message.text());
+        ReflectionTestUtils.invokeMethod(chat, "restoreQueueContext", "s");
+        chat.onSidecarEvent("s", mapper.readTree("""
+                {"type":"result","turnId":"original","stopReason":"task_confirmation_required","queueReleaseSafe":false}
+                """));
+        assertThat(store.runtime("s").orElseThrow().stopReason()).isEqualTo("task_confirmation_required");
+        assertThat(submissions.list("s").getFirst().status()).isEqualTo("UNKNOWN");
+        assertThat(submissions.list("s").getFirst().text()).isEqualTo(message.text());
         chat.stopRecovery(); createChat();
-        var active = (com.fasterxml.jackson.databind.node.ObjectNode) snapshot(
-                "{\"sessionId\":\"s\",\"turnId\":\"" + turn + "\",\"state\":\"RECEIVED\"}");
-        active.put("active", true).put("activeTurnId", turn);
-        state(active); chat.reconcileQueue("s");
-        SessionCtx recovered = ReflectionTestUtils.invokeMethod(chat, "restoreQueueContext", "s");
-        ServerMessage.Ready restored = ReflectionTestUtils.invokeMethod(chat, "ready", recovered);
-        assertThat(restored.queueCheck()).isEqualTo(ready.queueCheck());
-        assertThat(sends()).isEqualTo(1);
+        state(snapshot("null")); chat.reconcileQueue("s");
+        assertThat(store.delivery("s").orElseThrow().note()).contains("确认");
+        assertThat(sends()).isZero();
     }
 
     @Test void classifiedFailureReachesBrowserWithoutReleasingQueueOrNotifyingSuccess() throws Exception {
@@ -588,23 +571,21 @@ class QueueReliabilityTest {
         verify(dep(NotificationService.class)).notifyDone(eq("Codex 本轮未完成"), anyString());
     }
 
-    @Test void completionCheckForManualTaskDoesNotNeedAQueueDeliveryRow() throws Exception {
+    @Test void unresolvedManualTaskHoldsLaterMessagesWithoutAQueueDeliveryRow() throws Exception {
         when(dep(ClaudeChatProperties.class).getEventBufferSize()).thenReturn(128);
         store.begin("s", "manual", null, "epoch", "manual task");
         store.settle("s", "manual", "error", false);
         state(snapshot("null")); chat.reconcileQueue("s");
-        String turn = store.runtime("s").orElseThrow().turnId();
-        chat.onSidecarEvent("s", mapper.readTree("{\"type\":\"turnAccepted\",\"turnId\":\"" + turn + "\"}"));
         SessionCtx ctx = ReflectionTestUtils.invokeMethod(chat, "restoreQueueContext", "s");
-        assertThat(ctx.buffer).anyMatch(ServerMessage.QueueCheck.class::isInstance);
+        assertThat(ctx.buffer).noneMatch(ServerMessage.QueueCheck.class::isInstance);
+        assertThat(store.runtime("s").orElseThrow().taskText()).isEqualTo("manual task");
+        assertThat(dep(QueuedChatMessageService.class).list("s").getFirst().deliveryState()).isEqualTo("BLOCKED");
         assertThat(store.delivery("s")).isEmpty();
+        assertThat(sends()).isZero();
     }
 
-    @Test void failedCheckSendDoesNotAnnounceRunningOrReleaseQueue() throws Exception {
+    @Test void unresolvedTaskDoesNotAnnounceAnInquiryOrReleaseQueue() throws Exception {
         when(dep(ClaudeChatProperties.class).getEventBufferSize()).thenReturn(128);
-        doThrow(new IllegalStateException("send failed")).when(dep(SidecarClient.class)).userMessage(
-                anyString(), anyString(), nullable(String.class), nullable(String.class), anyList(), anyString(),
-                any(), any(), anyList(), nullable(String.class), nullable(String.class), any(), eq(true), any());
         store.begin("s", "original", "q1", "epoch", "original task");
         store.settle("s", "original", "error", false);
         state(snapshot("null")); chat.reconcileQueue("s");
@@ -614,16 +595,18 @@ class QueueReliabilityTest {
         assertThat(store.runtime("s").orElseThrow().ready()).isFalse();
         assertThat(store.delivery("s").orElseThrow().status()).isEqualTo("UNKNOWN");
         assertThat(queue.findBySessionId("s")).hasSize(2);
+        assertThat(sends()).isZero();
     }
-    @Test void clearModelConfirmationReleasesNextWithoutRepeatingOriginalTask() throws Exception {
-        store.begin("s", "t1", "q1", "epoch", "finish q1"); store.settle("s", "t1", "error", false);
-        state(snapshot("null")); chat.reconcileQueue("s");
-        var turn = store.runtime("s").orElseThrow().turnId();
-        var value = snapshot(completed(turn, "end_turn"));
+    @Test void restoredLegacyCompletionInquiryCannotReleaseTheQueue() throws Exception {
+        store.begin("s", "t1", "q1", "epoch", "finish q1");
+        store.settle("s", "t1", "error", false);
+        assertThat(store.beginCheck("s", store.runtime("s").orElseThrow(), "legacy", "epoch")).isTrue();
+        var value = snapshot(completed("legacy", "end_turn"));
         ((com.fasterxml.jackson.databind.node.ObjectNode) value.path("receipt")).put("queueCheckOutcome", "COMPLETED");
         state(value); chat.reconcileQueue("s");
-        assertThat(sends()).isEqualTo(2);
-        assertThat(queue.findBySessionId("s")).extracting(QueuedChatMessage::id).containsExactly("q2");
+        assertThat(sends()).isZero();
+        assertThat(store.runtime("s").orElseThrow().stopReason()).isEqualTo("outcome_unknown");
+        assertThat(queue.findBySessionId("s")).extracting(QueuedChatMessage::id).containsExactly("q1", "q2");
     }
 
     @Test void supervisorRetiresOnlyFailedControlAndDispatchesItsCheckThroughTheIdleGate() throws Exception {

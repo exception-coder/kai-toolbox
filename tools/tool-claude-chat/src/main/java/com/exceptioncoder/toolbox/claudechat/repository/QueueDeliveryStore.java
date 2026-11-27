@@ -13,6 +13,18 @@ import java.util.Optional;
 @Repository
 public class QueueDeliveryStore {
     public static final String OUTCOME_UNKNOWN = "outcome_unknown";
+    public static final String TASK_INCOMPLETE = "task_incomplete";
+    public static final String TASK_CONFIRMATION_REQUIRED = "task_confirmation_required";
+
+    public static boolean needsUserReview(String reason) {
+        return OUTCOME_UNKNOWN.equals(reason) || TASK_INCOMPLETE.equals(reason) || TASK_CONFIRMATION_REQUIRED.equals(reason);
+    }
+
+    public static String reviewNote(String reason) {
+        if (TASK_CONFIRMATION_REQUIRED.equals(reason)) return "原任务等待你确认方案或授权，队列已暂停。";
+        if (TASK_INCOMPLETE.equals(reason)) return "原任务未完成，已保留原文，请核对剩余事项后继续。";
+        return "原任务缺少可核对的完成回执，已保留原文和队列位置。";
+    }
     public record Runtime(String turnId, boolean ready, String stopReason, String taskText, int checkAttempts, boolean checking) { }
     public record Delivery(String messageId, String turnId, String storeId, String status, int attempts, long retryAt, String note) { }
     private final JdbcTemplate jdbc;
@@ -130,8 +142,14 @@ public class QueueDeliveryStore {
                     || "user_paused".equals(r.stopReason()) && !"user_confirmed".equals(stopReason))).isPresent()) return false;
         if (jdbc.update("UPDATE claude_chat_queue_runtime SET release_ready=?,stop_reason=?,updated_at=? WHERE session_id=? AND turn_id=?",
                 safe ? 1 : 0, stopReason, System.currentTimeMillis(), sessionId, turnId) != 1) return false;
-        if (OUTCOME_UNKNOWN.equals(stopReason)) {
-            uncertain(sessionId, turnId, "引擎连接中断，本轮结果待核对，原消息已保留。");
+        if (needsUserReview(stopReason)) {
+            String note = reviewNote(stopReason);
+            int changed = jdbc.update("UPDATE claude_chat_queue_delivery SET status='UNKNOWN',note=? WHERE session_id=? AND turn_id=? AND status<>'PAUSED'",
+                    note, sessionId, turnId);
+            if (changed > 0) {
+                delivery(sessionId).filter(d -> d.turnId().equals(turnId))
+                        .ifPresent(d -> progress(sessionId, d.messageId(), "EXCEPTION", note));
+            }
             return true;
         }
         var receipt = delivery(sessionId).filter(d -> d.turnId().equals(turnId));
@@ -147,7 +165,7 @@ public class QueueDeliveryStore {
             } else {
                 String note = "admission_rejected".equals(stopReason)
                         ? "引擎未接收本轮，原文已保留。若未自动恢复，可在队列中处理。"
-                        : "当前任务异常或未确认完成，后台将追问；连续三次仍不明确时等待人工确认。";
+                        : "当前任务异常或未确认完成，已保留，请核对后手动处理。";
                 jdbc.update("UPDATE claude_chat_queue_delivery SET status='FAILED',note=? WHERE session_id=? AND turn_id=?",
                         note, sessionId, turnId);
                 progress(sessionId, receipt.get().messageId(), "EXCEPTION", note);

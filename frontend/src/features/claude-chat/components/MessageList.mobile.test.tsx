@@ -70,6 +70,30 @@ it('keeps the review action in the reply toolbar and preserves its message ident
   expect(review).toHaveBeenCalledWith('review-source')
 })
 
+it.each([true, false])('keeps review visible in chronological position with details collapsed (mobile=%s)', mobile => {
+  vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: mobile, addEventListener: vi.fn(), removeEventListener: vi.fn() })))
+  setHideToolCalls(true)
+  const items: ChatItem[] = [
+    { kind: 'assistant', id: 'before', text: '先执行独立审查。' },
+    { kind: 'tool', id: 'tool-review', toolCallId: 'review', toolName: 'shell',
+      input: { command: 'python "C:/skills/cross-engine-verification/scripts/review.py" run --activity-events' },
+      output: 'forge.review.activity/v1 {"id":"1234567890abcdef1234567890abcdef","status":"COMPLETED","engine":"deepseek","model":"deepseek-v4-flash","durationMs":12500,"findingCount":2}' },
+    { kind: 'activity', id: 'tool-activity-review', activityType: 'tool', status: 'completed', title: '通用命令记录' },
+    { kind: 'assistant', id: 'after', text: '审查后继续交付。' },
+  ]
+  const view = (showExecutionDetails = true) => <MemoryRouter><MessageList items={items} running={false}
+    mobileWorkspace executionInDock showExecutionDetails={showExecutionDetails} /></MemoryRouter>
+  const mounted = render(view())
+  const summary = screen.getByText('独立代码审查').closest('summary')!
+  expect(summary).toHaveTextContent('DeepSeek Harness · deepseek-v4-flash')
+  expect(summary).toHaveTextContent('已完成 · 发现 2 项')
+  expect(summary.parentElement).not.toHaveAttribute('open')
+  expect(screen.queryByText('通用命令记录')).not.toBeInTheDocument()
+  expect(mounted.container.textContent).toMatch(/先执行独立审查。.*独立代码审查.*审查后继续交付。/s)
+  mounted.rerender(view(false))
+  expect(screen.queryByText('独立代码审查')).not.toBeInTheDocument()
+})
+
 function RouteProbe() { return <output data-testid="route">{useLocation().pathname}</output> }
 
 it.each([true, false])('shows recovery only for the latest failure, including in the mobile dock (mobile=%s)', mobile => {

@@ -36,8 +36,24 @@ export const ComposerTextarea = forwardRef<HTMLTextAreaElement, Props>(function 
   }, [displayed, Boolean(fold)])
   const focusInput = () => requestAnimationFrame(() => inputRef.current?.focus())
   const visible = Boolean(suggestion && props.value === '' && !props.disabled && !composing)
+  const mobilePreview = visible && compact
   return (
-    <div data-folded={Boolean(fold)} className="cc-composer-text col-span-3 row-start-1 min-w-0">
+    <div data-folded={Boolean(fold)} data-suggestion={mobilePreview} className="cc-composer-text col-span-3 row-start-1 min-w-0">
+      {mobilePreview && (
+        <div id={hintId} role="group" aria-label="续问建议" className="cc-composer-suggestion min-w-0 border-b border-[var(--color-border)] px-2">
+          <div className="cc-composer-suggestion-text min-w-0 whitespace-pre-wrap text-sm leading-normal text-[var(--color-muted-foreground)]">{suggestion}</div>
+          <div className="flex justify-end gap-1">
+            <button type="button" onClick={() => onAcceptSuggestion(suggestion!)} aria-label="采纳续问建议"
+              className="min-h-11 rounded-lg px-3 text-sm font-medium text-[var(--color-primary)] focus-visible:outline focus-visible:outline-2">
+              采纳建议
+            </button>
+            <button type="button" onClick={onDismissSuggestion} aria-label="关闭续问建议"
+              className="flex min-h-11 min-w-11 items-center justify-center rounded-lg text-[var(--color-muted-foreground)] focus-visible:outline focus-visible:outline-2">
+              <X aria-hidden="true" className="size-4" />
+            </button>
+          </div>
+        </div>
+      )}
       {fold && <div className="cc-pasted-text mb-1 flex min-w-0 items-center rounded-lg border border-[var(--color-border)] bg-[var(--color-muted)]/40">
         <button type="button" disabled={props.disabled} aria-label="在文本框中显示粘贴的长文本"
           onClick={() => { setFold(null); focusInput() }}
@@ -58,7 +74,7 @@ export const ComposerTextarea = forwardRef<HTMLTextAreaElement, Props>(function 
         data-fold-end={fold?.end}
         data-fold-separator-length={fold?.separatorLength}
         ref={node => { inputRef.current = node; if (typeof ref === 'function') ref(node); else if (ref) ref.current = node }}
-        placeholder={visible ? suggestion! : props.placeholder}
+        placeholder={visible && !compact ? suggestion! : props.placeholder}
         aria-describedby={visible ? hintId : props['aria-describedby']}
         rows={visible && !compact ? 2 : rows}
         onChange={event => {
@@ -100,7 +116,6 @@ export const ComposerTextarea = forwardRef<HTMLTextAreaElement, Props>(function 
           }
         }}
       />
-      {visible && compact && <span id={hintId} className="sr-only">续问建议可从更多功能采纳，或按 Tab 采纳。</span>}
       {visible && !compact && (
         <div id={hintId} className="flex justify-end px-1 pb-1 md:px-2">
           <button type="button" onClick={() => onAcceptSuggestion(suggestion!)}

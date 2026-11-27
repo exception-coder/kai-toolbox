@@ -23,7 +23,7 @@ import {
 import { inspectSystemRoute } from './codexSecurity.js'
 import { prepareCodexVoice, reconnectCodexVoice, controlCodexVoice, type CodexVoiceOffer } from './codexRealtime.js'
 import { watchParentLifetime, stopWithinDeadline } from './parentLifetime.js'
-import { QueueReceipts, queueCheckOutcome } from './queueReceipts.js'
+import { QueueReceipts, applyTaskCompletionReceipt, queueCheckOutcome } from './queueReceipts.js'
 
 const port = Number(process.env.CLAUDE_CHAT_SIDECAR_PORT) || 18890
 const queueReceipts = new QueueReceipts(path.join(os.homedir(), '.kai-toolbox', `queue-receipts-${port}.json`))
@@ -62,7 +62,7 @@ const wss = new WebSocketServer({ server: httpServer })
 // 表现为前端永远收不到回复 —— 这里宁可多发（本机、按 sessionId 路由，重复投递无副作用）。
 const clients = new Set<WebSocket>()
 
-const queueChecks = new Map<string, { turnId: string; tail: string }>()
+const queueChecks = new Map<string, { turnId: string; tail: string; taskReceipt: boolean }>()
 
 const emit = (sessionId: string, event: Record<string, unknown>): void => {
   const check = queueChecks.get(sessionId)
@@ -70,7 +70,8 @@ const emit = (sessionId: string, event: Record<string, unknown>): void => {
     if (event.type === 'assistantDelta') check.tail = (check.tail + String(event.text ?? '')).slice(-2048)
     if (event.type === 'assistantSnapshot') check.tail = String(event.text ?? '').slice(-2048)
     if (event.type === 'result') {
-      event = { ...event, queueCheckOutcome: queueCheckOutcome(check.tail, check.turnId) }
+      event = check.taskReceipt ? applyTaskCompletionReceipt(check.tail, event)
+        : { ...event, queueCheckOutcome: queueCheckOutcome(check.tail, check.turnId) }
       queueChecks.delete(sessionId)
     }
   }
@@ -240,7 +241,9 @@ wss.on('connection', (ws) => {
             break
           }
           queueReceipts.receive(sessionId, msg.turnId)
-          if (msg.queueCheck === true) queueChecks.set(sessionId, { turnId: msg.turnId, tail: '' })
+          if (msg.queueCheck === true || msg.taskCompletionReceipt === true) {
+            queueChecks.set(sessionId, { turnId: msg.turnId, tail: '', taskReceipt: msg.taskCompletionReceipt === true })
+          }
           emit(sessionId, { type: 'turnAccepted', turnId: msg.turnId })
         }
         if (msg.consultAccount) manager.configureConsultAccount(sessionId, msg.consultAccount)

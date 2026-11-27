@@ -55,9 +55,12 @@ public class QueuedChatMessageService {
         var runtime = deliveryStore.runtime(sessionId).orElse(null);
         return messages.stream().map(m -> runtime != null && "user_paused".equals(runtime.stopReason())
                 && !messages.isEmpty() && messages.getFirst().id().equals(m.id())
-                ? m.withDelivery("PAUSED", "自动执行与完成核对已暂停；原生任务未终止，可终止或删除")
+                ? m.withDelivery("PAUSED", "自动派发已暂停；正在执行的任务可以单独终止")
                 : delivery.filter(d -> d.messageId().equals(m.id()))
                 .map(d -> {
+                    if (runtime != null && QueueDeliveryStore.needsUserReview(runtime.stopReason())) {
+                        return m.withDelivery("UNKNOWN", QueueDeliveryStore.reviewNote(runtime.stopReason()));
+                    }
                     if (runtime != null && runtime.checking()) {
                         String note = "admission_rejected".equals(runtime.stopReason())
                                 ? "本次核对未被引擎接收，请核对上一项任务后继续。"
@@ -69,6 +72,9 @@ public class QueuedChatMessageService {
                     return m.withDelivery(d.status(), d.note());
                 }).orElseGet(() -> {
                     if (runtime == null || runtime.ready() || messages.isEmpty() || !messages.getFirst().id().equals(m.id())) return m;
+                    if (QueueDeliveryStore.needsUserReview(runtime.stopReason())) {
+                        return m.withDelivery("BLOCKED", QueueDeliveryStore.reviewNote(runtime.stopReason()));
+                    }
                     if ("user_cancelled".equals(runtime.stopReason())) return m.withDelivery("CANCELLED",
                             "已终止自动追问，其余消息暂停；可手动发送或删除");
                     if (runtime.checking() && "admission_rejected".equals(runtime.stopReason())) {

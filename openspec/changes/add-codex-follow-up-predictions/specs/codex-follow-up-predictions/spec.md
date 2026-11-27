@@ -61,7 +61,7 @@ The Sidecar SHALL treat absence of model activity as diagnostic information, not
 - **AND** independent tool execution deadlines remain applicable
 
 ### Requirement: Accept a suggestion into the current draft
-The interface SHALL show a native suggestion as light gray text only for an empty, idle composer in its matching session and source turn.
+The interface SHALL show a native suggestion as muted preview text only for an empty, idle composer in its matching session and source turn.
 
 #### Scenario: Desktop acceptance
 - **WHEN** the user presses unmodified Tab while a suggestion is visible and no completion menu or IME composition is active
@@ -70,6 +70,10 @@ The interface SHALL show a native suggestion as light gray text only for an empt
 #### Scenario: Mobile acceptance
 - **WHEN** the user taps the suggestion acceptance action
 - **THEN** the text becomes a draft and the message input regains focus
+
+#### Scenario: Long mobile suggestion
+- **WHEN** the current mobile composer receives a multiline suggestion
+- **THEN** the preview wraps at the available width and longer content can be scrolled in full, with acceptance visible below the preview
 
 #### Scenario: Existing input or session change
 - **WHEN** the user types, adds attachments, dismisses the suggestion or switches session, account, engine or source turn
