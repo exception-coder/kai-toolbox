@@ -15,6 +15,8 @@ import { Markdown } from './Markdown'
 import { AssistantReply } from './messages/AssistantReply'
 import { TurnResultDetails } from './messages/TurnResultDetails'
 import { TurnFailureRecovery, type TurnRecoveryActions } from './messages/TurnFailureRecovery'
+import { CrossEngineReviewRow } from './messages/CrossEngineReviewRow'
+import { crossEngineReviewRows, reviewToolId } from '../lib/crossEngineReview'
 import { latestSettledResult, resultFailure, turnResultLabel } from '../lib/turnFailure'
 import { MessageCopyButton as CopyButton } from './MessageCopyButton'
 import { MessageImage } from './messages/MessageImage'
@@ -201,8 +203,12 @@ export const MessageList = memo(forwardRef<MessageListHandle, Props>(function Me
     return ids.join('\0')
   }, [items, running])
   const liveReplyIds = useMemo(() => new Set(liveReplyKey ? liveReplyKey.split('\0') : []), [liveReplyKey])
+  const reviewRows = useMemo(() => showExecutionDetails ? crossEngineReviewRows(items, running) : new Map(),
+    [items, running, showExecutionDetails])
   const visibleItems = useMemo(() => items.filter(item => {
     if (!showExecutionDetails && (item.kind === 'tool' || item.kind === 'activity')) return false
+    if (reviewRows.has(item.id)) return true
+    if (item.kind === 'activity' && item.activityType === 'tool' && reviewRows.has(reviewToolId(item.id))) return false
     if (dockPresentation && hideToolCalls && isExecutionDetail(item)) return false
     if (item.id === latestResultId && item.kind === 'result' && !resultFailure(item)) return false
     if (hideToolCalls && item.kind === 'tool' && !(mobileWorkspace && item.isError)) return false
@@ -211,7 +217,7 @@ export const MessageList = memo(forwardRef<MessageListHandle, Props>(function Me
     return !(item.kind === 'activity'
       && (item.activityType === 'tool' || item.activityType === 'turn')
       && item.status === 'completed')
-  }), [items, hideToolCalls, mobileWorkspace, dockPresentation, latestResultId, showExecutionDetails])
+  }), [items, hideToolCalls, mobileWorkspace, dockPresentation, latestResultId, showExecutionDetails, reviewRows])
   const currentVisibleItems = useRef(visibleItems)
   currentVisibleItems.current = visibleItems
   const activeTask = useMemo<ActiveTask | null>(() => {
@@ -349,9 +355,11 @@ export const MessageList = memo(forwardRef<MessageListHandle, Props>(function Me
     },
   }), [visibleItems, cancelJump, virtuosoRef, captureReadingPosition])
 
-  const itemContent = useCallback((_index: number, item: ChatItem) => (
+  const itemContent = useCallback((_index: number, item: ChatItem) => {
+    const review = reviewRows.get(item.id)
+    return (
     <div data-msg-id={item.id} className={cn('cc-message-row px-3 pb-3', item.id === highlightedId && 'kai-msg-flash rounded-2xl')}>
-      <Row item={item} onFork={onFork} onToCard={copyOnly ? undefined : openCard} engineLabel={engineLabel} onNewSession={onNewSession}
+      {review ? <CrossEngineReviewRow review={review} /> : <Row item={item} onFork={onFork} onToCard={copyOnly ? undefined : openCard} engineLabel={engineLabel} onNewSession={onNewSession}
         compactMobile={compactMobile}
         streaming={liveReplyIds.has(item.id)}
         compactMetrics={mobileWorkspace} renderAssistantAction={renderAssistantAction}
@@ -361,11 +369,12 @@ export const MessageList = memo(forwardRef<MessageListHandle, Props>(function Me
         userMessageBadge={item.kind === 'user' ? getUserMessageBadge?.(item) : undefined}
         onCleanRetry={hasForkTarget ? onCleanRetry : undefined}
         onOpenImage={openImage}
-        turnText={item.kind === 'result' ? turnTextByResultIdRef.current.get(item.id) : undefined} />
+        turnText={item.kind === 'result' ? turnTextByResultIdRef.current.get(item.id) : undefined} />}
       {item.kind === 'result' && item.id === recoveryResult?.id && recoveryActions
         && <TurnFailureRecovery key={item.id} item={item} actions={recoveryActions} />}
     </div>
-  ), [highlightedId, onFork, openCard, copyOnly, openImage, engineLabel, onNewSession, onCleanRetry, hasForkTarget, sessionKey, assistantAvatarUrl, assistantAvatarAlt, getUserMessageBadge, renderAssistantAction, compactMobile, mobileWorkspace, liveReplyIds, recoveryResult, recoveryActions, showExecutionDetails])
+    )
+  }, [highlightedId, onFork, openCard, copyOnly, openImage, engineLabel, onNewSession, onCleanRetry, hasForkTarget, sessionKey, assistantAvatarUrl, assistantAvatarAlt, getUserMessageBadge, renderAssistantAction, compactMobile, mobileWorkspace, liveReplyIds, recoveryResult, recoveryActions, showExecutionDetails, reviewRows])
 
   // 高频变化值走 context（见 ListHeader/ListFooter 顶部注释），LIST_COMPONENTS 引用永远不变。
   const listContext: ListContext = {

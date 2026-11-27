@@ -59,6 +59,16 @@ flowchart LR
 
 上图为运行架构源图第四页。复用既有原生引擎与受限策略，Codex 内部文字评审进一步关闭命令、扩展、文档发现与网络搜索；Java 不接管各 Harness 的推理和工具循环，不引入另一套通用 Agent 框架。
 
+开发任务的独立代码审查由 Team Standards CLI 执行。工具事件沿用原会话的实时流与原生历史，Forge 在聊天里按原工具调用的位置显示摘要。审查进度协议只传摘要字段，普通 CLI JSON 仍用于旧版结果兼容。聊天展示不触发执行，也不将独立审查结论当作 Forge 验收。旧版本、结果缺失和共享视图的处理见[独立审查活动设计](../openspec/changes/show-cross-engine-review-activity/design.md)。
+
+```mermaid
+flowchart LR
+    TOOL["会话内发起 CLI 工具调用"] --> REVIEW["Team Standards 执行及保存回执"]
+    REVIEW --> EVENTS["版本化摘要输出"]
+    EVENTS --> TRANSCRIPT["原工具活动及历史"]
+    TRANSCRIPT --> CHAT["聊天原位更新及恢复"]
+```
+
 原会话引擎交接由 Java 保存追加文字证据、每引擎确认位置和操作状态，Sidecar 只负责恢复目标原生会话及受限接管确认。目标接收成功后原子保存绑定，再等待运行连接确认才放行业务消息；失败不推进目标游标，已保存但未激活的绑定由既有连接恢复流程核对。前端只显示进度与结果，不再从页面数组生成交接。原生历史、工作区事实与历史发言仍分开核验；后台任务和历史工具执行不迁移。
 
 ![原会话引擎往返交接](diagrams/ForgeVibeCoding运行架构-引擎交接.png)
