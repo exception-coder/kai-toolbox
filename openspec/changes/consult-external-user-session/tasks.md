@@ -16,3 +16,10 @@
 - 质量入口 `forge-quality.ps1 verify -Phase all -Project . -Format json` 返回 PASSED、exit 0；executedCheckers 为空，仅 API-RUNTIME-001 检查既有服务 HTTP 200，不能证明新版部署或全部静态检查通过。
 - DDL 未核验：prepare_sql_context 返回 DDL_MISSING；资源发现未找到 Forge 数据库绑定。新表依据仓库现有 schema 编写并由隔离 SQLite 用例验证，未执行运行库迁移。
 - 未推送、未重启服务；目标实例加载与真实 SDK HTTP 多轮验证保留在 2.1。每日归并由接入方实现，本次没有安装调度或发布知识库。
+
+## 2026-11-27 图文阅读修订
+
+- 主稿改为图解、最小接入及日终归并三段；完整字段与恢复说明移至 `EXTERNAL-USER-REFERENCE.md`。原飞书链接原位更新，旧 WSS 资料保存在下载包，未改变运行合同。
+- 两张图改为原生 draw.io 节点、文字、内置 iOS7 图标与正交连线；从同一两页源图通过 draw.io Desktop 31.5.3 导出 PNG/SVG，逐图检查排版，并在副本改字、改连接端点后导出验证可编辑性。
+- Markdown 链接、代码围栏、XML 引用及资料包检查通过；`npm pack` 成功且包含参考文档和 draw.io 源图。原飞书主稿 22 个内容块、2 张正文图片已读回，图片下载摘要一致；参考页和附件目录归属已核对。未做在线浏览器视觉验收。
+- 本次质量入口 PASSED、exit 0，executedCheckers 为空、API-RUNTIME-001 返回 HTTP 200；没有新增或重跑业务测试，不以该门禁代替图文验收。

@@ -1,98 +1,45 @@
-# 一个业务用户，一条持续实施答疑会话
+# 业务咨询 SDK：一个用户，一条持续答疑会话
 
-SDK 0.6.0 / 后端合同 1.7.0。源码与自动测试交付不代表目标实例已升级；真实联调状态见 [任务](../../openspec/changes/consult-external-user-session/tasks.md)。
+ITCS 把同一业务用户的消息交给 Forge，业务追问沿用历史，闲聊不打扰。适用于后端 SDK 0.6.0 的 FORGE_FLEX 模式。
 
-## 身份与消息流
+## 01 · 身份固定，问题接着聊
 
-[查看流程图片](diagrams/external-user-1.png) · [矢量图](diagrams/external-user-1.svg)
+![用户身份、固定会话与消息处理](diagrams/external-user-1.png)
 
-```mermaid
-flowchart TB
-  IM[飞书 / 企微 / 其他 IM] --> Caller[接入方映射统一业务用户]
-  Caller --> Key[clientId + tenantId + externalUserId]
-  Key --> Session[Forge 稳定会话映射]
-  Session --> Native[同一 Codex thread 续接]
-  Policy[每轮固定开发者指令] --> Native
-  Native --> Action{messageAction}
-  Action -->|REPLY| Reply[最多一条建议回复]
-  Action -->|UPDATE_ONLY| Update[更新问题状态，不发送]
-  Action -->|IGNORE| Ignore[忽略闲聊，不发送]
-  Reply --> Record[接入方保存结果及实际发送记录]
-  Update --> Record
-```
+- 只需在现有请求中增加稳定的 `externalUserId`；`clientId` 来自应用凭据，`tenantId` 按已有授权校验。
+- 规则由 Forge 每轮通过独立指令通道带入，用户原文不再追加模板。固定规则可以统一更新，不代表只发送或计费一次。
+- 不传新参数，继续使用原来的无状态分析；开启后会持久保留任务与原生会话上下文。
 
-- `clientId` 来自应用凭据，`tenantId` 必须匹配授权；`externalUserId` 是接入方稳定映射的业务用户 ID，允许 1–100 位字母、数字、`_ . : -`。不能使用昵称、群 ID 或每次变化的随机 ID。
-- 同一个人在不同 IM 中的账号由接入方确认关联。同一用户会话包含多来源上下文时，接入方负责来源可见范围和回复路由；不要把不同可见权限的数据合并到同一 ID。
-- `conversationId` 仍是调用方业务关联；来源群、平台、消息 ID、引用消息和发生时间可以放 `businessContext`。这些都是调用方资料，不授予额外权限。
-- `requestId` 是应用内单次消息处理的幂等键；`problemId` 是业务问题关联，不是用户身份。回复的问题归并候选可以放 `businessResult`，不能仅凭消息数统计问题数。
-- `result.session.id` 是 Forge 的稳定逻辑身份，服务端保存它与原生 thread 的对应关系；调用方不传 Codex thread ID。原生标题和返回标题均为 `<externalUserId>-实施答疑`，`source=CONSULT_SDK`。
+## 02 · 接入时，先跑通一次追问
 
-## 调用与恢复
+在现有 `ForgeConsultBackendClient` 调用上补充用户编号，并按用户串行提交：
 
 ```ts
-const input = {
-  agentId: 'it-support-partner' as const,
-  tenantId: 'company-a',
-  externalUserId: 'employee-123',
-  conversationId: 'feishu-group-456',
-  problemId: 'issue-789',
-  requestId: 'feishu-message-001', // 发送前保存；不确定时保持原 ID 和原内容
-  title: '样衣扫码',
-  description: '手机端怎么操作？',
-  businessContext: {
-    channel: 'feishu', chatId: 'group-456', messageId: 'message-001',
-    replyToMessageId: 'message-000', occurredAt: '2026-11-27T10:00:00+08:00',
-  },
-};
-const task = await client.submit(input);
-// 使用已有 get(task.taskId) / find(input.requestId) 查询终态并保存 result。
-// 仅 REPLY 的候选进入现有发送流程，UPDATE_ONLY/IGNORE 不生成外发消息。
+const task = await client.submit({
+  ...existingInput,                   // 保留租户、问题、原消息等既有字段
+  externalUserId: 'employee-123',      // 同一用户始终使用相同 ID
+  requestId: 'feishu-message-002',      // 每条新消息使用独立、已保存的 ID
+  description: '刚才那个手机入口叫什么？',
+});
+const saved = await client.get(task.taskId); // 查询到终态后处理 result
 ```
 
-也支持 `analyzeOnce(input)` 等待结果；传 externalUserId 后该调用改用同一持久任务流程。HTTP 超时、`REQUEST_STATUS_UNKNOWN` 或 `EXTERNAL_ANALYSIS_PENDING` 时先 `find(requestId)`，不得换 ID 重发。`EXTERNAL_SESSION_BUSY` 表示上一轮尚在执行；`EXTERNAL_SESSION_UNCERTAIN` 表示原生执行或线程身份仍需核对，不能自动重试。接入方按用户串行发送；原生明确确认中断后会释放占用，后续新消息仍使用原线程。重复原请求返回原任务，改内容复用 ID 返回冲突。
+**成功标志：** 前后两轮的 `result.session.id` 相同，标题以 `-实施答疑` 结尾。仅 `REPLY` 进入现有回复流程，`UPDATE_ONLY / IGNORE` 不外发。
 
-明确省略 `externalUserId` 保持既有无状态分析及临时线程清理。该参数只用于后端 FORGE_FLEX，不代替 WSS 用户登录。当前一个实例提供此映射，不能在多个独立 Forge 实例间随机负载均衡。
+**异常处理：** 超时先用 `find(requestId)` 查原任务；忙碌时等上一轮，不确定时核对原任务，不能换 ID 重发。完整初始化、字段与恢复规则见 [接口参考](EXTERNAL-USER-REFERENCE.md) 和 [后端协议](BACKEND.md)。
 
-连续模式会持久保存任务输入/输出和 Codex 上下文，这是对“Forge 只分析不留存”的显式可选扩展。图片来源与现有 `imageRefs`/上传合同不变，原生历史也可能包含分析输入；不要把省略附件 BLOB 误认为完全无留存。
+## 03 · 每天看问题清单，不数聊天条数
 
-账号目录和模型在首次创建时固化；改变默认账号或授权系统范围会明确失败，不偷偷换线程。恢复失败、断线终态未知或持久化线程身份失败时保留执行占用，须由维护者核对原始 thread/任务终态；本版本不提供强制解锁或自动重放接口。已归档/删除的原生线程不能自动当作新线程继续。
+![每日归并、优化回归与知识沉淀](diagrams/external-user-2.png)
 
-## 系统提示词为什么每轮仍装配
+- 日终归并由 ITCS 后续实现；Forge 本次未新增定时任务。
+- 按明确时区取 `[当天00:00,次日00:00)`，23:59:59 先整理，零点后补齐；同一问题的追问不重复算新增。
+- 保存实际发送记录，区分建议回复与已发送回复；系统、模块不明时保留待确认，知识审核后再入库。
 
-平台在每次 start/resume 时通过 `developerInstructions` 提供版本化固定规则，消息正文只含当轮资料。固定规则负责理解新问题、简短追问、纠正、解决反馈和闲聊；用户附言不能覆盖它。
+## 按需查阅
 
-这比在每条 IM 原文后粘贴规则更清晰、可维护，也避免把规则误当用户内容。它不表示提示词只计费一次、历史无限完整或模型判断绝不出错。原生续接采用 [App Server 官方能力](https://learn.chatgpt.com/docs/app-server)。
+[身份、恢复与归并字段](EXTERNAL-USER-REFERENCE.md) · [完整后端协议](BACKEND.md) · [员工 WSS 通道](README.md) · [可编辑 draw.io 源图](diagrams/实施答疑与每日归并.drawio)
 
-FORGE_FLEX 的 `businessInstructions` 仍只用于本次业务表达与 `businessResult` 形状，不是系统指令。需要稳定的日终字段时接入方可以统一配置它，而不是拼接到 `description`。
+两张预览均由同一 draw.io 源图导出：第 1 页“持续答疑”、第 2 页“每日归并”。节点、文字和连线可编辑。
 
-## 每日归并：用记录核对，不靠模型回忆计数
-
-[查看归并图片](diagrams/external-user-2.png) · [矢量图](diagrams/external-user-2.svg)
-
-```mermaid
-flowchart TB
-  Saved[接入方原消息 + Forge 分析结果 + 实际发送回执] --> Window[按时区取完整日期窗口]
-  Window --> Group[按用户归并问题及追问]
-  Group --> Ledger[问题清单与对应回复]
-  Ledger --> Stats[按系统、模块、类别统计]
-  Stats --> Review[选择优化与回归重点]
-  Ledger --> Knowledge[审核后沉淀知识库]
-  Late[迟到消息或未完成分析] -->|补算同一日期，不重复追加| Window
-```
-
-每日 23:59:59 可触发预归并；完整日窗口是指定时区的 `[当天00:00,次日00:00)`，跨过次日零点后补齐最后一秒和未完成任务。建议日期与时区都显式记录（例如 Asia/Shanghai），按 `(clientId,tenantId,externalUserId,业务日期)` 幂等更新。
-
-建议接入方保存以下归并字段，可通过 `businessInstructions` 要求模型将候选写入 `businessResult`，再由接入方校验：
-
-| 字段 | 用途 |
-|---|---|
-| issueId / sourceMessageIds | 一个问题关联多条追问，保留原始证据 |
-| systemId / module / category | 有依据才分类；未知保留待确认，不猜模块 |
-| summary / status | 问题摘要；未解决、已解决、待核实 |
-| replyRequestIds / selectedReplyId | 分析结果和所选建议回复的关联 |
-| sentMessageIds / sentText | 接入方提供的实际发送事实，与建议回复分开 |
-| firstSeenAt / lastSeenAt / businessDate | 新增问题和持续问题区分，跨日追问不重复算新增 |
-
-统计分别展示新增问题数、追问数、未解决问题数，不能把每条 IM 消息计为一个问题。知识库条目应经过事实与适用范围复核，避免将模型猜测或已失败方案沉淀为标准答案。
-
-本次不安装 Forge 每日调度任务、不发送 IM 消息、不自动发布知识库。接入方保留这些业务数据和执行职责。
+**交付状态：** 源码专项测试及原生三轮续接已验证；目标实例升级和完整 SDK 联调仍需单独验收。运行库 DDL 未核验，隔离 SQLite 已验证。详见 [实施记录](../../openspec/changes/consult-external-user-session/tasks.md)。
