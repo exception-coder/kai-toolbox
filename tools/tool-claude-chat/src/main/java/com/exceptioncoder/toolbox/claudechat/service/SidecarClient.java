@@ -310,6 +310,18 @@ public class SidecarClient implements ReviewThreadForkGateway {
         userMessage(sessionId, text, developerInstructions, null, List.of(), null, null, null, List.of());
     }
 
+    static final String TASK_COMPLETION_INSTRUCTIONS = """
+            在本轮最后检查原请求，正常向用户说明实际结果、可核对的依据、仍未完成的事项和需由用户决定的内容。
+            遇到需要用户确认的方案、范围或权限时，说明选项及影响并停在确认处。当前引擎有用户提问工具时优先用它等待明确回复。
+            无法在原轮询问时使用待确认回执。不得把沉默、已有回复或历史授权当作本次方案已获批准。
+            然后另起最后一行写一个机器可读的 HTML 注释，只能从以下四项选择其一：
+            <!-- forge-task:answered --> 仅用于已回答完整的咨询、解释或只读调研。
+            <!-- forge-task:completed --> 仅用于已执行全部明确要求，且可核对验收结果的任务。
+            <!-- forge-task:incomplete --> 用于未完成、验证缺失或无法确认全部要求已实现。
+            <!-- forge-task:confirmation_required --> 用于等待用户确认方案、范围或操作授权。
+            注释单独一行，后面不加文字。只有已经明确授权的原任务才可继续执行。
+            """;
+
     public void userMessage(String sessionId, String text, String developerInstructions,
                             TraceContext traceContext, AgentRunMetadata telemetry) {
         userMessage(sessionId, text, developerInstructions, null, List.of(), null, traceContext, telemetry, List.of());
@@ -385,6 +397,7 @@ public class SidecarClient implements ReviewThreadForkGateway {
         if (consultAccount != null) message.put("consultAccount", consultAccount);
         if (voiceCallId != null) message.put("voiceCallId", voiceCallId);
         message.put("developerInstructions", nz(developerInstructions));
+        if (TASK_COMPLETION_INSTRUCTIONS.equals(developerInstructions)) message.put("taskCompletionReceipt", true);
         message.put("sessionContext", nz(sessionContext));
         message.put("additionalDirectories", additionalDirectories == null ? List.of() : additionalDirectories);
         if (turnId != null && !turnId.isBlank()) message.put("turnId", turnId);

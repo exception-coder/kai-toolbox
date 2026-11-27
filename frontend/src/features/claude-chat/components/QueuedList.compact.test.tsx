@@ -60,7 +60,7 @@ it('gives the pinned blocked inquiry separate stop and delete actions', async ()
   const onStop = vi.fn(), onRemove = vi.fn(), onSendNow = vi.fn()
   render(<ConfirmProvider><QueuedList compact items={[message('blocked', 'BLOCKED'), message('next')]}
     onStop={onStop} onRemove={onRemove} onSendNow={onSendNow} onClear={vi.fn()} /></ConfirmProvider>)
-  fireEvent.click(screen.getByRole('button', { name: '终止询问' }))
+  fireEvent.click(screen.getByRole('button', { name: '终止任务' }))
   expect(onStop).toHaveBeenCalledExactlyOnceWith('blocked')
   await waitFor(() => expect(screen.getAllByRole('button', { name: '移除' })[0]).toBeEnabled())
   fireEvent.click(screen.getAllByRole('button', { name: '移除' })[0])
@@ -72,7 +72,7 @@ it('keeps cancelled work paused and offers sending only when the session can sen
   const onStop = vi.fn(), onSendNow = vi.fn()
   const view = render(<QueuedList items={[message('next', 'CANCELLED')]} onStop={onStop} onRemove={vi.fn()}
     onSendNow={onSendNow} onClear={vi.fn()} canSendNow={false} />)
-  expect(screen.queryByRole('button', { name: '终止询问' })).not.toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: '终止任务' })).not.toBeInTheDocument()
   expect(screen.getByRole('button', { name: '发送' })).toBeDisabled()
   view.rerender(<QueuedList items={[message('next', 'CANCELLED')]} onStop={onStop} onRemove={vi.fn()}
     onSendNow={onSendNow} onClear={vi.fn()} canSendNow />)
@@ -84,13 +84,13 @@ it('pauses checks without invoking stop, delete or send', async () => {
   const onPause = vi.fn(), onStop = vi.fn(), onRemove = vi.fn(), onSendNow = vi.fn()
   const view = render(<ConfirmProvider><QueuedList compact items={[message('head', 'CHECKING')]} onPause={onPause}
     onStop={onStop} onRemove={onRemove} onSendNow={onSendNow} onClear={vi.fn()} /></ConfirmProvider>)
-  fireEvent.click(screen.getByRole('button', { name: '暂停核对' }))
+  fireEvent.click(screen.getByRole('button', { name: '暂停' }))
   expect(onPause).toHaveBeenCalledExactlyOnceWith('head')
-  await waitFor(() => expect(screen.getByRole('button', { name: '暂停核对' })).toBeEnabled())
+  await waitFor(() => expect(screen.getByRole('button', { name: '暂停' })).toBeEnabled())
   view.rerender(<ConfirmProvider><QueuedList compact items={[message('head', 'PAUSED')]} onPause={onPause}
     onStop={onStop} onRemove={onRemove} onSendNow={onSendNow} onClear={vi.fn()} /></ConfirmProvider>)
-  expect(screen.queryByRole('button', { name: '暂停核对' })).not.toBeInTheDocument()
-  expect(screen.getByText('已暂停自动执行与完成核对')).toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: '暂停' })).not.toBeInTheDocument()
+  expect(screen.getByText('已暂停自动派发')).toBeInTheDocument()
   expect(onStop).not.toHaveBeenCalled()
   expect(onRemove).not.toHaveBeenCalled()
   expect(onSendNow).not.toHaveBeenCalled()

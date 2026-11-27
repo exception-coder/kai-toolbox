@@ -58,15 +58,15 @@ export function QueuedList({ items, pausedReason, waitingReason, canSendNow, onS
             <div className="ml-auto flex flex-wrap items-center gap-1">
             {i === 0 && onPause && q.deliveryState && !['PAUSED', 'CANCELLED'].includes(q.deliveryState) && (
               <button type="button" disabled={busy} onClick={() => { void perform(() => onPause(q.id)) }}
-                title="暂停自动执行与完成核对，保留当前任务；不会终止原生执行"
+                title="暂停自动派发，保留当前任务"
                 className="inline-flex min-h-11 items-center gap-1 rounded px-2 text-xs hover:bg-[var(--color-accent)]">
-                <Pause className="size-3" />暂停核对
+                <Pause className="size-3" />暂停
               </button>
             )}
             {i === 0 && onStop && q.deliveryState && (q.deliveryState !== 'CANCELLED' || !canSendNow) && (
-              <button type="button" disabled={busy} onClick={() => { void perform(() => onStop(q.id)) }} title="终止当前任务和自动追问，保留其余消息"
+              <button type="button" disabled={busy} onClick={() => { void perform(() => onStop(q.id)) }} title="终止当前任务，保留其余消息"
                 className="inline-flex min-h-11 items-center gap-1 rounded px-2 text-xs text-[var(--color-destructive)] hover:bg-[var(--color-accent)]">
-                <Square className="size-3" />{q.deliveryState === 'CANCELLED' ? '重试终止' : '终止询问'}
+                <Square className="size-3" />{q.deliveryState === 'CANCELLED' ? '重试终止' : '终止任务'}
               </button>
             )}
             {i === 0 && (canSendNow || ['BLOCKED', 'UNKNOWN', 'FAILED', 'CANCELLED', 'PAUSED'].includes(q.deliveryState ?? '')) && !['ACCEPTED', 'DISPATCHING', 'CHECKING'].includes(q.deliveryState ?? '') && (
@@ -77,7 +77,7 @@ export function QueuedList({ items, pausedReason, waitingReason, canSendNow, onS
                 title={q.deliveryState ? '确认当前任务已处理完成，再继续队列' : '立即发送这条消息'}
                 className="inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-1 text-xs text-[var(--color-primary)] hover:bg-[var(--color-accent)] max-md:min-h-10"
               >
-                <Send className="size-3" />{q.deliveryState && q.deliveryState !== 'CANCELLED' ? '已核对，继续队列' : '发送'}
+                <Send className="size-3" />{q.deliveryState && q.deliveryState !== 'CANCELLED' ? '标记完成，继续队列' : '发送'}
               </button>
             )}
             <button
@@ -85,7 +85,7 @@ export function QueuedList({ items, pausedReason, waitingReason, canSendNow, onS
               onClick={() => { void perform(() => onRemove(q.id)) }}
               disabled={busy}
               aria-label="移除"
-              title={q.deliveryState && q.deliveryState !== 'CANCELLED' ? '终止当前询问并删除此项，其余消息保留' : '删除此队列消息'}
+              title={q.deliveryState && q.deliveryState !== 'CANCELLED' ? '终止当前任务并删除此项，其余消息保留' : '删除此队列消息'}
               className="inline-flex min-h-11 shrink-0 items-center gap-1 rounded px-2 text-xs text-[var(--color-muted-foreground)] hover:bg-[var(--color-accent)] hover:text-[var(--color-destructive)]"
             >
               <X className="size-3.5" />删除
@@ -99,13 +99,13 @@ export function QueuedList({ items, pausedReason, waitingReason, canSendNow, onS
 }
 
 export function queueDeliveryLabel(state?: string) {
-  if (state === 'PAUSED') return '已暂停自动执行与完成核对'
+  if (state === 'PAUSED') return '已暂停自动派发'
   if (!state) return '待发送'
   if (state === 'DISPATCHING') return '发送中'
   if (state === 'ACCEPTED') return '已接收 · 执行中'
   if (state === 'FAILED') return '发送或执行失败 · 请核对'
   if (state === 'BLOCKED') return '队列已暂停 · 待核对'
-  if (state === 'CANCELLED') return '自动追问已终止 · 待手动发送'
+  if (state === 'CANCELLED') return '任务已终止 · 待手动发送'
   return '派发结果待核对'
 }
 
@@ -119,7 +119,7 @@ function QueueClearMenu({ items, onClear, busy }: { items: QueuedMessage[]; onCl
     <summary className="min-h-11 cursor-pointer content-center rounded px-2">更多</summary>
     <button type="button" disabled={busy} className="min-h-11 rounded px-2 text-[var(--color-destructive)]" onClick={async () => {
       const ids = items.map(item => item.id)
-      const accepted = await confirm({ title: '清空待发送队列？', description: `将删除这 ${ids.length} 条队列消息，并终止其中当前任务的自动追问；其正在执行的轮次会请求终止，不代表任务已完成。`, confirmText: '确认清空', variant: 'destructive', returnFocusRef: trigger })
+      const accepted = await confirm({ title: '清空待发送队列？', description: `将删除这 ${ids.length} 条队列消息。若当前任务仍在执行，会请求终止。`, confirmText: '确认清空', variant: 'destructive', returnFocusRef: trigger })
       if (!accepted || !mounted.current) return
       if (latest.current.length !== ids.length || latest.current.some((item, index) => item.id !== ids[index] || item.deliveryState !== items[index].deliveryState)) {
         setNotice('队列已更新，请重新核对后清空。'); return

@@ -12,13 +12,16 @@ export function resultFailure(item: Result): TurnFailure | null {
   const reason = item.stopReason.trim().toLowerCase()
   if (['success', 'end_turn', 'completed', 'stop', 'interrupted', 'cancelled', 'user_cancelled', 'user_paused', 'admission_rejected'].includes(reason)) return null
   if (item.failure && item.failure.category in FAILURE_LABELS) return item.failure
-  const category = ['incomplete', 'queue_check_unconfirmed'].includes(reason) ? 'incomplete'
+  const category = ['incomplete', 'queue_check_unconfirmed', 'task_incomplete', 'task_confirmation_required'].includes(reason) ? 'incomplete'
     : reason === 'error_max_budget_usd' ? 'quota'
       : ['error_max_turns', 'error_max_structured_output_retries'].includes(reason) ? 'limit' : 'unknown'
   return { category }
 }
 
 export function turnResultLabel(item: Result): string {
+  if (item.stopReason === 'task_confirmation_required') return '待你确认'
+  if (item.stopReason === 'task_incomplete') return '原任务未完成'
+  if (item.stopReason === 'outcome_unknown') return '原任务待核对'
   const failure = resultFailure(item)
   if (failure) return `此轮未完成 · ${FAILURE_LABELS[failure.category]}`
   if (['interrupted', 'cancelled', 'user_cancelled'].includes(item.stopReason)) return '此轮已中断'
